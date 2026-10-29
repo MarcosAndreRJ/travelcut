@@ -18,21 +18,37 @@ import {
   Video,
   Film,
   Sliders,
-  Check
+  Check,
+  Copy,
+  FileText,
+  X
 } from 'lucide-react';
 import { ExportPreset, ExportJob } from '../types';
 import { EXPORT_PRESETS, INITIAL_EXPORT_QUEUE } from '../data/mockData';
+import { useEditingWorkspace } from '../features/editing/context/EditingContext';
+import {
+  downloadExportFile,
+  secondsToTimecode
+} from '../features/editing/utils/davinciExporter';
 
 interface ExportViewProps {
   onOpenFolder?: () => void;
 }
 
 export const ExportView: React.FC<ExportViewProps> = ({ onOpenFolder }) => {
+  const { exportData, timelineClips } = useEditingWorkspace();
+
   const [presets, setPresets] = useState<ExportPreset[]>(EXPORT_PRESETS);
   const [selectedPresetId, setSelectedPresetId] = useState<string>(presets[0].id);
   const [queue, setQueue] = useState<ExportJob[]>(INITIAL_EXPORT_QUEUE);
   const [burnSubtitles, setBurnSubtitles] = useState<'burned' | 'srt' | 'none'>('burned');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // XML / EDL Export Modal State
+  const [showExportModal, setShowExportModal] = useState<boolean>(false);
+  const [modalContentType, setModalContentType] = useState<'xml' | 'edl'>('xml');
+  const [generatedCode, setGeneratedCode] = useState<string>('');
+  const [hasCopied, setHasCopied] = useState<boolean>(false);
 
   const selectedPreset = presets.find((p) => p.id === selectedPresetId) || presets[0];
 
@@ -57,12 +73,32 @@ export const ExportView: React.FC<ExportViewProps> = ({ onOpenFolder }) => {
     triggerToast(`Renderização iniciada: ${newJob.outputFilename}`);
   };
 
-  const handleExportNleXml = (software: string) => {
+  const handleExportNle = (software: string, type: 'xml' | 'edl') => {
+    const code = type === 'xml' ? exportData.xmlContent : exportData.edlContent;
+    setGeneratedCode(code);
+    setModalContentType(type);
+    setShowExportModal(true);
+    setHasCopied(false);
     triggerToast(`Arquivo de timeline gerado para ${software}! Pronto para pós-produção.`);
   };
 
+  const handleCopyCode = () => {
+    navigator.clipboard.writeText(generatedCode);
+    setHasCopied(true);
+    triggerToast('Conteúdo copiado para a área de transferência!');
+    setTimeout(() => setHasCopied(false), 3000);
+  };
+
+  const handleDownloadFile = () => {
+    const extension = modalContentType === 'xml' ? 'xml' : 'edl';
+    const mime = modalContentType === 'xml' ? 'application/xml' : 'text/plain';
+    const filename = `TravelCut_${exportData.projectName.replace(/\s+/g, '_')}_DaVinci.${extension}`;
+    downloadExportFile(filename, generatedCode, mime);
+    triggerToast(`Arquivo ${filename} baixado com sucesso!`);
+  };
+
   return (
-    <div className="flex-1 flex flex-col overflow-hidden bg-studio-bg select-none">
+    <div className="flex-1 flex flex-col overflow-hidden bg-studio-bg select-none relative">
       {/* Toast */}
       {toastMessage && (
         <div className="absolute top-4 right-4 z-50 bg-indigo-600/95 text-white px-4 py-2.5 rounded-xl shadow-panel border border-indigo-400/40 flex items-center space-x-2 text-xs font-semibold backdrop-blur-md animate-fade-in">
@@ -80,7 +116,7 @@ export const ExportView: React.FC<ExportViewProps> = ({ onOpenFolder }) => {
               Central de Exportação & Entrega
             </h2>
             <p className="text-xs text-studio-subtle">
-              Renderização acelerada por GPU (NVENC/CUDA) e empacotamento multiplataforma
+              Renderização acelerada por GPU (NVENC/CUDA) e exportação nativa para DaVinci Resolve
             </p>
           </div>
         </div>
@@ -100,7 +136,45 @@ export const ExportView: React.FC<ExportViewProps> = ({ onOpenFolder }) => {
       {/* Main Container */}
       <div className="flex-1 flex overflow-hidden">
         {/* Left Column: Preset Cards & Settings */}
-        <div className="flex-1 flex flex-col overflow-y-auto p-6 space-y-6">
+        <div className="flex-1 flex flex-col overflow-y-auto p-6 space-y-6 custom-scrollbar">
+          {/* DaVinci Resolve Status Banner */}
+          <div className="bg-gradient-to-r from-indigo-950/70 via-purple-950/50 to-studio-card border border-indigo-500/40 rounded-2xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="flex items-center space-x-4">
+              <div className="w-12 h-12 rounded-xl bg-indigo-600/30 border border-indigo-500/50 flex items-center justify-center text-indigo-300 shrink-0">
+                <FileCode className="w-6 h-6" />
+              </div>
+              <div>
+                <div className="flex items-center space-x-2">
+                  <h3 className="text-sm font-bold text-white">
+                    Pronto para DaVinci Resolve 18 / 19 Studio
+                  </h3>
+                  <span className="text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-2 py-0.5 rounded font-mono">
+                    Conformidade FCPXML 1.9
+                  </span>
+                </div>
+                <p className="text-xs text-studio-muted mt-1">
+                  {exportData.cutsAppliedCount} cortes aplicados • {exportData.savedSeconds}s de hesitações e silêncios removidos • {timelineClips.length} clipes na montagem
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center space-x-2 shrink-0">
+              <button
+                onClick={() => handleExportNle('DaVinci Resolve', 'xml')}
+                className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 shadow-glow-indigo transition-all"
+              >
+                <Share2 className="w-3.5 h-3.5" />
+                <span>Gerar FCPXML DaVinci</span>
+              </button>
+              <button
+                onClick={() => handleExportNle('DaVinci Resolve (EDL)', 'edl')}
+                className="px-3 py-2 bg-studio-card hover:bg-studio-cardHover border border-studio-border text-studio-text rounded-xl text-xs font-semibold transition-all"
+              >
+                <span>EDL CMX3600</span>
+              </button>
+            </div>
+          </div>
+
           {/* Preset Cards Selection */}
           <div className="space-y-3">
             <h3 className="text-xs font-bold uppercase tracking-wider text-studio-muted flex items-center gap-2">
@@ -206,7 +280,7 @@ export const ExportView: React.FC<ExportViewProps> = ({ onOpenFolder }) => {
             </div>
           </div>
 
-          {/* NLE Timeline Export (XML / FCPXML / EDL) */}
+          {/* Professional NLE Timeline Export Cards */}
           <div className="bg-studio-panel border border-studio-border rounded-2xl p-5 space-y-3">
             <div className="flex items-center justify-between">
               <div>
@@ -222,21 +296,21 @@ export const ExportView: React.FC<ExportViewProps> = ({ onOpenFolder }) => {
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
               <button
-                onClick={() => handleExportNleXml('DaVinci Resolve')}
-                className="flex items-center justify-center space-x-2 bg-studio-card hover:bg-studio-cardHover border border-studio-border text-xs py-2.5 rounded-xl text-studio-text font-semibold transition-colors"
+                onClick={() => handleExportNle('DaVinci Resolve', 'xml')}
+                className="flex items-center justify-center space-x-2 bg-indigo-950/40 hover:bg-indigo-900/60 border border-indigo-500/50 text-xs py-2.5 rounded-xl text-indigo-200 font-semibold transition-colors"
               >
                 <span>DaVinci Resolve (.xml)</span>
               </button>
 
               <button
-                onClick={() => handleExportNleXml('Adobe Premiere Pro')}
+                onClick={() => handleExportNle('Adobe Premiere Pro', 'xml')}
                 className="flex items-center justify-center space-x-2 bg-studio-card hover:bg-studio-cardHover border border-studio-border text-xs py-2.5 rounded-xl text-studio-text font-semibold transition-colors"
               >
                 <span>Premiere Pro (.xml)</span>
               </button>
 
               <button
-                onClick={() => handleExportNleXml('Final Cut Pro')}
+                onClick={() => handleExportNle('Final Cut Pro', 'xml')}
                 className="flex items-center justify-center space-x-2 bg-studio-card hover:bg-studio-cardHover border border-studio-border text-xs py-2.5 rounded-xl text-studio-text font-semibold transition-colors"
               >
                 <span>Final Cut Pro (.fcpxml)</span>
@@ -260,7 +334,7 @@ export const ExportView: React.FC<ExportViewProps> = ({ onOpenFolder }) => {
           </div>
 
           {/* Queue Jobs List */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
             {queue.map((job) => (
               <div
                 key={job.id}
@@ -320,6 +394,54 @@ export const ExportView: React.FC<ExportViewProps> = ({ onOpenFolder }) => {
           </div>
         </div>
       </div>
+
+      {/* XML / EDL Export Modal Dialog */}
+      {showExportModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-studio-panel border border-studio-border rounded-2xl w-full max-w-3xl flex flex-col max-h-[85vh] shadow-2xl overflow-hidden">
+            <div className="p-4 border-b border-studio-border bg-studio-card flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <FileCode className="w-5 h-5 text-indigo-400" />
+                <h3 className="text-sm font-bold text-white">
+                  Estrutura de Linha do Tempo Gerada ({modalContentType.toUpperCase()})
+                </h3>
+              </div>
+              <button
+                onClick={() => setShowExportModal(false)}
+                className="p-1 text-studio-muted hover:text-white rounded-lg hover:bg-studio-panel transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-3 bg-zinc-950 border-b border-studio-border flex items-center justify-between text-xs">
+              <span className="text-studio-muted font-mono">
+                Compatível com DaVinci Resolve 18+, Final Cut Pro e Adobe Premiere
+              </span>
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={handleCopyCode}
+                  className="px-3 py-1 bg-studio-card hover:bg-studio-border border border-studio-border rounded-lg text-white font-medium flex items-center space-x-1.5 transition-colors"
+                >
+                  {hasCopied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{hasCopied ? 'Copiado!' : 'Copiar Código'}</span>
+                </button>
+                <button
+                  onClick={handleDownloadFile}
+                  className="px-3 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-medium flex items-center space-x-1.5 shadow-glow-indigo transition-colors"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Baixar Arquivo .{modalContentType}</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 bg-zinc-950 font-mono text-xs text-zinc-300 custom-scrollbar select-text">
+              <pre className="whitespace-pre-wrap">{generatedCode}</pre>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
