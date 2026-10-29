@@ -205,12 +205,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
           </>
         ) : (
-          <div className="flex flex-col items-center gap-2 py-1">
+          <div className="flex flex-col items-center gap-2 py-1" title="Motor IA Local Ativo (GPU)">
             <span
-              title="Motor IA: Ativo (GPU)"
               className="w-2.5 h-2.5 rounded-full bg-emerald-400 led-indicator"
             />
-            <Cpu className="w-4 h-4 text-studio-subtle" title="Motor IA Local Ativo" />
+            <Cpu className="w-4 h-4 text-studio-subtle" />
           </div>
         )}
       </div>
