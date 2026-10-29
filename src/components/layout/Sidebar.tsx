@@ -5,13 +5,13 @@ import {
   Sparkles,
   Scissors,
   CheckSquare,
-  Share2,
-  Settings,
   Film,
+  Settings,
   ChevronLeft,
   ChevronRight,
-  Cpu,
-  MonitorPlay
+  Mic,
+  Bot,
+  HardDrive
 } from 'lucide-react';
 import { NavigationTab, NavigationItem } from '../../types/navigation';
 import { Badge } from '../ui/Badge';
@@ -41,8 +41,6 @@ export const NAVIGATION_ITEMS: NavigationItem[] = [
     id: 'analysis',
     label: 'Análise',
     icon: Sparkles,
-    badge: 'IA',
-    badgeVariant: 'primary',
     description: 'Detecção de cenas e transcrição'
   },
   {
@@ -55,17 +53,13 @@ export const NAVIGATION_ITEMS: NavigationItem[] = [
     id: 'review',
     label: 'Revisão',
     icon: CheckSquare,
-    badge: 'Cortes',
-    badgeVariant: 'warning',
     description: 'Revisão e refinamento'
   },
   {
     id: 'export',
-    label: 'Exportação para DaVinci',
-    icon: Share2,
-    badge: 'Resolve',
-    badgeVariant: 'success',
-    description: 'Exportação XML/EDL para DaVinci'
+    label: 'Renderização',
+    icon: Film,
+    description: 'Exportação e render DaVinci'
   },
   {
     id: 'settings',
@@ -81,30 +75,38 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isCollapsed = false,
   onToggleCollapse
 }) => {
+  const renderDaVinciIcon = () => (
+    <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none">
+      <circle cx="8" cy="8" r="4.5" fill="#f43f5e" />
+      <circle cx="16" cy="8" r="4.5" fill="#38bdf8" />
+      <circle cx="12" cy="15" r="4.5" fill="#f59e0b" />
+    </svg>
+  );
+
   return (
     <aside
       aria-label="Navegação Principal"
-      className={`h-full bg-studio-sidebar border-r border-studio-border flex flex-col justify-between shrink-0 transition-all duration-200 select-none z-30 ${
+      className={`h-full bg-[#0a0e17] border-r border-slate-800/80 flex flex-col justify-between shrink-0 transition-all duration-200 select-none z-30 ${
         isCollapsed ? 'w-16' : 'w-64'
       }`}
     >
       {/* Top: Logo & Brand */}
       <div className="flex flex-col">
-        <div className="h-14 border-b border-studio-border px-3.5 flex items-center justify-between">
-          <div className="flex items-center space-x-2.5 overflow-hidden">
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-cyan-400 flex items-center justify-center shadow-glow-blue shrink-0">
-              <Film className="w-4 h-4 text-white" />
+        <div className="h-14 border-b border-slate-800/80 px-4 flex items-center justify-between">
+          <div className="flex items-center space-x-3 overflow-hidden">
+            <div className="w-8 h-8 rounded-xl bg-cyan-500/10 border border-cyan-500/25 flex items-center justify-center shadow-lg shadow-cyan-500/10 shrink-0">
+              <Film className="w-4 h-4 text-cyan-400" />
             </div>
 
             {!isCollapsed && (
               <div className="flex flex-col min-w-0">
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-1">
                   <span className="font-extrabold text-sm tracking-tight text-white truncate">
-                    TravelCut<span className="text-blue-400">Studio</span>
+                    TravelCut <span className="text-white">Studio</span>
                   </span>
                 </div>
-                <span className="text-[10px] text-studio-muted font-mono tracking-wider uppercase font-semibold">
-                  Pré-edição Desktop
+                <span className="text-[10px] text-slate-400 font-mono tracking-wider font-semibold">
+                  v1.0.0
                 </span>
               </div>
             )}
@@ -114,7 +116,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <button
               onClick={onToggleCollapse}
               title={isCollapsed ? 'Expandir barra lateral' : 'Recolher barra lateral'}
-              className="p-1 rounded-lg text-studio-subtle hover:text-studio-text hover:bg-studio-card transition-colors shrink-0"
+              className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors shrink-0"
               aria-label={isCollapsed ? 'Expandir barra lateral' : 'Recolher barra lateral'}
             >
               {isCollapsed ? (
@@ -127,89 +129,140 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         {/* Navigation Links */}
-        <nav className="p-2 space-y-1 overflow-y-auto max-h-[calc(100vh-220px)]">
-          {NAVIGATION_ITEMS.map((item) => {
+        <nav className="p-3 space-y-1.5 overflow-y-auto">
+          {NAVIGATION_ITEMS.map((item, idx) => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;
+            const isSettings = item.id === 'settings';
 
             return (
-              <button
-                key={item.id}
-                onClick={() => onTabChange(item.id)}
-                title={isCollapsed ? `${item.label} - ${item.description || ''}` : undefined}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold transition-all duration-150 group relative cursor-pointer ${
-                  isActive
-                    ? 'bg-blue-600/15 text-blue-300 border border-blue-500/30 shadow-inner-light'
-                    : 'text-studio-muted hover:text-studio-text hover:bg-studio-card/80 border border-transparent'
-                }`}
-                aria-current={isActive ? 'page' : undefined}
-              >
-                {/* Active Indicator Bar */}
-                {isActive && (
-                  <span className="absolute left-0 top-2 bottom-2 w-1 bg-studio-primary rounded-r-full" />
+              <React.Fragment key={item.id}>
+                {isSettings && (
+                  <div className="my-2 border-t border-slate-800/70" />
                 )}
-
-                <Icon
-                  className={`w-4 h-4 shrink-0 transition-colors ${
-                    isActive ? 'text-blue-400' : 'text-studio-subtle group-hover:text-studio-text'
+                <button
+                  onClick={() => onTabChange(item.id)}
+                  title={isCollapsed ? `${item.label} - ${item.description || ''}` : undefined}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all duration-150 group relative cursor-pointer ${
+                    isActive
+                      ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 border border-transparent'
                   }`}
-                />
+                  aria-current={isActive ? 'page' : undefined}
+                >
+                  {/* Active Indicator Bar */}
+                  {isActive && (
+                    <span className="absolute left-0 top-2 bottom-2 w-1 bg-cyan-400 rounded-r-full" />
+                  )}
 
-                {!isCollapsed && (
-                  <div className="flex-1 flex items-center justify-between text-left overflow-hidden">
-                    <span className="truncate">{item.label}</span>
-                    {item.badge && (
-                      <Badge
-                        variant={item.badgeVariant || 'neutral'}
-                        size="xs"
-                        className="ml-1.5"
-                      >
-                        {item.badge}
-                      </Badge>
-                    )}
-                  </div>
-                )}
-              </button>
+                  <Icon
+                    className={`w-4 h-4 shrink-0 transition-colors ${
+                      isActive ? 'text-cyan-400' : 'text-slate-400 group-hover:text-slate-200'
+                    }`}
+                  />
+
+                  {!isCollapsed && (
+                    <div className="flex-1 flex items-center justify-between text-left overflow-hidden">
+                      <span className="truncate">{item.label}</span>
+                      {item.badge && (
+                        <Badge
+                          variant={item.badgeVariant || 'neutral'}
+                          size="xs"
+                          className="ml-1.5"
+                        >
+                          {item.badge}
+                        </Badge>
+                      )}
+                    </div>
+                  )}
+                </button>
+              </React.Fragment>
             );
           })}
         </nav>
       </div>
 
-      {/* Bottom: System Status & Hardware Info */}
-      <div className="p-3 border-t border-studio-border/80 bg-studio-panel/40 flex flex-col gap-2">
+      {/* Bottom: Integrations & Storage Info */}
+      <div className="p-3.5 border-t border-slate-800/80 bg-[#070b12] flex flex-col gap-3">
         {!isCollapsed ? (
           <>
-            <div className="flex items-center justify-between text-[11px] px-1 text-studio-muted">
-              <span className="flex items-center gap-1.5 font-medium">
-                <Cpu className="w-3.5 h-3.5 text-blue-400" />
-                Motor IA Local
+            {/* Integrations Header */}
+            <div className="space-y-2">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block px-1">
+                Integrações
               </span>
-              <span className="text-[10px] font-mono text-emerald-400 flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 led-indicator" />
-                GPU Ativa
-              </span>
+
+              {/* 4 Integrations matching screenshot */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-[11px] px-1 text-slate-300">
+                  <span className="flex items-center gap-2 font-medium">
+                    {renderDaVinciIcon()}
+                    <span>DaVinci Resolve</span>
+                  </span>
+                  <span className="text-[10px] font-medium text-emerald-400 flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]" />
+                    Conectado
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between text-[11px] px-1 text-slate-300">
+                  <span className="flex items-center gap-2 font-medium">
+                    <Mic className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>Whisper large-v3</span>
+                  </span>
+                  <span className="text-[10px] font-medium text-emerald-400 flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                    Disponível
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between text-[11px] px-1 text-slate-300">
+                  <span className="flex items-center gap-2 font-medium">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                    <span>HyperFrames</span>
+                  </span>
+                  <span className="text-[10px] font-medium text-emerald-400 flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                    Disponível
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between text-[11px] px-1 text-slate-300">
+                  <span className="flex items-center gap-2 font-medium">
+                    <Bot className="w-3.5 h-3.5 text-rose-400" />
+                    <span>Claude Code</span>
+                  </span>
+                  <span className="text-[10px] font-medium text-emerald-400 flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]" />
+                    Conectado
+                  </span>
+                </div>
+              </div>
             </div>
 
-            <div className="flex items-center justify-between text-[11px] px-1 text-studio-muted">
-              <span className="flex items-center gap-1.5 font-medium">
-                <MonitorPlay className="w-3.5 h-3.5 text-studio-subtle" />
-                DaVinci Resolve
-              </span>
-              <span className="text-[10px] font-mono text-studio-subtle">
-                Pronto p/ Export
-              </span>
-            </div>
-
-            <div className="text-[10px] text-studio-subtle/80 text-center font-mono pt-1 border-t border-studio-border/40">
-              TravelCut v1.0 • Tauri 2 Ready
+            {/* Storage Meter */}
+            <div className="pt-2.5 border-t border-slate-800/60 space-y-1.5">
+              <div className="flex items-center justify-between text-[11px] px-1 text-slate-300">
+                <span className="flex items-center gap-1.5 font-medium">
+                  <HardDrive className="w-3.5 h-3.5 text-slate-400" />
+                  <span>Armazenamento (Projeto)</span>
+                </span>
+                <span className="text-[10px] text-slate-400 font-mono">
+                  152 GB de 500 GB
+                </span>
+              </div>
+              <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-cyan-400 to-blue-500 rounded-full"
+                  style={{ width: '30.4%' }}
+                />
+              </div>
             </div>
           </>
         ) : (
-          <div className="flex flex-col items-center gap-2 py-1" title="Motor IA Local Ativo (GPU)">
-            <span
-              className="w-2.5 h-2.5 rounded-full bg-emerald-400 led-indicator"
-            />
-            <Cpu className="w-4 h-4 text-studio-subtle" />
+          <div className="flex flex-col items-center gap-2.5 py-1" title="Integrações Conectadas">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]" />
+            {renderDaVinciIcon()}
           </div>
         )}
       </div>

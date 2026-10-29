@@ -17,9 +17,11 @@ import {
 // Layout & Foundation Components
 import { AppShell } from './components/layout';
 
+// Features & Views
+import { HomeDashboard } from './features/home/HomeDashboard';
+
 // Placeholders (Phase 1 Foundation & Phase 2 Contract)
 import {
-  HomePlaceholderView,
   ProjectPlaceholderView,
   ReviewPlaceholderView
 } from './app/placeholders';
@@ -47,7 +49,8 @@ export function App() {
   const [showTimeline, setShowTimeline] = useState<boolean>(true);
   const [notification, setNotification] = useState<string | null>(null);
 
-  const projectName = 'Japão 2026 - Tóquio & Kyoto 4K';
+  const projectName = 'Viagem – Boa Vista';
+  const projectPath = 'D:\\Videos\\Viagem_BoaVista';
 
   // Playback timer simulation
   useEffect(() => {
@@ -103,9 +106,10 @@ export function App() {
       activeTab={activeTab}
       onTabChange={setActiveTab}
       projectName={projectName}
+      projectPath={projectPath}
       onQuickImport={handleImportClips}
       onQuickExport={handleQuickExport}
-      timelineVisible={showTimeline}
+      timelineVisible={activeTab !== 'home' && showTimeline}
       onToggleTimeline={() => setShowTimeline(!showTimeline)}
       timelineSlot={
         <TimelineNLE
@@ -132,22 +136,7 @@ export function App() {
 
       {/* Dynamic Viewport Content */}
       {activeTab === 'home' && (
-        <HomePlaceholderView
-          project={{
-            id: 'proj-japan-2026',
-            name: projectName,
-            path: 'D:/Videos/Viagens/2026_Japao_4K_SonyFX3',
-            lastModified: 'Hoje às 15:42',
-            clipCount: mediaClips.length,
-            totalDurationFormatted: '00:01:01:15'
-          }}
-          onAction={(action) => {
-            if (action.type === 'import_media') handleImportClips();
-            if (action.type === 'open_project') notify('Carregando projeto...');
-            if (action.type === 'quick_tour') {
-              notify('TravelCut Studio: Pipeline de ingestão, análise IA e exportação DaVinci.');
-            }
-          }}
+        <HomeDashboard
           onNavigateToTab={(tab) => setActiveTab(tab as NavigationTab)}
         />
       )}
