@@ -1,0 +1,60 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    background-color: #0a0c10;
+    color: #f1f5f9;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+  }
+
+  /* Custom scrollbars for professional dark NLE */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: #0d1017;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: #252c3b;
+    border-radius: 3px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: #3b465d;
+  }
+}
+
+/* Custom waveform animation & UI effects */
+.waveform-bar {
+  transition: height 0.15s ease;
+}
+
+.timeline-grid {
+  background-size: 40px 100%;
+  background-image: linear-gradient(to right, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+}
+
+.timeline-second-grid {
+  background-size: 80px 100%;
+  background-image: linear-gradient(to right, rgba(255, 255, 255, 0.08) 1px, transparent 1px);
+}
+
+.glass-panel {
+  background: rgba(16, 19, 25, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.led-indicator {
+  box-shadow: 0 0 8px currentColor;
+}
