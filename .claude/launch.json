@@ -3,9 +3,9 @@
   "configurations": [
     {
       "name": "travelcut-studio",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
-      "port": 5173
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["vite", "--port", "5174"],
+      "port": 5174
     }
   ]
 }

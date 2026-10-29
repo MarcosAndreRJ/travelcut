@@ -19,6 +19,7 @@ import { AppShell } from './components/layout';
 
 // Features & Views
 import { HomeDashboard } from './features/home/HomeDashboard';
+import { MediaLibraryWorkspace } from './features/library';
 
 // Placeholders (Phase 1 Foundation & Phase 2 Contract)
 import {
@@ -109,7 +110,7 @@ export function App() {
       projectPath={projectPath}
       onQuickImport={handleImportClips}
       onQuickExport={handleQuickExport}
-      timelineVisible={activeTab !== 'home' && showTimeline}
+      timelineVisible={activeTab !== 'home' && activeTab !== 'project' && showTimeline}
       onToggleTimeline={() => setShowTimeline(!showTimeline)}
       timelineSlot={
         <TimelineNLE
@@ -142,9 +143,20 @@ export function App() {
       )}
 
       {activeTab === 'project' && (
-        <ProjectPlaceholderView
-          projectName={projectName}
-          onNavigateToTab={(tab) => setActiveTab(tab as NavigationTab)}
+        <MediaLibraryWorkspace
+          onNavigateTab={(tab) => {
+            if (tab === 'narrative' || (tab as any) === 'edit') {
+              setActiveTab('edit');
+            } else if (tab === 'review') {
+              setActiveTab('review');
+            } else if (tab === 'export') {
+              setActiveTab('export');
+            } else if (tab === 'analysis') {
+              setActiveTab('analysis');
+            } else {
+              setActiveTab(tab as NavigationTab);
+            }
+          }}
         />
       )}
 
