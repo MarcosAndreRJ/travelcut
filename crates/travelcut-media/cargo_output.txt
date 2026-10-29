@@ -1,0 +1,537 @@
+    Blocking waiting for file lock on build directory
+    Checking travelcut-media v0.1.0 (K:\Trabalho\projetos\TravelCutStudio\crates\travelcut-media)
+error[E0432]: unresolved import `crate::config::MediaEngineConfig`
+ --> src\engine.rs:7:5
+  |
+7 | use crate::config::MediaEngineConfig;
+  |     ^^^^^^^^^^^^^^^-----------------
+  |                    |
+  |                    no `MediaEngineConfig` in `config`
+  |
+help: a similar name exists in the module
+  |
+7 - use crate::config::MediaEngineConfig;
+7 + use crate::config::EngineConfig;
+  |
+
+error[E0432]: unresolved import `crate::ffmpeg::discovery::FfmpegDiscovery`
+  --> src\engine.rs:10:5
+   |
+10 | use crate::ffmpeg::discovery::FfmpegDiscovery;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^---------------
+   |                               |
+   |                               no `FfmpegDiscovery` in `ffmpeg::discovery`
+
+error[E0432]: unresolved imports `crate::models::DiscoveredFile`, `crate::models::FilmstripOptions`, `crate::models::InventoryOptions`, `crate::models::JobEvent`, `crate::models::JobId`, `crate::models::JobPriority`, `crate::models::TranscodeOptions`, `crate::models::TranscodeResult`, `crate::models::WaveformData`, `crate::models::WaveformOptions`
+  --> src\engine.rs:13:5
+   |
+13 |     DiscoveredFile, FilmstripOptions, InventoryOptions, JobEvent, JobId, JobPriority, JobProgress,
+   |     ^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^  ^^^^^^^^  ^^^^^  ^^^^^^^^^^^ no `JobPriority` in `models`
+   |     |               |                 |                 |         |
+   |     |               |                 |                 |         no `JobId` in `models`
+   |     |               |                 |                 no `JobEvent` in `models`
+   |     |               |                 no `InventoryOptions` in `models`
+   |     |               no `FilmstripOptions` in `models`
+   |     no `DiscoveredFile` in `models`
+14 |     JobStatus, JobType, MediaMetadata, ThumbnailOptions, TranscodeOptions, TranscodeResult,
+   |                                                          ^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^ no `TranscodeResult` in `models`
+   |                                                          |
+   |                                                          no `TranscodeOptions` in `models`
+15 |     WaveformData, WaveformOptions,
+   |     ^^^^^^^^^^^^  ^^^^^^^^^^^^^^^ no `WaveformOptions` in `models`
+   |     |
+   |     no `WaveformData` in `models`
+   |
+   = help: consider importing this struct through its public re-export instead:
+           crate::inventory::DiscoveredFile
+   = help: consider importing this struct through its public re-export instead:
+           crate::inventory::InventoryOptions
+
+error[E0432]: unresolved import `crate::probe::metadata::MetadataExtractor`
+  --> src\engine.rs:17:5
+   |
+17 | use crate::probe::metadata::MetadataExtractor;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^-----------------
+   |                             |
+   |                             no `MetadataExtractor` in `probe::metadata`
+
+error[E0432]: unresolved imports `crate::models::JobId`, `crate::models::JobPriority`
+ --> src\queue\job.rs:3:21
+  |
+3 | use crate::models::{JobId, JobPriority, JobProgress, JobStatus, JobType};
+  |                     ^^^^^  ^^^^^^^^^^^ no `JobPriority` in `models`
+  |                     |
+  |                     no `JobId` in `models`
+
+error[E0432]: unresolved imports `crate::models::JobEvent`, `crate::models::JobId`, `crate::models::JobPriority`
+ --> src\queue\manager.rs:8:21
+  |
+8 | use crate::models::{JobEvent, JobId, JobPriority, JobProgress, JobStatus, JobType};
+  |                     ^^^^^^^^  ^^^^^  ^^^^^^^^^^^ no `JobPriority` in `models`
+  |                     |         |
+  |                     |         no `JobId` in `models`
+  |                     no `JobEvent` in `models`
+
+error[E0432]: unresolved import `crate::config::MediaEngineConfig`
+ --> src\tauri_commands.rs:6:5
+  |
+6 | use crate::config::MediaEngineConfig;
+  |     ^^^^^^^^^^^^^^^-----------------
+  |                    |
+  |                    no `MediaEngineConfig` in `config`
+  |
+help: a similar name exists in the module
+  |
+6 - use crate::config::MediaEngineConfig;
+6 + use crate::config::EngineConfig;
+  |
+
+error[E0432]: unresolved imports `crate::models::DiscoveredFile`, `crate::models::FilmstripOptions`, `crate::models::InventoryOptions`, `crate::models::JobPriority`, `crate::models::TranscodeOptions`, `crate::models::TranscodeResult`, `crate::models::WaveformData`, `crate::models::WaveformOptions`
+  --> src\tauri_commands.rs:10:5
+   |
+10 |     DiscoveredFile, FilmstripOptions, InventoryOptions, JobPriority, JobStatus, MediaMetadata,
+   |     ^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^  ^^^^^^^^^^^ no `JobPriority` in `models`
+   |     |               |                 |
+   |     |               |                 no `InventoryOptions` in `models`
+   |     |               no `FilmstripOptions` in `models`
+   |     no `DiscoveredFile` in `models`
+11 |     ThumbnailOptions, TranscodeOptions, TranscodeResult, WaveformData, WaveformOptions,
+   |                       ^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^  ^^^^^^^^^^^^  ^^^^^^^^^^^^^^^ no `WaveformOptions` in `models`
+   |                       |                 |                |
+   |                       |                 |                no `WaveformData` in `models`
+   |                       |                 no `TranscodeResult` in `models`
+   |                       no `TranscodeOptions` in `models`
+   |
+   = help: consider importing this struct through its public re-export instead:
+           crate::inventory::DiscoveredFile
+   = help: consider importing this struct through its public re-export instead:
+           crate::inventory::InventoryOptions
+
+error[E0432]: unresolved import `crate::models::FilmstripOptions`
+ --> src\thumbnails\generator.rs:8:21
+  |
+8 | use crate::models::{FilmstripOptions, ImageFormat, JobStatus, JobType, ThumbnailOptions};
+  |                     ^^^^^^^^^^^^^^^^ no `FilmstripOptions` in `models`
+
+error[E0432]: unresolved imports `crate::models::HwAccelType`, `crate::models::TranscodeOptions`
+ --> src\transcode\command_builder.rs:5:21
+  |
+5 | use crate::models::{HwAccelType, TranscodeOptions};
+  |                     ^^^^^^^^^^^  ^^^^^^^^^^^^^^^^ no `TranscodeOptions` in `models`
+  |                     |
+  |                     no `HwAccelType` in `models`
+
+error[E0432]: unresolved imports `crate::models::TranscodeOptions`, `crate::models::TranscodeResult`
+ --> src\transcode\engine.rs:6:43
+  |
+6 | use crate::models::{JobProgress, JobType, TranscodeOptions, TranscodeResult};
+  |                                           ^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^ no `TranscodeResult` in `models`
+  |                                           |
+  |                                           no `TranscodeOptions` in `models`
+
+error[E0432]: unresolved import `crate::models::HwAccelType`
+ --> src\transcode\profile.rs:4:5
+  |
+4 | use crate::models::HwAccelType;
+  |     ^^^^^^^^^^^^^^^-----------
+  |                    |
+  |                    no `HwAccelType` in `models`
+
+error[E0432]: unresolved imports `crate::models::WaveformData`, `crate::models::WaveformOptions`, `crate::models::WaveformPeak`
+ --> src\waveform\extractor.rs:8:21
+  |
+8 | use crate::models::{WaveformData, WaveformOptions, WaveformPeak};
+  |                     ^^^^^^^^^^^^  ^^^^^^^^^^^^^^^  ^^^^^^^^^^^^ no `WaveformPeak` in `models`
+  |                     |             |
+  |                     |             no `WaveformOptions` in `models`
+  |                     no `WaveformData` in `models`
+
+error[E0432]: unresolved import `config::MediaEngineConfig`
+  --> src\lib.rs:28:9
+   |
+28 | pub use config::MediaEngineConfig;
+   |         ^^^^^^^^-----------------
+   |                 |
+   |                 no `MediaEngineConfig` in `config`
+   |
+help: a similar name exists in the module
+   |
+28 - pub use config::MediaEngineConfig;
+28 + pub use config::EngineConfig;
+   |
+
+error[E0432]: unresolved import `ffmpeg::discovery::FfmpegDiscovery`
+  --> src\lib.rs:32:9
+   |
+32 | pub use ffmpeg::discovery::FfmpegDiscovery;
+   |         ^^^^^^^^^^^^^^^^^^^---------------
+   |                            |
+   |                            no `FfmpegDiscovery` in `ffmpeg::discovery`
+
+warning: unused import: `Ordering`
+  --> src\engine.rs:23:37
+   |
+23 | use std::sync::atomic::{AtomicBool, Ordering};
+   |                                     ^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `debug`
+  --> src\engine.rs:26:15
+   |
+26 | use tracing::{debug, info};
+   |               ^^^^^
+
+warning: unused import: `warn`
+  --> src\probe\metadata.rs:16:22
+   |
+16 | use tracing::{debug, warn};
+   |                      ^^^^
+
+warning: unused imports: `debug`, `error`, `info`, and `warn`
+  --> src\queue\manager.rs:16:15
+   |
+16 | use tracing::{debug, error, info, warn};
+   |               ^^^^^  ^^^^^  ^^^^  ^^^^
+
+warning: unused import: `Path`
+  --> src\tauri_commands.rs:13:17
+   |
+13 | use std::path::{Path, PathBuf};
+   |                 ^^^^
+
+warning: unused import: `JobStatus`
+ --> src\thumbnails\generator.rs:8:52
+  |
+8 | use crate::models::{FilmstripOptions, ImageFormat, JobStatus, JobType, ThumbnailOptions};
+  |                                                    ^^^^^^^^^
+
+warning: unused import: `compute_filmstrip_cache_key`
+ --> src\thumbnails\generator.rs:9:36
+  |
+9 | use crate::thumbnails::cache_key::{compute_filmstrip_cache_key, compute_thumbnail_cache_key};
+  |                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `Path`
+ --> src\transcode\engine.rs:8:17
+  |
+8 | use std::path::{Path, PathBuf};
+  |                 ^^^^
+
+warning: unused import: `Ordering`
+ --> src\transcode\engine.rs:9:37
+  |
+9 | use std::sync::atomic::{AtomicBool, Ordering};
+  |                                     ^^^^^^^^
+
+warning: unused import: `debug`
+  --> src\transcode\engine.rs:12:15
+   |
+12 | use tracing::{debug, info, warn};
+   |               ^^^^^
+
+warning: variant `Hevc_720p` should have an upper camel case name
+  --> src\transcode\profile.rs:16:5
+   |
+16 |     Hevc_720p,
+   |     ^^^^^^^^^ help: convert the identifier to upper camel case: `Hevc720p`
+   |
+   = note: `#[warn(non_camel_case_types)]` (part of `#[warn(nonstandard_style)]`) on by default
+
+error[E0599]: no associated function or constant named `new` found for struct `InventoryScanner` in the current scope
+  --> src\engine.rs:91:51
+   |
+91 |         let inventory_scanner = InventoryScanner::new(
+   |                                                   ^^^ associated function or constant not found in `InventoryScanner`
+   |
+  ::: src\inventory\scanner.rs:56:1
+   |
+56 | pub struct InventoryScanner;
+   | --------------------------- associated function or constant `new` not found for this struct
+   |
+   = help: items from traits can only be used if the trait is implemented and in scope
+   = note: the following traits define an item `new`, perhaps you need to implement one of them:
+           candidate #1: `Bit`
+           candidate #2: `Digest`
+           candidate #3: `KeyInit`
+           candidate #4: `KeyIvInit`
+           candidate #5: `VariableOutput`
+           candidate #6: `VariableOutputCore`
+           candidate #7: `parking_lot_core::thread_parker::ThreadParkerT`
+
+error[E0599]: no method named `scan_directory` found for struct `InventoryScanner` in the current scope
+   --> src\engine.rs:152:14
+    |
+151 | /         self.inventory_scanner
+152 | |             .scan_directory(path, options, cancel_flag, |_| {})
+    | |             -^^^^^^^^^^^^^^ this is an associated function, not a method
+    | |_____________|
+    |
+    |
+   ::: src\inventory\scanner.rs:56:1
+    |
+ 56 |   pub struct InventoryScanner;
+    |   --------------------------- method `scan_directory` not found for this struct
+    |
+    = note: found the following associated functions; to be used as methods, functions must have a `self` parameter
+note: the candidate is defined in an impl for the type `InventoryScanner`
+   --> src\inventory\scanner.rs:60:5
+    |
+ 60 | /     pub async fn scan_directory<F>(
+ 61 | |         dir: &Path,
+ 62 | |         options: InventoryOptions,
+ 63 | |         mut progress_cb: F,
+ 64 | |     ) -> Result<Vec<DiscoveredFile>>
+ 65 | |     where
+ 66 | |         F: FnMut(InventoryProgress) + Send + 'static,
+    | |_____________________________________________________^
+help: use associated function syntax instead
+    |
+151 -         self.inventory_scanner
+152 -             .scan_directory(path, options, cancel_flag, |_| {})
+151 +         InventoryScanner::scan_directory(path, options, cancel_flag, |_| {})
+    |
+
+error[E0599]: no method named `scan_directory` found for struct `InventoryScanner` in the current scope
+   --> src\engine.rs:168:14
+    |
+167 | /         self.inventory_scanner
+168 | |             .scan_directory(path, options, cancel_flag, progress_cb)
+    | |             -^^^^^^^^^^^^^^ this is an associated function, not a method
+    | |_____________|
+    |
+    |
+   ::: src\inventory\scanner.rs:56:1
+    |
+ 56 |   pub struct InventoryScanner;
+    |   --------------------------- method `scan_directory` not found for this struct
+    |
+    = note: found the following associated functions; to be used as methods, functions must have a `self` parameter
+note: the candidate is defined in an impl for the type `InventoryScanner`
+   --> src\inventory\scanner.rs:60:5
+    |
+ 60 | /     pub async fn scan_directory<F>(
+ 61 | |         dir: &Path,
+ 62 | |         options: InventoryOptions,
+ 63 | |         mut progress_cb: F,
+ 64 | |     ) -> Result<Vec<DiscoveredFile>>
+ 65 | |     where
+ 66 | |         F: FnMut(InventoryProgress) + Send + 'static,
+    | |_____________________________________________________^
+help: use associated function syntax instead
+    |
+167 -         self.inventory_scanner
+168 -             .scan_directory(path, options, cancel_flag, progress_cb)
+167 +         InventoryScanner::scan_directory(path, options, cancel_flag, progress_cb)
+    |
+
+error[E0599]: no variant, associated function, or constant named `Transcode` found for enum `JobType` in the current scope
+   --> src\engine.rs:257:30
+    |
+257 |             .submit(JobType::Transcode, priority, move |cancel_flag, prog_tx| {
+    |                              ^^^^^^^^^ variant, associated function, or constant not found in `JobType`
+    |
+   ::: src\models.rs:382:1
+    |
+382 | pub enum JobType {
+    | ---------------- variant, associated function, or constant `Transcode` not found for this enum
+
+warning: variable does not need to be mutable
+  --> src\inventory\scanner.rs:86:26
+   |
+86 |         let (discovered, mut progress_rx) = tokio::task::spawn_blocking(move || {
+   |                          ----^^^^^^^^^^^
+   |                          |
+   |                          help: remove this `mut`
+   |
+   = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+error[E0277]: `JobType` doesn't implement `std::fmt::Display`
+   --> src\queue\manager.rs:219:39
+    |
+219 |         let job_id = format!("{}_{}", job_type, Uuid::new_v4());
+    |                               --      ^^^^^^^^ `JobType` cannot be formatted with the default formatter
+    |                               |
+    |                               required by this formatting parameter
+    |
+help: the trait `std::fmt::Display` is not implemented for `JobType`
+   --> src\models.rs:382:1
+    |
+382 | pub enum JobType {
+    | ^^^^^^^^^^^^^^^^
+    = note: in format strings you may be able to use `{:?}` (or `{:#?}` for pretty-print) instead
+
+error[E0599]: no variant, associated function, or constant named `Webp` found for enum `ImageFormat` in the current scope
+   --> src\thumbnails\generator.rs:86:26
+    |
+ 86 |             ImageFormat::Webp => "webp",
+    |                          ^^^^ variant, associated function, or constant not found in `ImageFormat`
+    |
+   ::: src\models.rs:186:1
+    |
+186 | pub enum ImageFormat {
+    | -------------------- variant, associated function, or constant `Webp` not found for this enum
+    |
+help: there is a variant with a similar name
+    |
+ 86 -             ImageFormat::Webp => "webp",
+ 86 +             ImageFormat::WebP => "webp",
+    |
+
+error[E0609]: no field `percentage` on type `&ThumbnailOptions`
+  --> src\thumbnails\generator.rs:91:36
+   |
+91 |         if let Some(pct) = options.percentage {
+   |                                    ^^^^^^^^^^ unknown field
+   |
+   = note: available fields are: `timestamp_secs`, `width`, `height`, `format`, `quality`
+
+error[E0609]: no field `duration_secs` on type `&ThumbnailOptions`
+  --> src\thumbnails\generator.rs:92:31
+   |
+92 |             let dur = options.duration_secs.unwrap_or(10.0);
+   |                               ^^^^^^^^^^^^^ unknown field
+   |
+   = note: available fields are: `timestamp_secs`, `width`, `height`, `format`, `quality`
+
+error[E0609]: no field `time_offset_secs` on type `&ThumbnailOptions`
+  --> src\thumbnails\generator.rs:94:44
+   |
+94 |         } else if let Some(secs) = options.time_offset_secs {
+   |                                            ^^^^^^^^^^^^^^^^ unknown field
+   |
+   = note: available fields are: `timestamp_secs`, `width`, `height`, `format`, `quality`
+
+error[E0609]: no field `smart_offset` on type `&ThumbnailOptions`
+  --> src\thumbnails\generator.rs:99:20
+   |
+99 |         if options.smart_offset && target_time < 0.1 {
+   |                    ^^^^^^^^^^^^ unknown field
+   |
+   = note: available fields are: `timestamp_secs`, `width`, `height`, `format`, `quality`
+
+error[E0609]: no field `duration_secs` on type `&ThumbnailOptions`
+   --> src\thumbnails\generator.rs:100:40
+    |
+100 |             if let Some(dur) = options.duration_secs {
+    |                                        ^^^^^^^^^^^^^ unknown field
+    |
+    = note: available fields are: `timestamp_secs`, `width`, `height`, `format`, `quality`
+
+error[E0599]: no variant, associated function, or constant named `Webp` found for enum `ImageFormat` in the current scope
+   --> src\thumbnails\generator.rs:164:26
+    |
+164 |             ImageFormat::Webp => {
+    |                          ^^^^ variant, associated function, or constant not found in `ImageFormat`
+    |
+   ::: src\models.rs:186:1
+    |
+186 | pub enum ImageFormat {
+    | -------------------- variant, associated function, or constant `Webp` not found for this enum
+    |
+help: there is a variant with a similar name
+    |
+164 -             ImageFormat::Webp => {
+164 +             ImageFormat::WebP => {
+    |
+
+error[E0560]: struct `ThumbnailOptions` has no field named `time_offset_secs`
+   --> src\thumbnails\generator.rs:252:17
+    |
+252 |                 time_offset_secs: Some(ts),
+    |                 ^^^^^^^^^^^^^^^^ `ThumbnailOptions` does not have this field
+    |
+    = note: available fields are: `timestamp_secs`, `quality`
+
+error[E0560]: struct `ThumbnailOptions` has no field named `percentage`
+   --> src\thumbnails\generator.rs:253:17
+    |
+253 |                 percentage: None,
+    |                 ^^^^^^^^^^ `ThumbnailOptions` does not have this field
+    |
+    = note: available fields are: `timestamp_secs`, `quality`
+
+error[E0560]: struct `ThumbnailOptions` has no field named `smart_offset`
+   --> src\thumbnails\generator.rs:257:17
+    |
+257 |                 smart_offset: false,
+    |                 ^^^^^^^^^^^^ `ThumbnailOptions` does not have this field
+    |
+    = note: available fields are: `timestamp_secs`, `quality`
+
+error[E0560]: struct `ThumbnailOptions` has no field named `duration_secs`
+   --> src\thumbnails\generator.rs:258:17
+    |
+258 |                 duration_secs: Some(duration),
+    |                 ^^^^^^^^^^^^^ `ThumbnailOptions` does not have this field
+    |
+    = note: available fields are: `timestamp_secs`, `quality`
+
+error[E0599]: no variant, associated function, or constant named `Transcode` found for enum `JobType` in the current scope
+   --> src\transcode\engine.rs:78:22
+    |
+ 78 |             JobType::Transcode,
+    |                      ^^^^^^^^^ variant, associated function, or constant not found in `JobType`
+    |
+   ::: src\models.rs:382:1
+    |
+382 | pub enum JobType {
+    | ---------------- variant, associated function, or constant `Transcode` not found for this enum
+
+error[E0599]: no variant, associated function, or constant named `Waveform` found for enum `JobType` in the current scope
+   --> src\waveform\extractor.rs:348:37
+    |
+348 |             crate::models::JobType::Waveform,
+    |                                     ^^^^^^^^ variant, associated function, or constant not found in `JobType`
+    |
+   ::: src\models.rs:382:1
+    |
+382 | pub enum JobType {
+    | ---------------- variant, associated function, or constant `Waveform` not found for this enum
+
+error[E0599]: no method named `has_hw_accel` found for reference `&FfmpegCapabilities` in the current scope
+  --> src\transcode\command_builder.rs:22:62
+   |
+22 |     if selected_encoder.hw_type == HwAccelType::Cuda && caps.has_hw_accel("cuda") {
+   |                                                              ^^^^^^^^^^^^ method not found in `&FfmpegCapabilities`
+
+error[E0599]: no method named `has_hw_accel` found for reference `&FfmpegCapabilities` in the current scope
+  --> src\transcode\command_builder.rs:25:68
+   |
+25 |     } else if selected_encoder.hw_type == HwAccelType::Qsv && caps.has_hw_accel("qsv") {
+   |                                                                    ^^^^^^^^^^^^ method not found in `&FfmpegCapabilities`
+
+error[E0599]: no method named `has_encoder` found for reference `&FfmpegCapabilities` in the current scope
+  --> src\transcode\profile.rs:63:25
+   |
+63 |                 if caps.has_encoder(nvenc_name) {
+   |                         ^^^^^^^^^^^ method not found in `&FfmpegCapabilities`
+
+error[E0599]: no method named `has_encoder` found for reference `&FfmpegCapabilities` in the current scope
+  --> src\transcode\profile.rs:82:25
+   |
+82 |                 if caps.has_encoder(qsv_name) {
+   |                         ^^^^^^^^^^^ method not found in `&FfmpegCapabilities`
+
+error[E0599]: no method named `has_encoder` found for reference `&FfmpegCapabilities` in the current scope
+  --> src\transcode\profile.rs:97:25
+   |
+97 |                 if caps.has_encoder(amf_name) {
+   |                         ^^^^^^^^^^^ method not found in `&FfmpegCapabilities`
+
+error[E0599]: no method named `has_encoder` found for reference `&FfmpegCapabilities` in the current scope
+   --> src\transcode\profile.rs:113:25
+    |
+113 |                 if caps.has_encoder(nvenc_name) {
+    |                         ^^^^^^^^^^^ method not found in `&FfmpegCapabilities`
+
+error[E0599]: no method named `has_encoder` found for reference `&FfmpegCapabilities` in the current scope
+   --> src\transcode\profile.rs:130:28
+    |
+130 |         if is_hevc && caps.has_encoder("libx265") {
+    |                            ^^^^^^^^^^^ method not found in `&FfmpegCapabilities`
+
+Some errors have detailed explanations: E0277, E0432, E0560, E0599, E0609.
+For more information about an error, try `rustc --explain E0277`.
+warning: `travelcut-media` (lib) generated 12 warnings
+error: could not compile `travelcut-media` (lib) due to 40 previous errors; 12 warnings emitted
