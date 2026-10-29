@@ -19,10 +19,11 @@ import { AppShell } from './components/layout';
 
 // Features & Views
 import { HomeDashboard } from './features/home/HomeDashboard';
+import { MediaLibraryWorkspace } from './features/library';
+import './features/media';
 
 // Placeholders (Phase 1 Foundation & Phase 2 Contract)
 import {
-  ProjectPlaceholderView,
   ReviewPlaceholderView
 } from './app/placeholders';
 
@@ -142,9 +143,22 @@ export function App() {
       )}
 
       {activeTab === 'project' && (
-        <ProjectPlaceholderView
-          projectName={projectName}
-          onNavigateToTab={(tab) => setActiveTab(tab as NavigationTab)}
+        <MediaLibraryWorkspace
+          onNavigateTab={(tab) => {
+            if (tab === 'narrative') {
+              setActiveTab('edit');
+            } else if (
+              tab === 'home' ||
+              tab === 'project' ||
+              tab === 'analysis' ||
+              tab === 'edit' ||
+              tab === 'review' ||
+              tab === 'export' ||
+              tab === 'settings'
+            ) {
+              setActiveTab(tab as NavigationTab);
+            }
+          }}
         />
       )}
 
