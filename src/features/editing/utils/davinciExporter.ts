@@ -13,7 +13,7 @@ export function secondsToTimecode(secs: number, fps: number = 60): string {
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = Math.floor(totalSeconds % 60);
-  const frames = Math.floor((totalSeconds % 1) * fps);
+  const frames = Math.min(fps - 1, Math.round((totalSeconds % 1) * fps));
 
   const pad = (n: number) => n.toString().padStart(2, '0');
   return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}:${pad(frames)}`;

@@ -1,3 +1,5 @@
+import type { MediaSegment } from '../../types/mediaEngine';
+
 export type MediaFilterCategory =
   | 'Todos'
   | 'Conversas'
@@ -12,16 +14,28 @@ export type InspectorTab = 'transcription' | 'analysis' | 'metadata' | 'thumbnai
 
 export type NavTab = 'library' | 'transcription' | 'narrative' | 'review' | 'export';
 
+export interface TranscriptWord {
+  id: string;
+  text: string;
+  startSec: number;
+  endSec: number;
+  confidence?: number;
+  isCutCandidate?: boolean;
+  cutReason?: string;
+}
+
 export interface TranscriptLine {
   id: string;
   timecode: string;
   seconds: number;
+  endSeconds?: number;
   text: string;
   speaker?: string;
   isCutCandidate?: boolean;
   cutReason?: string;
   isAudioEvent?: boolean;
   accepted?: boolean;
+  words?: TranscriptWord[];
 }
 
 export interface LibraryClip {
@@ -40,6 +54,11 @@ export interface LibraryClip {
   aiScore: number;
   transcript: TranscriptLine[];
   hasHesitationCut?: boolean;
+  fileSize?: number;
+  filePath?: string;
+  fps?: number;
+  segments?: MediaSegment[];
+  isUserOverridden?: boolean;
 }
 
 export type QueueTaskStatus = 'completed' | 'in_progress' | 'pending' | 'failed';

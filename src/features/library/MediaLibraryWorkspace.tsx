@@ -13,6 +13,7 @@ import {
   INITIAL_PROCESSING_QUEUE
 } from './data/libraryMockData';
 import { LibraryClip, TranscriptLine, NavTab } from './types';
+import { useProject } from '../../contexts/ProjectContext';
 
 interface MediaLibraryWorkspaceProps {
   onNavigateTab?: (tab: NavTab | string) => void;
@@ -21,37 +22,32 @@ interface MediaLibraryWorkspaceProps {
 export const MediaLibraryWorkspace: React.FC<MediaLibraryWorkspaceProps> = ({
   onNavigateTab
 }) => {
+  const { project, renameProject, setClips, saveCurrentProjectState } = useProject();
   const [headerData, setHeaderData] = useState(INITIAL_PROJECT_HEADER);
   const [summaryData, setSummaryData] = useState(INITIAL_PROJECT_SUMMARY);
   const [tasks, setTasks] = useState(INITIAL_PROCESSING_QUEUE);
-  const [clips, setClips] = useState<LibraryClip[]>(RORAIMA_LIBRARY_CLIPS);
   const [selectedClipId, setSelectedClipId] = useState<string>('clip-roraima-1');
   const [currentTimeSec, setCurrentTimeSec] = useState<number>(42);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
+  const clips = project.clips && project.clips.length > 0 ? project.clips : RORAIMA_LIBRARY_CLIPS;
+
+  // Sync header with project context
+  useEffect(() => {
+    if (project.name) {
+      setHeaderData((prev) => ({
+        ...prev,
+        title: project.name,
+      }));
+    }
+  }, [project.name]);
+
   const selectedClip =
     clips.find((c) => c.id === selectedClipId) || clips[0] || RORAIMA_LIBRARY_CLIPS[0];
 
   // Playback timer effect
-  useEffect(() => {
-    let interval: any = null;
-    if (isPlaying) {
-      interval = setInterval(() => {
-        setCurrentTimeSec((prev) => {
-          if (prev >= selectedClip.durationSec) {
-            setIsPlaying(false);
-            return 0;
-          }
-          return prev + 1;
-        });
-      }, 1000);
-    }
-    return () => {
-      if (interval) clearInterval(interval);
-    };
-  }, [isPlaying, selectedClip.durationSec]);
-
+  // O controle de reproducao e timecode e gerenciado nativamente pelo VideoPlayerPreview (eventos timeupdate do elemento <video>)
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => {
@@ -65,9 +61,20 @@ export const MediaLibraryWorkspace: React.FC<MediaLibraryWorkspaceProps> = ({
     setIsPlaying(false);
   };
 
+  const handleUpdateClipCategory = (clipId: string, newCategory: LibraryClip['category']) => {
+    const updatedClips = clips.map((c) =>
+      c.id === clipId ? { ...c, category: newCategory, isUserOverridden: true } : c
+    );
+    setClips(updatedClips);
+    saveCurrentProjectState();
+    showToast(`Tomada reclassificada como "${newCategory}"`);
+  };
+
   const handleUpdateTitle = (newTitle: string) => {
+    renameProject(newTitle);
     setHeaderData((prev) => ({ ...prev, title: newTitle }));
     showToast(`Título atualizado para "${newTitle}"`);
+    saveCurrentProjectState();
   };
 
   const handleStepClick = (stepNumber: number) => {
@@ -141,6 +148,7 @@ export const MediaLibraryWorkspace: React.FC<MediaLibraryWorkspaceProps> = ({
             selectedClipId={selectedClipId}
             onSelectClip={handleSelectClip}
             onOpenClipMenu={(clip) => showToast(`Opções do arquivo ${clip.filename}`)}
+            onUpdateClipCategory={handleUpdateClipCategory}
           />
 
           <ProcessingQueue tasks={tasks} onRerunTask={handleRerunTask} />

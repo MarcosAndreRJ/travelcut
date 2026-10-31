@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Sparkles } from 'lucide-react';
 import { NavigationTab } from './types/navigation';
 import {
@@ -6,16 +6,15 @@ import {
   CutSegment,
   SuggestedCut,
   StoryboardScene,
-  TimelineClip
+  TimelineClip,
+  ClipCategory,
+  QualityGrade
 } from './types';
-import {
-  MOCK_MEDIA_CLIPS,
-  INITIAL_STORYBOARD,
-  INITIAL_TIMELINE_CLIPS
-} from './data/mockData';
 
 // Layout & Foundation Components
 import { AppShell } from './components/layout';
+import { useProject } from './contexts/ProjectContext';
+import { NewProjectModal } from './components/modals/NewProjectModal';
 
 // Features & Views
 import { HomeDashboard } from './features/home/HomeDashboard';
@@ -37,21 +36,54 @@ import { TimelineNLE } from './components/TimelineNLE';
 export function App() {
   // Navigation State (Simple, typed, without unnecessary heavy router libraries)
   const [activeTab, setActiveTab] = useState<NavigationTab>('home');
+  const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false);
 
-  // Media & Project State
-  const [mediaClips, setMediaClips] = useState<MediaClip[]>(MOCK_MEDIA_CLIPS);
-  const [selectedClipId, setSelectedClipId] = useState<string>(mediaClips[0]?.id || '');
-  const [storyboard, setStoryboard] = useState<StoryboardScene[]>(INITIAL_STORYBOARD);
-  const [timelineClips, setTimelineClips] = useState<TimelineClip[]>(INITIAL_TIMELINE_CLIPS);
+  const { project, openFolderDialogAndLoad, loadProjectFromFolder } = useProject();
+  const projectName = project.name || 'Nenhum Projeto Aberto';
+  const projectPath = project.folderPath || '';
+
+  // Synchronize media clips with ProjectContext
+  const mediaClips: MediaClip[] = useMemo(() => {
+    if (!project.clips || project.clips.length === 0) return [];
+    return project.clips.map((clip) => ({
+      id: clip.id,
+      title: clip.title || clip.filename,
+      filename: clip.filename,
+      location: clip.location || '',
+      date: clip.date || '',
+      time: '12:00',
+      durationSec: clip.durationSec || 0,
+      durationFormatted: clip.duration || '00:00',
+      resolution: (clip.resolution as MediaClip['resolution']) || '1080p 60fps',
+      fps: 60,
+      camera: clip.camera || 'Câmera Principal',
+      category: (clip.category as ClipCategory) || 'Paisagem',
+      thumbnail: clip.thumbnail || '',
+      videoUrl: clip.filePath,
+      quality: 'Boa' as QualityGrade,
+      stability: 'Gimbal Suave',
+      facesCount: 0,
+      aiScore: clip.aiScore || 80,
+      aiAnalysisSummary: 'Aguardando processamento detalhado de IA.',
+      suggestedCuts: [],
+      transcription: [],
+      waveformPoints: [20, 45, 60, 40, 70, 85, 60, 40, 50, 70, 65, 45],
+      filePath: clip.filePath,
+    }));
+  }, [project.clips]);
+
+  const [selectedClipIdState, setSelectedClipIdState] = useState<string>('');
+  const selectedClipId = selectedClipIdState || mediaClips[0]?.id || '';
+  const setSelectedClipId = setSelectedClipIdState;
+
+  const [storyboard, setStoryboard] = useState<StoryboardScene[]>([]);
+  const [timelineClips, setTimelineClips] = useState<TimelineClip[]>([]);
 
   // Playback & Timeline Transport State
-  const [currentTimeSec, setCurrentTimeSec] = useState<number>(14.8);
+  const [currentTimeSec, setCurrentTimeSec] = useState<number>(0);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [showTimeline, setShowTimeline] = useState<boolean>(true);
   const [notification, setNotification] = useState<string | null>(null);
-
-  const projectName = 'Viagem – Boa Vista';
-  const projectPath = 'D:\\Videos\\Viagem_BoaVista';
 
   // Playback timer simulation
   useEffect(() => {
@@ -93,8 +125,12 @@ export function App() {
     notify(`Corte IA aprovado e inserido na Linha do Tempo: ${cut.reason.slice(0, 42)}...`);
   };
 
-  const handleImportClips = () => {
-    notify('Escaneando cartão SD e SSD NVMe em busca de mídias Sony FX3 e DJI...');
+  const handleImportClips = async () => {
+    notify('Abrindo seletor nativo para importar pasta de mídias...');
+    const selected = await openFolderDialogAndLoad();
+    if (selected) {
+      notify(`Pasta importada com sucesso: ${selected}`);
+    }
   };
 
   const handleQuickExport = () => {
@@ -102,45 +138,55 @@ export function App() {
     notify('Abrindo módulo de exportação XML para o DaVinci Resolve.');
   };
 
-  return (
-    <AppShell
-      activeTab={activeTab}
-      onTabChange={setActiveTab}
-      projectName={projectName}
-      projectPath={projectPath}
-      onQuickImport={handleImportClips}
-      onQuickExport={handleQuickExport}
-      timelineVisible={activeTab !== 'home' && showTimeline}
-      onToggleTimeline={() => setShowTimeline(!showTimeline)}
-      timelineSlot={
-        <TimelineNLE
-          timelineClips={timelineClips}
-          allMediaClips={mediaClips}
-          currentTimeSec={currentTimeSec}
-          onSeek={setCurrentTimeSec}
-          isPlaying={isPlaying}
-          onTogglePlay={() => setIsPlaying(!isPlaying)}
-          onSelectClip={(clipId) => {
-            setSelectedClipId(clipId);
-            setActiveTab('analysis');
-          }}
-        />
-      }
-    >
-      {/* Global Notification Toast */}
-      {notification && (
-        <div className="absolute top-4 right-4 z-50 bg-blue-600/95 text-white px-4 py-2.5 rounded-xl shadow-panel border border-blue-400/40 flex items-center space-x-2 text-xs font-semibold backdrop-blur-md">
-          <Sparkles className="w-4 h-4 text-amber-300 shrink-0" />
-          <span>{notification}</span>
-        </div>
-      )}
+  const handleCreateNewProject = async (name: string, folder: string) => {
+    notify(`Inicializando projeto "${name}" e escaneando pasta...`);
+    await loadProjectFromFolder(folder, name);
+    setActiveTab('project');
+    notify(`Projeto "${name}" inicializado com sucesso.`);
+  };
 
-      {/* Dynamic Viewport Content */}
-      {activeTab === 'home' && (
-        <HomeDashboard
-          onNavigateToTab={(tab) => setActiveTab(tab as NavigationTab)}
-        />
-      )}
+  return (
+    <>
+      <AppShell
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        projectName={projectName}
+        projectPath={projectPath}
+        onQuickImport={handleImportClips}
+        onQuickExport={handleQuickExport}
+        onNewProject={() => setIsNewProjectModalOpen(true)}
+        timelineVisible={activeTab !== 'home' && showTimeline}
+        onToggleTimeline={() => setShowTimeline(!showTimeline)}
+        timelineSlot={
+          <TimelineNLE
+            timelineClips={timelineClips}
+            allMediaClips={mediaClips}
+            currentTimeSec={currentTimeSec}
+            onSeek={setCurrentTimeSec}
+            isPlaying={isPlaying}
+            onTogglePlay={() => setIsPlaying(!isPlaying)}
+            onSelectClip={(clipId) => {
+              setSelectedClipId(clipId);
+              setActiveTab('analysis');
+            }}
+          />
+        }
+      >
+        {/* Global Notification Toast */}
+        {notification && (
+          <div className="absolute top-4 right-4 z-50 bg-blue-600/95 text-white px-4 py-2.5 rounded-xl shadow-panel border border-blue-400/40 flex items-center space-x-2 text-xs font-semibold backdrop-blur-md">
+            <Sparkles className="w-4 h-4 text-amber-300 shrink-0" />
+            <span>{notification}</span>
+          </div>
+        )}
+
+        {/* Dynamic Viewport Content */}
+        {activeTab === 'home' && (
+          <HomeDashboard
+            onNavigateToTab={(tab) => setActiveTab(tab as NavigationTab)}
+            onNewProject={() => setIsNewProjectModalOpen(true)}
+          />
+        )}
 
       {activeTab === 'project' && (
         <MediaLibraryWorkspace
@@ -193,6 +239,13 @@ export function App() {
 
       {activeTab === 'settings' && <SettingsView />}
     </AppShell>
+
+    <NewProjectModal
+      isOpen={isNewProjectModalOpen}
+      onClose={() => setIsNewProjectModalOpen(false)}
+      onCreateProject={handleCreateNewProject}
+    />
+  </>
   );
 }
 

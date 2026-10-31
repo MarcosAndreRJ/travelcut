@@ -278,7 +278,8 @@ pub struct DiscoveredFile {
 }
 
 /// Options controlling directory traversal.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct InventoryOptions {
     /// Whether to scan recursively into subdirectories.
     pub recursive: bool,
@@ -291,6 +292,7 @@ pub struct InventoryOptions {
     /// Extract deep metadata during scanning using ffprobe.
     pub extract_deep_metadata: bool,
     /// Cooperative cancellation flag.
+    #[serde(skip)]
     pub cancel_flag: Option<Arc<AtomicBool>>,
     /// Whether to sort the resulting list by modification time (chronological).
     pub sort_by_date: bool,
@@ -345,6 +347,7 @@ impl ImageFormat {
 
 /// Configuration options for thumbnail extraction.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ThumbnailOptions {
     /// Timestamp position in seconds.
     pub timestamp_secs: f64,
@@ -387,6 +390,7 @@ impl Default for ThumbnailOptions {
 
 /// Configuration options for generating filmstrip scrubber sequences.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct FilmstripOptions {
     /// Number of thumbnail frames to sample across the video duration.
     pub count: usize,
@@ -436,6 +440,7 @@ pub struct WaveformData {
 
 /// Options for audio waveform extraction.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct WaveformOptions {
     /// Desired number of data points across the file duration.
     pub target_points: usize,

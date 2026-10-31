@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Play,
   Pause,
@@ -12,10 +12,23 @@ import {
   CheckCircle2,
   Eye,
   SlidersHorizontal,
-  Video
+  Video,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import { useEditingWorkspace } from '../context/EditingContext';
 import { secondsToTimecode } from '../utils/davinciExporter';
+import { getMediaAssetUrl } from '../../../services/desktopBridge';
+import { AudioWaveformVisualizer } from '../../library/components/AudioWaveformVisualizer';
+
+// Converte string de timecode HH:MM:SS:FF para segundos
+function timecodeToSeconds(tc: string, fps: number = 30): number | null {
+  const parts = tc.trim().split(':');
+  if (parts.length !== 4) return null;
+  const [h, m, s, f] = parts.map((p) => parseInt(p, 10));
+  if (isNaN(h) || isNaN(m) || isNaN(s) || isNaN(f)) return null;
+  return h * 3600 + m * 60 + s + f / fps;
+}
 
 export const IntegratedVideoPlayer: React.FC = () => {
   const {
@@ -34,11 +47,128 @@ export const IntegratedVideoPlayer: React.FC = () => {
     activeCutId
   } = useEditingWorkspace();
 
-  const [isMuted, setIsMuted] = React.useState(false);
-  const progressBarRef = useRef<HTMLDivElement>(null);
+  const [isMuted, setIsMuted] = useState(false);
+  const [volume, setVolume] = useState<number>(90);
+  const [videoError, setVideoError] = useState(false);
+  const [isEditingTimecode, setIsEditingTimecode] = useState(false);
+  const [timecodeInput, setTimecodeInput] = useState('');
+  const [hoverTime, setHoverTime] = useState<number | null>(null);
+  const [hoverPosPercent, setHoverPosPercent] = useState<number>(0);
 
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const progressBarRef = useRef<HTMLDivElement | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  const fps = selectedAsset.frameRate || 60;
   const duration = selectedAsset.durationSec || 120;
-  const progressPercent = Math.min(100, (currentTimeSec / duration) * 100);
+  const progressPercent = duration > 0 ? Math.min(100, Math.max(0, (currentTimeSec / duration) * 100)) : 0;
+
+  // URL do asset de video para reproducao nativa
+  const mediaUrl = useMemo(() => {
+    if (selectedAsset.sourcePath) {
+      return getMediaAssetUrl(selectedAsset.sourcePath);
+    }
+    return '';
+  }, [selectedAsset.sourcePath]);
+
+  // Reseta estado de erro ao trocar de clipe selecionado
+  useEffect(() => {
+    setVideoError(false);
+  }, [selectedAsset.id, selectedAsset.sourcePath]);
+
+  // Sincroniza Play/Pause com elemento nativo <video>
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    if (isPlaying) {
+      video.play().catch((err) => {
+        console.warn('[IntegratedVideoPlayer] Falha ao reproduzir video nativo:', err);
+      });
+    } else {
+      video.pause();
+    }
+  }, [isPlaying]);
+
+  // Sincroniza volume e mudo
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    video.volume = isMuted ? 0 : volume / 100;
+    video.muted = isMuted;
+  }, [volume, isMuted]);
+
+  // Sincroniza velocidade de reproducao
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    video.playbackRate = playbackSpeed;
+  }, [playbackSpeed]);
+
+  // Sincroniza currentTime quando alterado externamente (ex: clique na timeline ou transcricao)
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    if (Math.abs(video.currentTime - currentTimeSec) > 0.3) {
+      video.currentTime = currentTimeSec;
+    }
+  }, [currentTimeSec]);
+
+  // Trata timeupdate nativo do elemento de video
+  const handleTimeUpdate = () => {
+    const video = videoRef.current;
+    if (video) {
+      seekToTime(video.currentTime);
+    }
+  };
+
+  // Funcao para avancar/recuar frames (NLE)
+  const handleStepFrames = useCallback((frames: number) => {
+    const frameSec = 1 / fps;
+    const target = Math.max(0, Math.min(duration, currentTimeSec + frames * frameSec));
+    const video = videoRef.current;
+    if (video) {
+      video.currentTime = target;
+    }
+    seekToTime(target);
+  }, [currentTimeSec, duration, fps, seekToTime]);
+
+  // Atalhos de teclado NLE (Espaco, Setas, J/K/L)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) {
+        return;
+      }
+
+      if (e.code === 'Space') {
+        e.preventDefault();
+        togglePlay();
+      } else if (e.code === 'ArrowLeft') {
+        e.preventDefault();
+        handleStepFrames(-1);
+      } else if (e.code === 'ArrowRight') {
+        e.preventDefault();
+        handleStepFrames(1);
+      } else if (e.key === 'j' || e.key === 'J') {
+        e.preventDefault();
+        const target = Math.max(0, currentTimeSec - 2);
+        seekToTime(target);
+        if (videoRef.current) videoRef.current.currentTime = target;
+      } else if (e.key === 'k' || e.key === 'K') {
+        e.preventDefault();
+        if (isPlaying) togglePlay();
+      } else if (e.key === 'l' || e.key === 'L') {
+        e.preventDefault();
+        if (!isPlaying) togglePlay();
+        setPlaybackSpeed(playbackSpeed === 1 ? 2 : playbackSpeed === 2 ? 4 : 1);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isPlaying, togglePlay, handleStepFrames, currentTimeSec, duration, playbackSpeed, setPlaybackSpeed, seekToTime]);
 
   // Check if current playhead is inside any cut zone
   const activeCutInPlayhead = selectedAsset.cutSuggestions.find(
@@ -50,11 +180,48 @@ export const IntegratedVideoPlayer: React.FC = () => {
     const rect = progressBarRef.current.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
     const ratio = Math.max(0, Math.min(1, clickX / rect.width));
-    seekToTime(ratio * duration);
+    const target = ratio * duration;
+    if (videoRef.current) {
+      videoRef.current.currentTime = target;
+    }
+    seekToTime(target);
+  };
+
+  const handleProgressMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!progressBarRef.current) return;
+    const rect = progressBarRef.current.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const ratio = Math.max(0, Math.min(1, clickX / rect.width));
+    setHoverPosPercent(ratio * 100);
+    setHoverTime(ratio * duration);
+  };
+
+  const handleProgressMouseLeave = () => {
+    setHoverTime(null);
+  };
+
+  const currentSMPTE = secondsToTimecode(currentTimeSec, fps);
+  const totalSMPTE = secondsToTimecode(duration, fps);
+
+  const handleTimecodeSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const parsed = timecodeToSeconds(timecodeInput, fps);
+    if (parsed !== null) {
+      const clamped = Math.max(0, Math.min(duration, parsed));
+      if (videoRef.current) {
+        videoRef.current.currentTime = clamped;
+      }
+      seekToTime(clamped);
+    }
+    setIsEditingTimecode(false);
   };
 
   return (
-    <div className="flex-1 flex flex-col bg-studio-bg overflow-hidden border-b border-studio-border relative">
+    <div
+      ref={containerRef}
+      className="flex-1 flex flex-col bg-studio-bg overflow-hidden border-b border-studio-border relative select-none focus:outline-none"
+      tabIndex={0}
+    >
       {/* Top Header / Mode Switcher */}
       <div className="h-10 border-b border-studio-border bg-studio-panel px-4 flex items-center justify-between">
         <div className="flex items-center space-x-3">
@@ -112,38 +279,81 @@ export const IntegratedVideoPlayer: React.FC = () => {
 
       {/* Main Video Viewport */}
       <div className="flex-1 bg-black relative flex items-center justify-center select-none overflow-hidden group">
-        {/* Mock Video Canvas with Photographic Depth */}
         <div className="w-full h-full relative flex items-center justify-center">
-          <img
-            src={selectedAsset.thumbnail}
-            alt={selectedAsset.displayName}
-            className={`w-full h-full object-cover transition-all duration-300 ${
-              activeCutInPlayhead && activeCutInPlayhead.decisionState === 'accepted' && viewModeAB !== 'before_cuts'
-                ? 'opacity-30 blur-sm grayscale'
-                : 'opacity-90'
-            }`}
-          />
+          {mediaUrl && !videoError ? (
+            <video
+              ref={videoRef}
+              src={mediaUrl}
+              preload="metadata"
+              playsInline
+              onTimeUpdate={handleTimeUpdate}
+              onError={() => {
+                console.warn('[IntegratedVideoPlayer] Fallback para thumbnail devido a erro de reproducao nativa.');
+                setVideoError(true);
+              }}
+              className={`w-full h-full object-contain transition-all duration-300 ${
+                activeCutInPlayhead && activeCutInPlayhead.decisionState === 'accepted' && viewModeAB !== 'before_cuts'
+                  ? 'opacity-30 blur-sm grayscale'
+                  : 'opacity-100'
+              }`}
+            />
+          ) : (
+            <img
+              src={selectedAsset.thumbnail}
+              alt={selectedAsset.displayName}
+              className={`w-full h-full object-cover transition-all duration-300 ${
+                activeCutInPlayhead && activeCutInPlayhead.decisionState === 'accepted' && viewModeAB !== 'before_cuts'
+                  ? 'opacity-30 blur-sm grayscale'
+                  : 'opacity-90'
+              }`}
+            />
+          )}
 
           {/* Color Grade / LUT Indicator Overlay */}
           <div className="absolute top-3 left-3 bg-black/70 backdrop-blur-md px-2.5 py-1 rounded-md border border-white/10 text-[11px] font-mono text-zinc-300 flex items-center space-x-2">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
             <span>{selectedAsset.colorProfile}</span>
             <span className="text-zinc-500">|</span>
             <span className="text-indigo-300">{selectedAsset.device}</span>
           </div>
 
-          {/* Timecode Overlay Display */}
+          {/* Timecode Overlay Display com Edicao Direta */}
           <div className="absolute top-3 right-3 bg-black/85 backdrop-blur-md px-3 py-1.5 rounded-lg border border-indigo-500/30 text-indigo-300 font-mono text-sm tracking-wider shadow-lg">
-            {secondsToTimecode(currentTimeSec, selectedAsset.frameRate)}
+            {isEditingTimecode ? (
+              <form onSubmit={handleTimecodeSubmit} className="inline-block">
+                <input
+                  type="text"
+                  value={timecodeInput}
+                  onChange={(e) => setTimecodeInput(e.target.value)}
+                  onBlur={() => setIsEditingTimecode(false)}
+                  autoFocus
+                  placeholder="HH:MM:SS:FF"
+                  className="w-28 bg-zinc-900 text-indigo-300 font-mono text-xs px-1.5 py-0.5 rounded border border-indigo-500 focus:outline-none"
+                />
+              </form>
+            ) : (
+              <span
+                onClick={() => {
+                  setTimecodeInput(currentSMPTE);
+                  setIsEditingTimecode(true);
+                }}
+                className="cursor-pointer hover:text-white"
+                title="Clique para editar Timecode SMPTE"
+              >
+                {currentSMPTE}
+              </span>
+            )}
           </div>
 
           {/* Active Cut Zone Banner */}
           {activeCutInPlayhead && (
-            <div className={`absolute bottom-4 left-1/2 -translate-x-1/2 px-4 py-2 rounded-xl backdrop-blur-md border shadow-2xl flex items-center space-x-3 transition-all animate-fade-in ${
-              activeCutInPlayhead.decisionState === 'accepted'
-                ? 'bg-red-950/90 border-red-500/50 text-red-200'
-                : 'bg-amber-950/90 border-amber-500/50 text-amber-200'
-            }`}>
+            <div
+              className={`absolute bottom-4 left-1/2 -translate-x-1/2 px-4 py-2 rounded-xl backdrop-blur-md border shadow-2xl flex items-center space-x-3 transition-all animate-fade-in ${
+                activeCutInPlayhead.decisionState === 'accepted'
+                  ? 'bg-red-950/90 border-red-500/50 text-red-200'
+                  : 'bg-amber-950/90 border-amber-500/50 text-amber-200'
+              }`}
+            >
               <Scissors className="w-4 h-4 text-amber-400 animate-bounce" />
               <div className="text-xs">
                 <span className="font-bold uppercase tracking-wider">{activeCutInPlayhead.reasonLabel}:</span>{' '}
@@ -190,23 +400,26 @@ export const IntegratedVideoPlayer: React.FC = () => {
 
       {/* Scrubber & Player Control Bar */}
       <div className="bg-studio-panel border-t border-studio-border p-3 space-y-2">
+        {/* Real Audio Waveform Visualizer */}
+        <AudioWaveformVisualizer
+          filePath={selectedAsset.sourcePath}
+          currentTimeSec={currentTimeSec}
+          durationSec={duration}
+          onSeek={(time) => {
+            if (videoRef.current) videoRef.current.currentTime = time;
+            seekToTime(time);
+          }}
+          height={28}
+        />
+
         {/* Scrubber Bar with Cut Highlights */}
         <div
           ref={progressBarRef}
           onClick={handleProgressClick}
+          onMouseMove={handleProgressMouseMove}
+          onMouseLeave={handleProgressMouseLeave}
           className="h-4 bg-studio-card rounded-md relative cursor-pointer group flex items-center border border-studio-border overflow-hidden"
         >
-          {/* Audio Waveform visualization */}
-          <div className="absolute inset-0 flex items-center justify-between px-1 pointer-events-none opacity-30">
-            {selectedAsset.waveformPoints.map((height, i) => (
-              <div
-                key={i}
-                className="w-1 bg-indigo-400 rounded-full"
-                style={{ height: `${height}%` }}
-              />
-            ))}
-          </div>
-
           {/* Cut Zones Markers */}
           {selectedAsset.cutSuggestions.map((cut) => {
             const startRatio = (cut.startSec / duration) * 100;
@@ -236,13 +449,26 @@ export const IntegratedVideoPlayer: React.FC = () => {
             className="absolute top-0 bottom-0 w-2 -ml-1 bg-white rounded-sm shadow-md pointer-events-none z-10"
             style={{ left: `${progressPercent}%` }}
           />
+
+          {/* Tooltip de Hover com Timecode */}
+          {hoverTime !== null && (
+            <div
+              style={{ left: `${hoverPosPercent}%` }}
+              className="absolute bottom-5 -translate-x-1/2 pointer-events-none bg-zinc-900 border border-zinc-700 text-white font-mono text-[10px] px-1.5 py-0.5 rounded shadow-lg z-30 whitespace-nowrap"
+            >
+              {secondsToTimecode(hoverTime, fps)}
+            </div>
+          )}
         </div>
 
         {/* Transport & Control Buttons */}
         <div className="flex items-center justify-between text-xs">
           <div className="flex items-center space-x-2">
             <button
-              onClick={() => seekToTime(0)}
+              onClick={() => {
+                if (videoRef.current) videoRef.current.currentTime = 0;
+                seekToTime(0);
+              }}
               className="p-1.5 hover:bg-studio-card rounded-md text-studio-muted hover:text-white"
               title="Voltar ao início"
             >
@@ -251,16 +477,33 @@ export const IntegratedVideoPlayer: React.FC = () => {
             <button
               onClick={togglePlay}
               className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-medium flex items-center space-x-1 shadow-glow-indigo"
+              title="Espaço"
             >
               {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
               <span>{isPlaying ? 'Pausar' : 'Reproduzir'}</span>
             </button>
 
+            {/* Frame Step Buttons */}
+            <button
+              onClick={() => handleStepFrames(-1)}
+              className="p-1.5 hover:bg-studio-card rounded-md text-studio-muted hover:text-white"
+              title="Voltar 1 Frame (Seta Esquerda)"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => handleStepFrames(1)}
+              className="p-1.5 hover:bg-studio-card rounded-md text-studio-muted hover:text-white"
+              title="Avançar 1 Frame (Seta Direita)"
+            >
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+
             {/* Time readout */}
             <div className="font-mono text-studio-text font-semibold ml-2">
-              <span>{secondsToTimecode(currentTimeSec, selectedAsset.frameRate)}</span>
+              <span>{currentSMPTE}</span>
               <span className="text-studio-subtle mx-1.5">/</span>
-              <span className="text-studio-muted">{secondsToTimecode(duration, selectedAsset.frameRate)}</span>
+              <span className="text-studio-muted">{totalSMPTE}</span>
             </div>
           </div>
 
@@ -287,6 +530,7 @@ export const IntegratedVideoPlayer: React.FC = () => {
             <button
               onClick={() => setIsMuted(!isMuted)}
               className="p-1.5 hover:bg-studio-card rounded-md text-studio-muted hover:text-white"
+              title={isMuted ? 'Desmutar' : 'Mutar'}
             >
               {isMuted ? <VolumeX className="w-4 h-4 text-red-400" /> : <Volume2 className="w-4 h-4" />}
             </button>

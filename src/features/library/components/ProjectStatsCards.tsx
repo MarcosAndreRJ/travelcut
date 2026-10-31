@@ -1,64 +1,84 @@
 import React from 'react';
-import { Video, Image, MessageSquare, Scissors } from 'lucide-react';
-
-interface StatsCardItem {
-  id: string;
-  icon: React.ComponentType<{ className?: string }>;
-  iconBg: string;
-  iconColor: string;
-  borderColor: string;
-  value: string;
-  label: string;
-  subtitle: string;
-}
-
-const STATS_DATA: StatsCardItem[] = [
-  {
-    id: 'raw-videos',
-    icon: Video,
-    iconBg: 'bg-blue-500/10',
-    iconColor: 'text-blue-400',
-    borderColor: 'border-blue-500/20',
-    value: '48',
-    label: 'Vídeos brutos',
-    subtitle: '2h 34m de gravações',
-  },
-  {
-    id: 'assets-available',
-    icon: Image,
-    iconBg: 'bg-emerald-500/10',
-    iconColor: 'text-emerald-400',
-    borderColor: 'border-emerald-500/20',
-    value: '126',
-    label: 'Assets disponíveis',
-    subtitle: 'Vídeos, músicas, imagens',
-  },
-  {
-    id: 'transcription-generated',
-    icon: MessageSquare,
-    iconBg: 'bg-cyan-500/10',
-    iconColor: 'text-cyan-400',
-    borderColor: 'border-cyan-500/20',
-    value: '42min',
-    label: 'Transcrição gerada',
-    subtitle: 'Word timestamps (large-v3)',
-  },
-  {
-    id: 'suggested-cuts',
-    icon: Scissors,
-    iconBg: 'bg-purple-500/10',
-    iconColor: 'text-purple-400',
-    borderColor: 'border-purple-500/20',
-    value: '87',
-    label: 'Cortes sugeridos',
-    subtitle: '12 para revisão',
-  },
-];
+import { Video, HardDrive, Clock, Film } from 'lucide-react';
+import { useProject } from '../../../contexts/ProjectContext';
 
 export const ProjectStatsCards: React.FC = () => {
+  const { project } = useProject();
+  const clips = project.clips || [];
+
+  const rawVideosCount = clips.length;
+  const totalDurationSec = clips.reduce((acc, c) => acc + (c.durationSec || 0), 0);
+  const totalHours = Math.floor(totalDurationSec / 3600);
+  const totalMinutes = Math.floor((totalDurationSec % 3600) / 60);
+  const durationText =
+    totalHours > 0
+      ? `${totalHours}h ${totalMinutes}m de gravacoes`
+      : `${totalMinutes}m de gravacoes`;
+
+  const totalBytes = clips.reduce((acc, c) => acc + (c.fileSize || 0), 0);
+  const totalGB = (totalBytes / (1024 * 1024 * 1024)).toFixed(1);
+  const totalMB = (totalBytes / (1024 * 1024)).toFixed(0);
+  const spaceText =
+    totalBytes > 1024 * 1024 * 1024
+      ? `${totalGB} GB em disco`
+      : totalBytes > 0
+      ? `${totalMB} MB em disco`
+      : 'Calculando tamanho';
+
+  const resolutionCounts: Record<string, number> = {};
+  clips.forEach((c) => {
+    const res = c.resolution || 'HD';
+    resolutionCounts[res] = (resolutionCounts[res] || 0) + 1;
+  });
+  const mainResolution =
+    Object.entries(resolutionCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || '1080p';
+
+  const statsItems = [
+    {
+      id: 'raw-videos',
+      icon: Video,
+      iconBg: 'bg-blue-500/10',
+      iconColor: 'text-blue-400',
+      borderColor: 'border-blue-500/20',
+      value: String(rawVideosCount),
+      label: 'Videos brutos',
+      subtitle: durationText,
+    },
+    {
+      id: 'disk-usage',
+      icon: HardDrive,
+      iconBg: 'bg-emerald-500/10',
+      iconColor: 'text-emerald-400',
+      borderColor: 'border-emerald-500/20',
+      value: totalBytes > 1024 * 1024 * 1024 ? `${totalGB} GB` : `${totalMB} MB`,
+      label: 'Espaco em disco',
+      subtitle: spaceText,
+    },
+    {
+      id: 'total-duration',
+      icon: Clock,
+      iconBg: 'bg-cyan-500/10',
+      iconColor: 'text-cyan-400',
+      borderColor: 'border-cyan-500/20',
+      value: `${totalMinutes} min`,
+      label: 'Duracao total',
+      subtitle: `${totalDurationSec}s consolidados`,
+    },
+    {
+      id: 'dominant-format',
+      icon: Film,
+      iconBg: 'bg-purple-500/10',
+      iconColor: 'text-purple-400',
+      borderColor: 'border-purple-500/20',
+      value: mainResolution,
+      label: 'Resolucao principal',
+      subtitle: `${rawVideosCount} arquivos indexados`,
+    },
+  ];
+
   return (
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-      {STATS_DATA.map((item) => {
+      {statsItems.map((item) => {
         const IconComponent = item.icon;
         return (
           <div

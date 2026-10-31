@@ -8,7 +8,9 @@ import {
   Sparkles,
   Camera,
   MapPin,
-  Clock
+  Clock,
+  ChevronDown,
+  Check
 } from 'lucide-react';
 import { LibraryClip, MediaFilterCategory, ViewMode } from '../types';
 
@@ -17,17 +19,29 @@ interface MediaGridProps {
   selectedClipId: string;
   onSelectClip: (clip: LibraryClip) => void;
   onOpenClipMenu?: (clip: LibraryClip, e: React.MouseEvent) => void;
+  onUpdateClipCategory?: (clipId: string, newCategory: LibraryClip['category']) => void;
 }
+
+const CATEGORY_OPTIONS: LibraryClip['category'][] = [
+  'Conversa',
+  'Drone',
+  'Paisagem',
+  'Deslocamento',
+  'B-roll',
+  'Outros'
+];
 
 export const MediaGrid: React.FC<MediaGridProps> = ({
   clips,
   selectedClipId,
   onSelectClip,
-  onOpenClipMenu
+  onOpenClipMenu,
+  onUpdateClipCategory
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<MediaFilterCategory>('Todos');
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
+  const [activeCategoryMenuClipId, setActiveCategoryMenuClipId] = useState<string | null>(null);
 
   // Filter counts
   const counts = {
@@ -40,12 +54,12 @@ export const MediaGrid: React.FC<MediaGridProps> = ({
   };
 
   const categories: { label: MediaFilterCategory; count: number }[] = [
-    { label: 'Todos', count: counts.Todos || 48 },
-    { label: 'Conversas', count: counts.Conversas || 18 },
-    { label: 'Paisagens', count: counts.Paisagens || 12 },
-    { label: 'Deslocamentos', count: counts.Deslocamentos || 8 },
-    { label: 'Drone', count: counts.Drone || 6 },
-    { label: 'Outros', count: counts.Outros || 4 },
+    { label: 'Todos', count: counts.Todos },
+    { label: 'Conversas', count: counts.Conversas },
+    { label: 'Paisagens', count: counts.Paisagens },
+    { label: 'Deslocamentos', count: counts.Deslocamentos },
+    { label: 'Drone', count: counts.Drone },
+    { label: 'Outros', count: counts.Outros },
   ];
 
   const filteredClips = clips.filter((clip) => {
@@ -79,6 +93,27 @@ export const MediaGrid: React.FC<MediaGridProps> = ({
       case 'B-roll':
       default:
         return 'bg-yellow-500/20 text-yellow-300 border-yellow-500/40';
+    }
+  };
+
+  const getSegmentColorClass = (category: string) => {
+    switch (category) {
+      case 'speech':
+      case 'Conversa':
+        return 'bg-emerald-500';
+      case 'drone':
+      case 'Drone':
+        return 'bg-purple-500';
+      case 'road_trip':
+      case 'Deslocamento':
+        return 'bg-sky-500';
+      case 'landscape':
+      case 'Paisagem':
+        return 'bg-amber-500';
+      case 'broll':
+      case 'B-roll':
+      default:
+        return 'bg-yellow-500';
     }
   };
 
@@ -169,8 +204,22 @@ export const MediaGrid: React.FC<MediaGridProps> = ({
         })}
       </div>
 
-      {/* Media Grid / List */}
-      {viewMode === 'grid' ? (
+      {/* Media Grid / List / Empty State */}
+      {filteredClips.length === 0 ? (
+        <div className="py-12 px-4 text-center rounded-xl bg-slate-900/40 border border-dashed border-slate-800 text-slate-400 flex flex-col items-center justify-center space-y-3">
+          <div className="p-3 rounded-full bg-slate-800/80 text-slate-400">
+            <Camera className="w-8 h-8" />
+          </div>
+          <div>
+            <h3 className="text-base font-semibold text-slate-200">Nenhum clipe de vídeo encontrado</h3>
+            <p className="text-xs text-slate-400 mt-1 max-w-md">
+              {clips.length === 0
+                ? 'Este projeto ainda não possui mídias importadas. Selecione uma pasta de vídeos ou importe arquivos para iniciar o inventário e a análise com IA.'
+                : 'Nenhum clipe corresponde aos filtros ou busca selecionados.'}
+            </p>
+          </div>
+        </div>
+      ) : viewMode === 'grid' ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {filteredClips.map((clip) => {
             const isSelected = clip.id === selectedClipId;
@@ -197,15 +246,58 @@ export const MediaGrid: React.FC<MediaGridProps> = ({
                   {/* Gradient Overlay */}
                   <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-slate-950/30 pointer-events-none" />
 
-                  {/* Top Category Badge */}
-                  <div className="absolute top-2 left-2 flex items-center space-x-1">
-                    <span
-                      className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border shadow-sm ${getCategoryBadgeClass(
+                  {/* Top Category Badge & Quick Menu */}
+                  <div className="absolute top-2 left-2 flex items-center space-x-1 z-20">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActiveCategoryMenuClipId(
+                          activeCategoryMenuClipId === clip.id ? null : clip.id
+                        );
+                      }}
+                      className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border shadow-sm flex items-center space-x-1 hover:brightness-110 transition-all ${getCategoryBadgeClass(
                         clip.category
                       )}`}
+                      title="Clique para reclassificar a tomada"
                     >
-                      {clip.category}
-                    </span>
+                      <span>{clip.category}</span>
+                      {clip.isUserOverridden && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400" title="Classificação personalizada pelo usuário" />
+                      )}
+                      <ChevronDown className="w-2.5 h-2.5 opacity-70" />
+                    </button>
+
+                    {/* Dropdown Menu */}
+                    {activeCategoryMenuClipId === clip.id && (
+                      <div
+                        className="absolute top-6 left-0 z-30 bg-slate-900 border border-slate-700 rounded-lg shadow-2xl py-1 w-36 text-xs backdrop-blur-md"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="px-2 py-1 text-[9px] uppercase tracking-wider text-slate-400 font-bold border-b border-slate-800">
+                          Reclassificar
+                        </div>
+                        {CATEGORY_OPTIONS.map((cat) => (
+                          <button
+                            key={cat}
+                            type="button"
+                            onClick={() => {
+                              onUpdateClipCategory?.(clip.id, cat);
+                              setActiveCategoryMenuClipId(null);
+                            }}
+                            className={`w-full px-2 py-1 text-left flex items-center justify-between hover:bg-slate-800 transition-colors ${
+                              clip.category === cat ? 'text-blue-400 font-semibold' : 'text-slate-300'
+                            }`}
+                          >
+                            <span className="flex items-center space-x-1.5">
+                              <span className={`w-2 h-2 rounded-full ${getSegmentColorClass(cat)}`} />
+                              <span>{cat}</span>
+                            </span>
+                            {clip.category === cat && <Check className="w-3 h-3 text-blue-400" />}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
                   {/* Duration Pill Bottom Right */}
@@ -219,6 +311,33 @@ export const MediaGrid: React.FC<MediaGridProps> = ({
                       <Play className="w-4 h-4 ml-0.5 fill-current" />
                     </div>
                   </div>
+                </div>
+
+                {/* Mini Temporal Segment Bar */}
+                <div
+                  className="w-full h-1.5 bg-slate-950 flex overflow-hidden border-b border-slate-800/60"
+                  title="Distribuição temporal dos segmentos classificados"
+                >
+                  {clip.segments && clip.segments.length > 0 ? (
+                    clip.segments.map((seg, idx) => {
+                      const segDuration = Math.max(0.1, seg.endSec - seg.startSec);
+                      const totalDuration = clip.durationSec || 30;
+                      const segWidth = (segDuration / totalDuration) * 100;
+                      return (
+                        <div
+                          key={seg.id || idx}
+                          className={`${getSegmentColorClass(seg.category)} h-full transition-opacity hover:opacity-80`}
+                          style={{ width: `${Math.max(1.5, segWidth)}%` }}
+                          title={`${seg.category}: ${seg.startSec.toFixed(1)}s - ${seg.endSec.toFixed(1)}s (${Math.round(seg.confidence * 100)}%)`}
+                        />
+                      );
+                    })
+                  ) : (
+                    <div
+                      className={`w-full h-full ${getSegmentColorClass(clip.category)}`}
+                      title={clip.category}
+                    />
+                  )}
                 </div>
 
                 {/* Waveform Strip */}
@@ -281,7 +400,7 @@ export const MediaGrid: React.FC<MediaGridProps> = ({
                 }`}
               >
                 <div className="flex items-center space-x-3 min-w-0">
-                  <div className="w-16 h-10 rounded bg-slate-950 overflow-hidden relative shrink-0">
+                  <div className="w-16 h-10 rounded bg-slate-950 overflow-hidden relative shrink-0 flex flex-col">
                     <img
                       src={clip.thumbnail}
                       alt={clip.title}
@@ -305,13 +424,56 @@ export const MediaGrid: React.FC<MediaGridProps> = ({
                 </div>
 
                 <div className="flex items-center space-x-4 shrink-0 text-xs text-slate-400">
-                  <span
-                    className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${getCategoryBadgeClass(
-                      clip.category
-                    )}`}
-                  >
-                    {clip.category}
-                  </span>
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActiveCategoryMenuClipId(
+                          activeCategoryMenuClipId === `list_${clip.id}` ? null : `list_${clip.id}`
+                        );
+                      }}
+                      className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border flex items-center space-x-1 hover:brightness-110 ${getCategoryBadgeClass(
+                        clip.category
+                      )}`}
+                    >
+                      <span>{clip.category}</span>
+                      {clip.isUserOverridden && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                      )}
+                      <ChevronDown className="w-2.5 h-2.5 opacity-70" />
+                    </button>
+
+                    {activeCategoryMenuClipId === `list_${clip.id}` && (
+                      <div
+                        className="absolute right-0 top-6 z-30 bg-slate-900 border border-slate-700 rounded-lg shadow-2xl py-1 w-36 text-xs backdrop-blur-md"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="px-2 py-1 text-[9px] uppercase tracking-wider text-slate-400 font-bold border-b border-slate-800">
+                          Reclassificar
+                        </div>
+                        {CATEGORY_OPTIONS.map((cat) => (
+                          <button
+                            key={cat}
+                            type="button"
+                            onClick={() => {
+                              onUpdateClipCategory?.(clip.id, cat);
+                              setActiveCategoryMenuClipId(null);
+                            }}
+                            className={`w-full px-2 py-1 text-left flex items-center justify-between hover:bg-slate-800 transition-colors ${
+                              clip.category === cat ? 'text-blue-400 font-semibold' : 'text-slate-300'
+                            }`}
+                          >
+                            <span className="flex items-center space-x-1.5">
+                              <span className={`w-2 h-2 rounded-full ${getSegmentColorClass(cat)}`} />
+                              <span>{cat}</span>
+                            </span>
+                            {clip.category === cat && <Check className="w-3 h-3 text-blue-400" />}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
 
                   <span className="hidden md:inline font-mono text-[11px] text-slate-400">
                     {clip.resolution}

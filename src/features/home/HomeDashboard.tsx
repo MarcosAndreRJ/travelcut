@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ProjectHeroCard } from './components/ProjectHeroCard';
 import { FolderCardsGrid } from './components/FolderCardsGrid';
 import { PipelineStepper } from './components/PipelineStepper';
@@ -7,6 +7,7 @@ import { QuickActionsCard } from './components/QuickActionsCard';
 import { ToolStatusCard } from './components/ToolStatusCard';
 import { RecentActivityCard } from './components/RecentActivityCard';
 import { initialHomeData } from './data/homeMockData';
+import { useProject } from '../../contexts/ProjectContext';
 import {
   HomeDashboardData,
   ProjectFolder,
@@ -21,6 +22,7 @@ export interface HomeDashboardProps {
   initialData?: HomeDashboardData;
   onNavigateToTab?: (tab: string) => void;
   onOpenFolder?: (path: string) => void;
+  onNewProject?: () => void;
   onStartAnalysis?: () => void;
   onMediaSelect?: (media: MediaAnalysisItem) => void;
   className?: string;
@@ -30,12 +32,28 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   initialData = initialHomeData,
   onNavigateToTab,
   onOpenFolder,
+  onNewProject,
   onStartAnalysis,
   onMediaSelect,
   className = '',
 }) => {
+  const { project, openFolderDialogAndLoad, renameProject, isScanning } = useProject();
   const [data, setData] = useState<HomeDashboardData>(initialData);
   const [notification, setNotification] = useState<string | null>(null);
+
+  // Sync with global ProjectContext state
+  useEffect(() => {
+    setData((prev) => ({
+      ...prev,
+      project: {
+        ...prev.project,
+        name: project.name,
+        folderPath: project.folderPath,
+        videoCount: project.mediaCount,
+        totalDuration: `${Math.floor(project.totalDurationSeconds / 60)}m ${Math.floor(project.totalDurationSeconds % 60)}s`,
+      },
+    }));
+  }, [project.name, project.folderPath, project.mediaCount, project.totalDurationSeconds]);
 
   const showNotification = (msg: string) => {
     setNotification(msg);
@@ -45,6 +63,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   };
 
   const handleEditTitle = (newTitle: string) => {
+    renameProject(newTitle);
     setData((prev) => ({
       ...prev,
       project: {
@@ -55,11 +74,15 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
     showNotification(`Nome do projeto atualizado para "${newTitle}"`);
   };
 
-  const handleOpenProjectFolder = () => {
+  const handleOpenProjectFolder = async () => {
     if (onOpenFolder) {
       onOpenFolder(data.project.folderPath);
     } else {
-      showNotification(`Abrindo pasta: ${data.project.folderPath}`);
+      showNotification('Abrindo seletor nativo de pasta...');
+      const selected = await openFolderDialogAndLoad();
+      if (selected) {
+        showNotification(`Pasta carregada com sucesso: ${selected}`);
+      }
     }
   };
 
@@ -130,6 +153,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
         <ProjectHeroCard
           project={data.project}
           onOpenFolder={handleOpenProjectFolder}
+          onNewProject={onNewProject}
           onEditTitle={handleEditTitle}
           onMoreOptions={() => showNotification('Opções avançadas do projeto')}
         />

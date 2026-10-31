@@ -60,32 +60,38 @@ export const RecentActivityCard: React.FC<RecentActivityCardProps> = ({
         </button>
       </div>
 
-      {/* Activity List */}
-      <div className="divide-y divide-slate-800/60">
-        {activities.map((activity) => (
-          <div
-            key={activity.id}
-            onClick={() => onActivityClick?.(activity)}
-            className="py-2.5 first:pt-0 last:pb-0 flex items-center justify-between gap-3 group cursor-pointer hover:bg-slate-800/30 px-1 rounded-lg transition-colors"
-          >
-            <div className="flex items-center gap-3 min-w-0">
-              {renderIcon(activity.type)}
-              <div className="min-w-0">
-                <div className="text-xs md:text-sm font-semibold text-slate-200 group-hover:text-white transition-colors truncate">
-                  {activity.title}
-                </div>
-                <div className="text-[11px] text-slate-400 truncate mt-0.5">
-                  {activity.description}
+      {/* Activity List or Empty State */}
+      {activities.length === 0 ? (
+        <div className="py-6 px-3 text-center rounded-xl bg-slate-900/40 border border-dashed border-slate-800 text-slate-400 text-xs">
+          Nenhuma atividade registrada no momento. As ações de escaneamento, transcrição e cortes aparecerão aqui.
+        </div>
+      ) : (
+        <div className="divide-y divide-slate-800/60">
+          {activities.map((activity) => (
+            <div
+              key={activity.id}
+              onClick={() => onActivityClick?.(activity)}
+              className="py-2.5 first:pt-0 last:pb-0 flex items-center justify-between gap-3 group cursor-pointer hover:bg-slate-800/30 px-1 rounded-lg transition-colors"
+            >
+              <div className="flex items-center gap-3 min-w-0">
+                {renderIcon(activity.type)}
+                <div className="min-w-0">
+                  <div className="text-xs md:text-sm font-semibold text-slate-200 group-hover:text-white transition-colors truncate">
+                    {activity.title}
+                  </div>
+                  <div className="text-[11px] text-slate-400 truncate mt-0.5">
+                    {activity.description}
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <span className="text-[11px] text-slate-500 shrink-0 font-medium">
-              {activity.timestamp}
-            </span>
-          </div>
-        ))}
-      </div>
+              <span className="text-[11px] text-slate-500 shrink-0 font-medium">
+                {activity.timestamp}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 };

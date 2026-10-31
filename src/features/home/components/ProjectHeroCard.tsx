@@ -10,12 +10,14 @@ import {
   MoreHorizontal,
   Check,
   X,
+  PlusCircle,
 } from 'lucide-react';
 import { ProjectInfo } from '../types';
 
 interface ProjectHeroCardProps {
   project: ProjectInfo;
   onOpenFolder?: () => void;
+  onNewProject?: () => void;
   onEditTitle?: (newTitle: string) => void;
   onMoreOptions?: () => void;
 }
@@ -23,6 +25,7 @@ interface ProjectHeroCardProps {
 export const ProjectHeroCard: React.FC<ProjectHeroCardProps> = ({
   project,
   onOpenFolder,
+  onNewProject,
   onEditTitle,
   onMoreOptions,
 }) => {
@@ -151,7 +154,18 @@ export const ProjectHeroCard: React.FC<ProjectHeroCardProps> = ({
         </div>
 
         {/* Right Side: Actions */}
-        <div className="flex items-center gap-2.5 shrink-0">
+        <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
+          {onNewProject && (
+            <button
+              type="button"
+              onClick={onNewProject}
+              className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-xl text-xs md:text-sm font-semibold shadow-lg shadow-blue-600/30 transition-all active:scale-[0.98]"
+            >
+              <PlusCircle size={16} />
+              <span>Novo Projeto</span>
+            </button>
+          )}
+
           <button
             type="button"
             onClick={onOpenFolder}

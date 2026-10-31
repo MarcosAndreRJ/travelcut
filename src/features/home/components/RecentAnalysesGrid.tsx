@@ -44,52 +44,58 @@ export const RecentAnalysesGrid: React.FC<RecentAnalysesGridProps> = ({
         </button>
       </div>
 
-      {/* Grid of 4 Analysis Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {analyses.map((item) => (
-          <div
-            key={item.id}
-            onClick={() => onItemClick?.(item)}
-            className="group cursor-pointer p-2.5 rounded-xl bg-slate-900/60 hover:bg-slate-800/80 border border-slate-800/80 hover:border-slate-700 transition-all duration-200 flex flex-col justify-between"
-          >
-            {/* Thumbnail */}
-            <div className="relative aspect-video w-full rounded-lg overflow-hidden bg-slate-800">
-              <img
-                src={item.thumbnailUrl}
-                alt={item.filename}
-                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent pointer-events-none" />
+      {/* Grid of Analysis Cards or Empty State */}
+      {analyses.length === 0 ? (
+        <div className="py-8 px-4 text-center rounded-xl bg-slate-900/40 border border-dashed border-slate-800 text-slate-400 text-sm">
+          Nenhuma análise de vídeo realizada ainda. Importe vídeos para que a IA processe a categorização e metadados.
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {analyses.map((item) => (
+            <div
+              key={item.id}
+              onClick={() => onItemClick?.(item)}
+              className="group cursor-pointer p-2.5 rounded-xl bg-slate-900/60 hover:bg-slate-800/80 border border-slate-800/80 hover:border-slate-700 transition-all duration-200 flex flex-col justify-between"
+            >
+              {/* Thumbnail */}
+              <div className="relative aspect-video w-full rounded-lg overflow-hidden bg-slate-800">
+                <img
+                  src={item.thumbnailUrl}
+                  alt={item.filename}
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent pointer-events-none" />
 
-              {/* Status Badge in corner */}
-              <div className="absolute bottom-2 left-2 w-5 h-5 rounded-full bg-emerald-500 text-slate-950 flex items-center justify-center shadow-md">
-                <Check size={13} strokeWidth={3} />
+                {/* Status Badge in corner */}
+                <div className="absolute bottom-2 left-2 w-5 h-5 rounded-full bg-emerald-500 text-slate-950 flex items-center justify-center shadow-md">
+                  <Check size={13} strokeWidth={3} />
+                </div>
+              </div>
+
+              {/* Content Details */}
+              <div className="pt-2.5 pb-1">
+                <h4 className="font-semibold text-sm text-white truncate group-hover:text-cyan-300 transition-colors">
+                  {item.filename}
+                </h4>
+                <p className="text-xs text-slate-400 font-medium mt-0.5">
+                  {item.duration} • {item.resolution} • {item.device}
+                </p>
+
+                {/* Category Pill Tag */}
+                <div className="mt-2.5">
+                  <span
+                    className={`inline-block px-2.5 py-0.5 text-[11px] font-medium rounded-full border ${getBadgeStyle(
+                      item.categoryTheme
+                    )}`}
+                  >
+                    {item.categoryLabel}
+                  </span>
+                </div>
               </div>
             </div>
-
-            {/* Content Details */}
-            <div className="pt-2.5 pb-1">
-              <h4 className="font-semibold text-sm text-white truncate group-hover:text-cyan-300 transition-colors">
-                {item.filename}
-              </h4>
-              <p className="text-xs text-slate-400 font-medium mt-0.5">
-                {item.duration} • {item.resolution} • {item.device}
-              </p>
-
-              {/* Category Pill Tag */}
-              <div className="mt-2.5">
-                <span
-                  className={`inline-block px-2.5 py-0.5 text-[11px] font-medium rounded-full border ${getBadgeStyle(
-                    item.categoryTheme
-                  )}`}
-                >
-                  {item.categoryLabel}
-                </span>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 };

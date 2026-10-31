@@ -5,7 +5,8 @@ import {
   Folder,
   Minus,
   Square,
-  X
+  X,
+  Plus
 } from 'lucide-react';
 
 export interface AppShellProps {
@@ -13,6 +14,7 @@ export interface AppShellProps {
   onTabChange: (tab: NavigationTab) => void;
   projectName?: string;
   projectPath?: string;
+  onNewProject?: () => void;
   onQuickImport?: () => void;
   onQuickExport?: () => void;
   timelineVisible?: boolean;
@@ -26,6 +28,7 @@ export const AppShell: React.FC<AppShellProps> = ({
   onTabChange,
   projectName = 'Viagem – Boa Vista',
   projectPath = 'D:\\Videos\\Viagem_BoaVista',
+  onNewProject,
   timelineVisible = false,
   timelineSlot,
   children
@@ -64,12 +67,25 @@ export const AppShell: React.FC<AppShellProps> = ({
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden relative">
         {/* Top Desktop Window Bar matching 01_Painel_Inicial.png */}
         <header className="h-12 border-b border-slate-800/80 bg-[#0a0e17] px-4 flex items-center justify-between shrink-0 z-20">
-          {/* Left: Active Project Folder Path */}
-          <div className="flex items-center space-x-2.5 text-xs text-slate-300 min-w-0">
-            <Folder size={15} className="text-cyan-400 shrink-0" />
-            <span className="font-mono text-[12px] text-slate-300 truncate hover:text-white transition-colors cursor-pointer" title={projectPath}>
-              {projectPath}
-            </span>
+          {/* Left: Active Project Folder Path & New Project Action */}
+          <div className="flex items-center space-x-3 text-xs text-slate-300 min-w-0">
+            {onNewProject && (
+              <button
+                type="button"
+                onClick={onNewProject}
+                className="flex items-center space-x-1.5 px-2.5 py-1 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 hover:text-blue-300 border border-blue-500/30 rounded-lg text-xs font-medium transition-colors shrink-0"
+                title="Criar ou carregar novo projeto"
+              >
+                <Plus size={13} />
+                <span>Novo Projeto</span>
+              </button>
+            )}
+            <div className="flex items-center space-x-2 min-w-0">
+              <Folder size={15} className="text-cyan-400 shrink-0" />
+              <span className="font-mono text-[12px] text-slate-300 truncate hover:text-white transition-colors cursor-pointer" title={projectPath}>
+                {projectPath || 'Nenhuma pasta selecionada'}
+              </span>
+            </div>
           </div>
 
           {/* Right: User Avatar + Window Controls */}
