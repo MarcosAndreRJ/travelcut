@@ -450,6 +450,13 @@ Validação: git ls-remote e clone novo (acima).
 Observação: o diretório local K:\Trabalho\Projetos\TravelCutStudio continua SEM .git; a fonte de verdade versionada passa a ser o clone K:\Trabalho\Integracao\travelcut (ou um novo clone). Backup em K:\Trabalho\Backups\TravelCutStudio-src-20261103T105458Z.tar.gz mantido.
 Próximo: commit deste registro (progresso/) e push.
 
+[2026-11-03 08:57 -03:00] CONSOLIDACAO-GIT | orchestrator (Opus 5.5) | FEITO
+Ação: A pedido do usuário, verificação da pasta original após mexidas manuais: ela tinha virado um repositório Git separado (commit único f5305e5 'first commit' só com README.md, enviado a outro remoto antes de o origin ser trocado para travelcut; 492 arquivos staged). GitHub travelcut intacto (git ls-remote: main=339a4e1). Conteúdo idêntico à main publicada, exceto .gitignore (local sem 28 regras herdadas) e 7 arquivos históricos só no remoto. Correção aprovada pelo usuário: .git renomeado para .git.bak-20261103T085703 (preserva f5305e5); git init -b main + remote origin travelcut + fetch + git reset (mixed, só índice) para origin/main + upstream; git restore de .gitignore (superset) e dos 7 arquivos históricos; .git.bak-*/ em .git/info/exclude.
+Arquivos: .git (recriado), .gitignore, docs/PHASE_01_INTEGRATION_GUIDE.md, images/* (restaurados do remoto); progresso/{STATE,IMPLEMENTATION_LOG}.md
+Validação: git status -sb limpo antes desta entrada; HEAD = origin/main = 339a4e1 (ls-remote).
+Observação: o clone K:\Trabalho\Integracao\travelcut deixa de ser necessário. O 'first commit' foi enviado a outro repositório do usuário (URL não registrada no .git) — conferir lá. Esta entrada e o STATE ficam como alteração local até o usuário decidir commit/push.
+Próximo: decisão do usuário sobre commit/push deste registro.
+
 ## Modelo de entrada (copiar preenchendo com dados reais)
 
 ```text
