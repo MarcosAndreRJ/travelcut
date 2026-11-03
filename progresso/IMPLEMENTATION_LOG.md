@@ -443,6 +443,13 @@ Validação: comandos acima.
 Observação: teste intermitente registrado como pendência (docs/23). Nada homologado no host.
 Próximo: commit, merge na main, push sem force.
 
+[2026-11-03 08:09 -03:00] CONSOLIDACAO-GIT | orchestrator (Opus 5.5) | FEITO
+Ação: Etapas 8–12. Commits na branch de integração: 958a22e 'chore: retire legacy React prototype from repository root' (47 arquivos removidos do estado atual) e fae26b2 'feat: consolidate TravelCut Studio .NET 10 desktop MVP' (493 arquivos). git fetch: origin/main inalterada (a065f9c). Merge explícito --no-ff na main: 476ba5c 'merge: consolidate .NET 10 implementation into main'; árvore da main = árvore testada (6061faa3109b766fb0e52f80d235c38cb1bed0d2). Push sem force: branch integration/travelcut-dotnet10-consolidation publicada (nova) e main a065f9c..476ba5c aceita (sem proteção de branch bloqueando). Verificação: git ls-remote → refs/heads/main = 476ba5c092842025f3dc4ab8f55a5c66a5e9b5b1; clone novo independente em K:\Trabalho\Integracao\verificacao-remota: HEAD 476ba5c, árvore 6061faa, 500 arquivos, 9 .csproj, 9 agentes, 11 skills, solução/Desktop/MCP/ResolveBridge/bridge Python/frontend+lockfile/testes/CLAUDE.md/README/scripts/progresso/docs presentes, 0 arquivos proibidos; histórico anterior preservado (13 commits na main; package.json antigo legível em a065f9c); branches release/desktop-host-test e setup/project-init intactas; nenhuma tag existia nem foi criada.
+Arquivos: repositório remoto MarcosAndreRJ/travelcut
+Validação: git ls-remote e clone novo (acima).
+Observação: o diretório local K:\Trabalho\Projetos\TravelCutStudio continua SEM .git; a fonte de verdade versionada passa a ser o clone K:\Trabalho\Integracao\travelcut (ou um novo clone). Backup em K:\Trabalho\Backups\TravelCutStudio-src-20261103T105458Z.tar.gz mantido.
+Próximo: commit deste registro (progresso/) e push.
+
 ## Modelo de entrada (copiar preenchendo com dados reais)
 
 ```text

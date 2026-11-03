@@ -110,6 +110,8 @@
   - [ ] F11.4 — Orquestrador reproduz falhas reais com fixtures na VM, corrige, regressão, novo pacote; iterar.
   - [ ] F11.5 — Critérios do MVP (`docs/13`) com evidência real → `HOST_VALIDADO`; senão relatório **MVP SIMULADO / HOST PENDENTE**.
 
+- [x] GIT — Consolidação do código no GitHub `MarcosAndreRJ/travelcut` (2026-11-03): código auditado ✔; versionado/commitado ✔ (958a22e, fae26b2); branch `integration/travelcut-dotnet10-consolidation` publicada ✔; merge `--no-ff` na `main` ✔ (476ba5c); push na `main` confirmado por `git ls-remote` e clone novo ✔. Sem force push, sem reescrita de histórico, tags/branches antigas intactas. Pendente: diretório local original sem `.git` (trabalhar a partir do clone); falha intermitente de 1 teste não identificada (1 de 6 rodadas).
+
 ## Regras de atualização
 
 Antes de começar uma fase, desdobrar o item em microtarefas com paths/testes; marcar `[x]` apenas após evidência objetiva e entrada correspondente em `IMPLEMENTATION_LOG.md`. Não transformar `host_pending` em `host_pass` sem resultado do host.
