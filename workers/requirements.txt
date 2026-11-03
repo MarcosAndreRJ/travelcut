@@ -1,0 +1,5 @@
+# Dependências do worker Whisper (ambiente isolado em workers/.venv).
+# Não instalar globalmente. Ver workers/README.md.
+# Versão fixada do openai-whisper: confirmar no host antes de atualizar.
+openai-whisper==20240930
+# torch NÃO é fixado aqui: escolher a build CPU ou CUDA conforme README.

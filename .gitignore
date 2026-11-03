@@ -1,55 +1,73 @@
-# Dependencies
+# Artefatos de build e pacote de teste (gerados por scripts/release/Build-Release.ps1)
+dist/
+
+# Saidas de build .NET e Node (nao versionar)
+bin/
+obj/
+frontend/node_modules/
+frontend/dist/
+.vs/
+*.user
+*.suo
+TestResults/
+
+# Ambientes isolados de workers (Python) e pesos de modelo
+workers/.venv/
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pt
+*.pth
+*.safetensors
+*.ggml
+*.gguf
+
+# Midia, bancos e dados de usuario (nunca versionar)
+*.mp4
+*.mov
+*.mxf
+*.braw
+*.insv
+*.wav
+*.mp3
+*.db
+*.db-wal
+*.db-shm
+*.tcpart
+*.drp
+tools/host-validation/davinci/evidencias/
+**/evidencias/
+
+# Segredos e configuracao local de MCP
+.mcp.json
+.env
+.env.*
+
+# Herdado do .gitignore anterior (app React/Tauri) — mantido por segurança
 node_modules/
 .pnp
 .pnp.js
 .vite/
-
-# Production build artifacts
-dist/
 dist-ssr/
 build/
 *.local
-
-# Rust / Cargo / Tauri build outputs
 target/
 .xwin-cache/
 src-tauri/target/
-
-# TypeScript
 *.tsbuildinfo
 .eslintcache
-
-# Logs
-logs
+logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# Environment variables
-.env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
-
-# Operating System files
-Thumbs.db
-Thumbs.db:encryptable
-ehthumbs.db
-ehthumbs_vista.db
-*.stackdump
-Desktop.ini
-$RECYCLE.BIN/
-.DS_Store
-.AppleDouble
-.LSOverride
-
-# IDE / Editor
-.idea/
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
+# Pacotes de distribuição e executáveis
+*.zip
+*.zip.sha256
+*.exe
+*.msi
+*.dll
+*.pdb

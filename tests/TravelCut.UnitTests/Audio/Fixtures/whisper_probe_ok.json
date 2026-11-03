@@ -1,0 +1,1 @@
+{"protocol":"travelcut.whisper","version":1,"requestId":"__REQ__","ok":true,"result":{"python":"3.11.9","whisperInstalled":true,"whisperVersion":"20240930","cuda":false,"device":"cpu","ffmpegOnPath":true,"defaultModel":"large-v3","modelCached":true}}

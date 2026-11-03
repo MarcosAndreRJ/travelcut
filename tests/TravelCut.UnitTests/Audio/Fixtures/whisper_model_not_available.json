@@ -1,0 +1,1 @@
+{"protocol":"travelcut.whisper","version":1,"requestId":"__REQ__","ok":false,"error":{"code":"model_not_available","message":"Modelo 'large-v3' não está instalado no cache local. O worker não baixa modelos automaticamente."}}

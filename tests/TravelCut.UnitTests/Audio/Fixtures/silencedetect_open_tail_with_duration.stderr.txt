@@ -1,0 +1,8 @@
+ffmpeg started on pid 4243
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'clip.mp4':
+  Duration: 00:01:00.04, start: 0.000000, bitrate: 1020 kb/s
+Output #0, null, to 'pipe:':
+[silencedetect @ 0x55d4c3a1e480] silence_start: 5.5
+[silencedetect @ 0x55d4c3a1e480] silence_end: 6.25 | silence_duration: 0.75
+[silencedetect @ 0x55d4c3a1e480] silence_start: 58.75
+size=N/A time=00:01:00.04 bitrate=N/A speed= 80x

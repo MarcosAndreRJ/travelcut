@@ -1,0 +1,1 @@
+{"protocol":"travelcut.whisper","version":1,"requestId":"__REQ__","ok":true,"result":{"text":"","audio_duration_secs":7.0,"words":[],"engine":"openai-whisper 20240930","model":"large-v3","language":"pt","elapsedSecs":1.2}}
