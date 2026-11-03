@@ -1,0 +1,18 @@
+<Window x:Class="TravelCut.Desktop.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
+        Title="TravelCut Studio - Desbaste e Decupagem Inteligente"
+        Height="900" Width="1440"
+        WindowStartupLocation="CenterScreen"
+        Background="#0F172A">
+    <Grid>
+        <wv2:WebView2 Name="WebViewControl" />
+        <Border Name="LoadingOverlay" Background="#0F172A" Visibility="Visible">
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                <TextBlock Text="TravelCut Studio" FontSize="28" FontWeight="Bold" Foreground="#F8FAFC" HorizontalAlignment="Center" Margin="0,0,0,10"/>
+                <TextBlock Text="Inicializando interface WebView2 e componentes..." FontSize="14" Foreground="#94A3B8" HorizontalAlignment="Center"/>
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>

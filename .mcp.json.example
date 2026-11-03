@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "travelcut": {
+      "command": "<CAMINHO_ABSOLUTO_DO_REPO>/src/TravelCut.Mcp/bin/Debug/net10.0/TravelCut.Mcp.exe",
+      "args": [],
+      "env": {
+        "TRAVELCUT_MCP_PROJECTS": "<GUID_DE_PROJETO_AUTORIZADO>",
+        "TRAVELCUT_MCP_DATABASE": "<CAMINHO_ABSOLUTO_DO_BANCO_DE_TESTE.db>",
+        "TRAVELCUT_EDITOR_ADAPTER": "mock"
+      }
+    }
+  }
+}

@@ -1,0 +1,8 @@
+ffmpeg started on pid 4244
+Input #0, matroska,webm, from 'clip.mkv':
+  Duration: N/A, bitrate: N/A
+Output #0, null, to 'pipe:':
+[silencedetect @ 0x55d4c3a1e480] silence_start: 5.5
+[silencedetect @ 0x55d4c3a1e480] silence_end: 6.25 | silence_duration: 0.75
+[silencedetect @ 0x55d4c3a1e480] silence_start: 58.75
+size=N/A time=N/A bitrate=N/A speed= N/A

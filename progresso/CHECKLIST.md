@@ -1,0 +1,115 @@
+# Checklist mestre de implementação — estado inicial
+
+**Legenda:** `[ ]` não comprovado; `[x]` concluído com evidência no diário; `[!]` bloqueado (usar texto de impedimento). O kit não marca trabalho como realizado antes de execução.
+
+- [x] F00 — bootstrap: ler, validar estado e iniciar F01.
+- [x] F01 — auditar repositório/VM e migrar decisões Rust→.NET sem perda.
+  - [x] F01.1 — Comparar docs existentes, mapear ausência de código legado Rust e consolidar em docs/17-AUDITORIA-LEGADO-E-MIGRACAO.md.
+  - [x] F01.2 — Inventariar ambiente da VM (Windows 10 Pro 22H2, .NET 10.0.401, Node.js, git, caminhos locais K:).
+  - [x] F01.3 — Mapear matriz de portas arquiteturais C# / React / WebView2 e contratos de IPC.
+  - [x] F01.4 — Validar agentes em .claude/agents e skills em .claude/skills.
+  - [x] F01.5 — Registrar checkpoint de encerramento da F01 e preparar transição para F02.
+- [x] F02 — fundação .NET/WPF/WebView2/React + bridge e testes.
+  - [x] F02.1 — Criar estrutura de pastas (src/, tests/) e solução TravelCutStudio.sln (.NET 10).
+  - [x] F02.2 — Implementar TravelCut.Domain com entidades de negócio e value objects de tempo.
+  - [x] F02.3 — Implementar TravelCut.Contracts com DTOs e mensagens IPC tipadas.
+  - [x] F02.4 — Implementar TravelCut.Application com interfaces de portas e serviços base.
+  - [x] F02.5 — Implementar TravelCut.Infrastructure com EF Core, SQLite DbContext e repositórios.
+  - [x] F02.6 — Implementar TravelCut.Desktop (WPF + WebView2 host + dispatcher IPC seguro).
+  - [x] F02.7 — Implementar TravelCut.Frontend (React 19 + TypeScript + Vite + Tailwind + bridge tipada).
+  - [x] F02.8 — Implementar suíte de testes unitários xUnit (Domain, Contracts, Application).
+  - [x] F02.9 — Validar build, testes e registrar conclusão no diário de implementação.
+- [x] F03 — seis telas mockup fiéis e navegáveis com DEMO explícito.
+  - [x] F03.1 — Tela 01: Painel Inicial (hero do projeto, cards das 4 pastas, pipeline, status integrações).
+  - [x] F03.2 — Tela 02: Biblioteca e Transcrição (grid de clipes, categorias, player, transcrição word-level).
+  - [x] F03.3 — Tela 03: Planejamento Timeline (mídia cronológica, player central, timeline multitrack planejada).
+  - [x] F03.4 — Tela 04: Revisão de Cortes (contadores, antes/depois, transcrição destacada, waveform, fila de decisão).
+  - [x] F03.5 — Tela 05: Configurações e Integrações (testes de conectividade, perfil editorial, regras de preservação).
+  - [x] F03.6 — Tela 06: Visão Geral da Montagem (progresso do fluxo, grid de cenas, player de prévia e esboço narrativo).
+  - [x] F03.7 — Navegação unificada na Sidebar/TopHeader com badge DEMONSTRAÇÃO e build validado.
+- [x] F04 — biblioteca real, FFprobe, cronologia, cache e testes.
+  - [x] F04.1 — Scanner de arquivos e gerador de fingerprint streaming (SHA-256 + size/mtime) com proteção de path traversal.
+  - [x] F04.2 — Extrator FFprobe com processo seguro, timeout, parser JSON detalhado (streams, tags, timebase, FPS, rotação, GPS).
+  - [x] F04.3 — Serviço de Cronologia audiovisual com cálculo de timestamps (GPS/creation_time/tags/fs) e agrupamento de sessões/tomadas.
+  - [x] F04.4 — Gerenciador de cache persistente SQLite e artefatos em 3-Trabalho/cache indexado por (fingerprint+tool+profile).
+  - [x] F04.5 — Casos de uso e Handlers de IPC: media.scan, media.list, media.getDetails, media.getChronology.
+  - [x] F04.6 — Integração com a UI da Tela 02 (Biblioteca e Transcrição) via IPC.
+  - [x] F04.7 — Suíte de testes unitários e de integração (.NET xUnit) cobrindo scanner, ffprobe, cronologia e cache.
+- [x] F04b — Fluxo de projeto e Importação de mídia (Tela 07, mockup `referencias/mockups/07_Importar_Midia.webp`). Inserida antes da F05 por pedido do usuário (2026-11-02).
+  - [x] F04b.1 — Contrato IPC de importação (`Contracts/Dtos/ImportDtos.cs` + `frontend/src/types/ipc.ts`).
+  - [x] F04b.2 — Fluxo: sem auto-abertura de projeto demo; início no onboarding com recentes reais; criar/abrir → Biblioteca (importação se vazia).
+  - [x] F04b.3 — Backend: `fs.listDirectory`, `dialog.selectFiles`, drag&drop com caminhos (WebView2 `postMessageWithAdditionalObjects`). Seletor e DnD reais: `host_pending`.
+  - [x] F04b.4 — Backend: `media.inspectCandidates` + fallback honesto sem FFprobe (sem duração/resolução inventadas).
+  - [x] F04b.5 — Backend: job de importação aditiva (cópia `.tcpart` → verificação SHA-256 → rename, sem sobrescrever, cancelamento, espaço em disco) + tags + registro na biblioteca.
+  - [x] F04b.6 — Backend: miniaturas via FFmpeg em `3-Trabalho/cache/thumbs` com status explícito quando indisponível. FFmpeg real: `host_pending`.
+  - [x] F04b.7 — Frontend: tela de importação fiel ao mockup 07 + modo Clipes/Importar na Biblioteca + progresso/cancelamento + mock DEMO.
+  - [x] F04b.8 — Testes xUnit (cópia, conflito, duplicata, path traversal, cancelamento, fallback) + `tsc --noEmit` sem erros novos + build.
+- [x] F05 — Whisper large-v3 (quando disponível), silêncios e classificação com contratos.
+  - Auditoria 2026-11-02: código parcial existente (Infrastructure/Audio, whisper_worker.py) gerava silêncios estimados pelo tamanho do arquivo e transcrição "sintética" quando faltava FFmpeg/Python, e confiança numérica em heurísticas — proibido (CLAUDE.md). Serviços não registrados no DI; `pipeline.start` devolvia progresso fixo.
+  - [x] F05.1 — Contratos: `Contracts/Dtos/SpeechAnalysisDtos.cs` (outcomes honestos, faixas qualitativas, pipeline/analysis DTOs) + interfaces `Application/Audio` + `frontend/src/types/ipc.ts`.
+  - [x] F05.2 — Whisper: worker Python com protocolo JSON versionado, `large-v3` sem substituição, normalização/validação de palavras (monotonia, limites); sem Python/modelo → `unavailable`. ArgumentList. Worker real: `host_pending`.
+  - [x] F05.3 — Silêncio via FFmpeg silencedetect (ArgumentList, timeout, cancelamento) sem fallback estimado; hesitações/repetições com contexto e faixa qualitativa, sempre para revisão.
+  - [x] F05.4 — Classificação de cenas por evidências (metadados, transcrição, VAD) com `isHypothesis`/`indeterminado`; candidatos a corte com evidência e sem remoção automática de humor.
+  - [x] F05.5 — PipelineJobManager real: etapas por mídia, denominador real, cache por fingerprint+ferramenta+modelo em `3-Trabalho/analysis`, persistência de transcrição e sugestões, cancelamento, um job por projeto.
+  - [x] F05.6 — IPC `analysis.environment`, `pipeline.start/status/cancel`, `analysis.getMedia`, `suggestions.list` real; remover progresso fixo; registrar no DI.
+  - [x] F05.7 — Frontend: fila de processamento real (Tela 02), transcrição real com busca e salto, estados indisponível; Revisão (Tela 04) lendo sugestões reais.
+  - [x] F05.8 — Testes xUnit (parsing/validação word-level, silencedetect por fixture de stderr, ausência de modelo/áudio/FFmpeg, cache, cancelamento, sem sintetizar) + build + tsc + auditoria qa-auditor. Worker real e large-v3: `host_pending` (VM sem Python). Concluído em mock_pass (315/315 testes; auditoria qa-auditor com correções aplicadas).
+- [x] F06 — plano narrativo/editplan, decisões rastreáveis e timebase.
+  - Auditoria 2026-11-02: `EditPlan`/`TimelineClip` sem seções, transições, faixas ou evidências; `TimeRange` em ticks de unidade ambígua; `EditorialRulesEngine` estático não usado em produção (sugere acelerar o clipe inteiro só por não ter transcrição); Telas 03/06 com dados fixos (`DEMO_SCENES`); `DaVinciResolveAdapter` afirma "enviado com sucesso" (F08).
+  - [x] F06.1 — Contrato `Contracts/Dtos/PlanDtos.cs` + espelho TS (plano versionado, seções, faixas V1/A1/A2, clipes, transições, validação, perfil editorial).
+  - [x] F06.2 — Núcleo temporal no Domain (senior-analyst): tempo de fonte em µs (PTS, VFR-safe), timeline em frames racionais, política de arredondamento determinística, velocidade racional, validação do plano (intervalos, sobreposição, fora da mídia, velocidade sobre fala, A1 vinculado, transições, fingerprint de mídia). Testes de propriedade.
+  - [x] F06.3 — Planejador determinístico (Application): cronologia + cena + fala + decisões; aplica só cortes aprovados e triviais de alta evidência (marcados como auto); seções começo/meio/fim como hipótese; B-roll 2×/4× só sem fala; zoom sutil só como sugestão; música nunca automática; sem DaVinci.
+  - [x] F06.4 — Persistência imutável por revisão (JSON canônico em `3-Trabalho/plans` + índice no banco, fingerprint do plano), reverter = nova revisão; perfil editorial versionado.
+  - [x] F06.5 — IPC `plan.generate/get/list/validate/revert`, `profile.get`; porta `INarrativeAssistant` (nula, sem acoplamento online).
+  - [x] F06.6 — Frontend: Tela 03 (timeline planejada real V1/A1/A2) e Tela 06 (seções/narrativa real) sem dados fixos.
+  - [x] F06.7 — Testes (timebase/frames/VFR/velocidade, validação, planejador com fixture de viagem, reprodutibilidade/fingerprint, reversão) + build + tsc + auditoria qa-auditor.
+  - Fechamento 2026-11-02 19:40: auditoria + reauditoria qa-auditor; bloqueantes/altos corrigidos; 455/455 testes; `mock_pass`. Pendências registradas (não bloqueiam): M4 summary/validation fora do fingerprint e não recalculados em plan.get; campos de perfil silencePolicy/pace/jokePreservation sem efeito e speedBroll "auto"=2× sem definição; zoom em "conversa" vs docs/07 "cenas fixas com pessoas"; corte automático baseado em faixa heurística não calibrada (restringir a tipos triviais); approvedCutsCount conta qualquer Approved (inclui speed); appliedCuts sem painel na UI; MEDIA_CHANGED só aviso (confirmar); batchDecide não atômico; decisão sem baseRevision/timecodes (docs/09, F07); constantes de dissolve (12/48 frames) sem documentação; Reviewer/Notes sem limite. `host_pending`: migração em banco real, planejamento com mídia real, WebView2.
+  - Aviso: código PARCIAL da F07 escrito por outra sessão sem registro (decision.undo/list, suggestions.batchDecide, PlanPreviewPlayer.tsx, handlers no App.tsx). F07 deve começar auditando-o; o checklist F07 abaixo também veio dessa sessão e não foi revisado.
+- [x] F07 — revisão interativa, preview e timeline planejada. Fechada 2026-11-02 (hora não aferida) em `mock_pass` com exceção aceita pelo usuário (testes de UI).
+  - Auditoria 2026-11-02 do código F07 parcial (outra sessão, sem registro): PlanPreviewPlayer simulava reprodução com setInterval sem vídeo e botão de áudio sem áudio (prévia falsa); handlers do App atualizavam status só localmente e engoliam erros; "modify" recusado e sem "redo"; decisão sem baseRevision/intervalo; plano não reagia às decisões. Itens F07.1–F07.6 herdados substituídos abaixo.
+  - [x] F07.1 — Contratos: EditDtos (modify com intervalo, redo, baseRevision, intervalo decidido, DecisionResultDto com planRevision/planChanged, effective interval, canUndo/canRedo) + PreviewDtos (playback source, waveform, proxies) + espelho TS.
+  - [x] F07.2 — Backend decisões: modify validado (dentro da mídia, não vazio), redo append-only, baseRevision e intervalo gravados, estado efetivo com intervalo ajustado no planejador, regeneração idempotente do plano após decisão (nova revisão só se conteúdo mudar), PLAN_OUTDATED e SOURCE_FILE_MISSING na validação, lote atômico.
+  - [x] F07.3 — Backend prévia: host virtual somente leitura para o projeto aberto, media.getPlaybackSource (codec → likelyPlayable honesto), forma de onda real via FFmpeg com cache, proxies H.264 via FFmpeg em 3-Trabalho/cache/proxies (job com status/cancelamento); sem FFmpeg → ffmpeg_unavailable. Reprodução real, codecs e FFmpeg: `host_pending`.
+  - [x] F07.4 — Tela 04: fila com filtros (categoria/confiança/status), antes/depois do intervalo com contexto via vídeo real, waveform real, transcrição destacada no intervalo, aprovar/rejeitar/adiar/modificar (ajuste de in/out), undo/redo, atalhos A/R/D/M/Z/Y, estado vindo do backend e erros visíveis. (mock_pass; reprodução real host_pending)
+  - [x] F07.5 — Tela 03: player real (<video>) tocando os clipes V1 em sequência com velocidade, scrub, timecode NDF, aviso "não frame-accurate", V2 exibida, indicador de plano desatualizado/mídia ausente; remover a simulação por setInterval. (mock_pass; reprodução real host_pending)
+  - Estado 2026-11-02 (hora não aferida): auditoria + reauditoria qa-auditor; bloqueantes e altos corrigidos; `dotnet test` 635/635, `npm test` 96/96. F07.6 aberto SÓ por falta de testes de UI/componente/teclado versionados (vitest em ambiente node; sem jsdom/testing-library) — critério "testes de UI" do prompt 07 não atendido. Pendências não bloqueantes: plan.get carrega análises de todas as mídias a cada leitura e cada decisão faz até 3 cargas completas (desempenho); transação deferida sem retry de SQLITE_BUSY; transcrição/análise fora do inputsFingerprint; plan.list.isValid só estrutural; host virtual expõe a raiz inteira do projeto (só leitura); ADR-014 aprovada pelo orquestrador, aguardando confirmação do usuário; persistência via EnsureCreated + DDL idempotente (não migrações EF formais); 5 vulnerabilidades só em ferramentas de dev (Vite 5/vitest 3). Avaliação LibVLCSharp vs WebView2: adotado `<video>` do WebView2 + proxies FFmpeg; LibVLCSharp não avaliado (host_pending).
+  - [x] F07.6 — (exceção aceita pelo usuário em 2026-11-02: sem testes automatizados de componente/teclado/player; dívida registrada para F10) Testes backend (modify/redo/baseRevision/regeneração idempotente/PLAN_OUTDATED/SOURCE_FILE_MISSING/waveform parse/proxy args/playback source) + build + tsc + verificação no navegador + auditoria qa-auditor. Reprodução real de vídeo/codecs: host_pending (VM sem mídia de teste e sem FFmpeg).
+- [x] F08 — DaVinci Mock + bridge real + roteiro host (host pendente separado). Fechada 2026-11-02 23:30 em `mock_pass`; integração real `host_pending`.
+  - Auditoria inicial 2026-11-02: `DaVinciResolveAdapter` só checa processo "Resolve" e afirma sucesso ("enviado com sucesso") sem chamar API; cai silenciosamente no mock quando o Resolve não roda; `MockResolveAdapter` devolve `Success: true` sem marcar SIMULATED; `IEditorAdapter` usa a entidade legada `EditPlan` (não o plano por revisão da F06); sem bridge Python, sem estados de ambiente, sem capabilities por operação; frontend com `editor.applyPlan` falso (28 clipes fixos) no modo demo.
+  - [x] F08.1 — Contratos editor/1: estados de ambiente (NOT_INSTALLED/NOT_RUNNING/SCRIPTING_DISABLED/PYTHON_UNAVAILABLE/READY_PARTIAL/READY/MOCK/ERROR), capabilities por operação com verificação (documented/mock_pass/host_pending/host_pass/unsupported), status de resultado (SIMULATED/DRY_RUN/UNAVAILABLE/READY_REAL/PARTIAL_REAL/ERROR), manifesto de montagem, resultado de aplicação + espelho TS.
+  - [x] F08.2 — Application: `EditorAssemblyBuilder` (plano por revisão → operações em frames da fonte e da timeline, rejeição honesta de velocidade≠1, transições, faixas não suportadas e VFR com aviso), `EditorUseCases` (capabilities, dry-run, aplicar com confirmação de troca de projeto, idempotência por chave, manifesto em 3-Trabalho/editor), IPC `editor.capabilities`/`editor.prepareApply`/`editor.apply`/`editor.applications`.
+  - [x] F08.3 — `MockResolveAdapter` determinístico: resultados SIMULATED, sem `.drp`, eventos registráveis em teste; testes de contrato compartilhados mock/real.
+  - [x] F08.4 — Bridge real: `workers/resolve_bridge.py` (stdin/stdout JSON, DaVinciResolveScript, sem tocar projetos existentes) + `DaVinciResolveAdapter` (detecção de instalação/processo/Python, timeout, erros reais, sem fallback silencioso ao mock); seleção de adaptador por configuração.
+  - [x] F08.5 — Harness host: mídia sintética (FFmpeg testsrc), script de execução por etapas com log de evidências, `docs/18-ROTEIRO-HOMOLOGACAO-DAVINCI.md` e roteiro F08 em HOST_TESTS.md.
+  - [x] F08.6 — Frontend Tela 06 (Hub Resolve): estado real de ambiente/capabilities, dry-run e aplicar com confirmação; mock do navegador rotulado DEMONSTRAÇÃO.
+  - [x] F08.7 — Testes (contrato, builder, use cases, adapter com runner falso, parser da bridge) + build + tsc + auditoria qa-auditor. Integração real: `host_pending`.
+  - Fechamento 2026-11-02 23:30: auditoria + reauditoria qa-auditor; bloqueante e altos corrigidos; `dotnet test` 786/786, `npm test` 130/130. NÃO executados na VM: testes Python da bridge e harness PowerShell. Baixos: ver diário 23:30. host_pending: roteiro F08 (HOST_TESTS.md / docs/18), convenção de endFrame, recordFrame, VFR, .drp, render.
+- [x] F09 — MCP C# e integração HyperFrames por capabilities. Fechada 2026-11-03 00:35 em `mock_pass`; integração real `host_pending`.
+  - Estado inicial: nenhum projeto MCP; DI só no App.xaml.cs (WPF); nenhum código HyperFrames; Node 24 na VM, HyperFrames não instalado; sem `.mcp.json` no projeto.
+  - [x] F09.1 — Composição compartilhada: extrair o registro de serviços de `App.xaml.cs` para uma extensão reutilizável (Desktop e MCP usam os mesmos casos de uso; sem rotas paralelas).
+  - [x] F09.2 — `src/TravelCut.Mcp` (stdio, SDK oficial ModelContextProtocol como pacote do projeto): ferramentas read-only list_projects, get_inventory, get_transcript, get_suggestions, get_edit_plan, job_status, get_editor_capabilities via IpcDispatcher.
+  - [x] F09.3 — Mutações guardadas: submit_review, queue_analysis, apply_plan — desligadas por padrão (`--allow-mutations`), projeto autorizado por lista explícita, idempotencyKey, dry-run padrão no apply_plan, log de intenção/ação, erros estruturados; nenhuma ferramenta de shell/arquivo.
+  - [x] F09.4 — Setup por projeto: `.mcp.json.example` + docs/19-MCP-TRAVELCUT.md (sem ativar configuração, sem tocar MCP do DaVinci nem config global).
+  - [x] F09.5 — HyperFrames por capability: porta de renderização de títulos/gráficos, detecção real (Node + CLI), mock DEMONSTRAÇÃO sem render; roteiro host.
+  - [x] F09.6 — Skill de edição em produção documentada como integração planejada (docs/11).
+  - [x] F09.7 — Testes (ferramentas, guardas, dados inválidos, concorrência, smoke stdio initialize/tools/list) + build + auditoria qa-auditor.
+  - Fechamento 2026-11-03 00:35: auditoria qa-auditor + revisão senior-analyst (concorrência) com altos/médios corrigidos; `dotnet test` UnitTests 972/972, Mcp.Tests 107/107 (smoke stdio real). Decisões pendentes do usuário: ativar `.mcp.json` no projeto; política de `get_transcript` entregar a transcrição completa ao cliente MCP. host_pending: Desktop + MCP simultâneos (travas), render HyperFrames real (sintaxe do CLI suposta), DaVinci via MCP.
+- [x] F10 — QA integrado e build distribuível para host. Fechada 2026-11-03 03:40 em `mock_pass`; pacote 0.10.0-host-test.1 pronto em `dist/`; execução no host `host_pending`.
+  - Estado inicial: sem script de release, sem versão de produto definida, README desatualizado (cita .NET 9, Rust/COM), Z: (HGFS) não montado na VM; dívidas herdadas: testes de UI/componente (exceção F07), 5 vulnerabilidades em ferramentas dev, NU1903 SQLitePCLRaw 2.1.10, 12 TS6133.
+  - [x] F10.1 — Teste ponta a ponta automatizado com mídia/fixtures sintéticas: projeto → inventário → transcrição fixture → candidatos → revisão → EditPlan → editor mock (SIMULATED); reinício (novo container DI sobre o mesmo banco), cancelamento, cache e migração de banco legado.
+  - [x] F10.2 — Varredura QA crítica (Sonnet) de segurança/paths/IO/SQLite/Unicode/VFR/WebView2/estados; correção dos bloqueantes.
+  - [x] F10.3 — Build Release x64 reproduzível: script `scripts/release/Build-Release.ps1` (frontend build + dotnet publish Desktop e MCP, self-contained identificado), sem mídias/pesos/caches, manifesto com versão/hash SHA-256 por arquivo, instruções de runtime (WebView2, Python, FFmpeg, Resolve).
+  - [x] F10.4 — Compatibilidade/instalação host: Z: indisponível na VM → pacote local em `dist/` + roteiro manual; cópia para o host só com autorização.
+  - [x] F10.5 — README de usuário, notas de versão, checklist de smoke test, limitações e riscos.
+  - [x] F10.6 — Suíte completa + auditoria qa-auditor do pacote e da UI (nenhum mock falso exibido como real).
+  - Fechamento 2026-11-03 03:40: varredura crítica senior-analyst + auditoria final qa-auditor, bloqueante/altos corrigidos; build final reproduzível pelo script (entradas fixadas, determinístico, `reproducible: unverified`), UnitTests 1044/1044, Mcp 107/107, npm 162/162, tsc 0; zip sha256 3494021673f9bcf740e85e6fcee615dcf2ca5adc8fd9fdd23a65e31e39b18f90. F10.4: Z: não montado na VM — pacote local em `dist/`, cópia para o host depende de autorização do usuário; compatibilidade no host `host_pending`.
+- [ ] F11 — homologação real no host e critérios do MVP. Iniciada 2026-11-03 03:45; status `waiting_for_host`.
+  - [ ] F11.1 — Usuário leva o pacote `dist/TravelCutStudio-0.10.0-host-test.1-win-x64.zip` ao host (cópia manual; Z: não montado na VM) e confere o SHA-256 (LEIA-ME-HOST §5).
+  - [ ] F11.2 — Smoke test `docs/22-SMOKE-TEST-HOST.md` no host; resultados em `progresso/HOST_TESTS.md` (seção "Smoke do pacote").
+  - [ ] F11.3 — Roteiros F04b–F09 de `progresso/HOST_TESTS.md` com mídia de teste aprovada e projeto DaVinci TEMPORÁRIO `TravelCut_*`; logs de `%LOCALAPPDATA%\TravelCutStudio\logs` e evidências do harness.
+  - [ ] F11.4 — Orquestrador reproduz falhas reais com fixtures na VM, corrige, regressão, novo pacote; iterar.
+  - [ ] F11.5 — Critérios do MVP (`docs/13`) com evidência real → `HOST_VALIDADO`; senão relatório **MVP SIMULADO / HOST PENDENTE**.
+
+## Regras de atualização
+
+Antes de começar uma fase, desdobrar o item em microtarefas com paths/testes; marcar `[x]` apenas após evidência objetiva e entrada correspondente em `IMPLEMENTATION_LOG.md`. Não transformar `host_pending` em `host_pass` sem resultado do host.

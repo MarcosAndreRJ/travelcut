@@ -1,0 +1,29 @@
+<Project>
+
+  <!--
+    Propriedades comuns a todos os projetos da solução (src/ e tests/).
+    Versão única do produto: alterar somente aqui.
+    Build reprodutível: Deterministic=true (padrão do SDK, explícito aqui).
+    ContinuousIntegrationBuild só com TRAVELCUT_CI=1 (caminhos normalizados; não usar no build local).
+  -->
+
+  <PropertyGroup>
+    <TravelCutProductVersion>0.10.0-host-test.1</TravelCutProductVersion>
+    <Version>$(TravelCutProductVersion)</Version>
+    <InformationalVersion>$(TravelCutProductVersion)</InformationalVersion>
+    <Company>TravelCut Studio</Company>
+    <Product>TravelCut Studio</Product>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(TRAVELCUT_CI)' == '1'">
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+
+  <!-- Sem git não há SourceRoot: mapeamento explícito de caminhos só nos projetos publicados (src/).
+       Os testes localizam fixtures pelo caminho do próprio arquivo ([CallerFilePath]) e não podem ser mapeados. -->
+  <PropertyGroup Condition="'$(TRAVELCUT_CI)' == '1' and $(MSBuildProjectDirectory.Contains('\src\'))">
+    <PathMap>$(MSBuildThisFileDirectory)=/_/</PathMap>
+  </PropertyGroup>
+
+</Project>
