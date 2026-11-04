@@ -55,8 +55,26 @@ internal static class FixtureFiles
 {
     public static string Read(string name, [CallerFilePath] string callerPath = "")
     {
-        var dir = Path.GetDirectoryName(callerPath)!;
-        return File.ReadAllText(Path.Combine(dir, "Fixtures", name));
+        var dir = Path.GetDirectoryName(callerPath);
+        if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir))
+        {
+            var p = Path.Combine(dir, "Fixtures", name);
+            if (File.Exists(p)) return File.ReadAllText(p);
+        }
+
+        var baseDir = AppContext.BaseDirectory;
+        var candidate = Path.Combine(baseDir, "Audio", "Fixtures", name);
+        if (File.Exists(candidate)) return File.ReadAllText(candidate);
+
+        var current = new DirectoryInfo(baseDir);
+        while (current != null)
+        {
+            var testFixture = Path.Combine(current.FullName, "tests", "TravelCut.UnitTests", "Audio", "Fixtures", name);
+            if (File.Exists(testFixture)) return File.ReadAllText(testFixture);
+            current = current.Parent;
+        }
+
+        throw new FileNotFoundException($"Fixture '{name}' não encontrada via callerPath '{callerPath}' nem fallback a partir de '{baseDir}'.");
     }
 }
 

@@ -16,13 +16,10 @@
     <Deterministic>true</Deterministic>
   </PropertyGroup>
 
-  <PropertyGroup Condition="'$(TRAVELCUT_CI)' == '1'">
-    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
-  </PropertyGroup>
-
   <!-- Sem git não há SourceRoot: mapeamento explícito de caminhos só nos projetos publicados (src/).
        Os testes localizam fixtures pelo caminho do próprio arquivo ([CallerFilePath]) e não podem ser mapeados. -->
   <PropertyGroup Condition="'$(TRAVELCUT_CI)' == '1' and $(MSBuildProjectDirectory.Contains('\src\'))">
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
     <PathMap>$(MSBuildThisFileDirectory)=/_/</PathMap>
   </PropertyGroup>
 
