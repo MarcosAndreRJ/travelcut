@@ -213,14 +213,27 @@ public sealed partial class TravelCutMcpFacade
         }
     }
 
-    /// <summary>GUIDs de um array do payload (ex.: "media" → "mediaId"). Itens sem GUID válido são ignorados.</summary>
+    /// <summary>GUIDs de um array do payload (ex.: direto array ou "media" → "mediaId"). Itens sem GUID válido são ignorados.</summary>
     public static HashSet<Guid> IdsOf(object? payload, string arrayName, string idName)
     {
         var ids = new HashSet<Guid>();
-        if (JsonSerializer.SerializeToNode(payload) is not JsonObject node || node[arrayName] is not JsonArray items)
+        var node = JsonSerializer.SerializeToNode(payload);
+        JsonArray? items = null;
+
+        if (node is JsonArray directArray)
+        {
+            items = directArray;
+        }
+        else if (node is JsonObject obj && obj[arrayName] is JsonArray wrappedArray)
+        {
+            items = wrappedArray;
+        }
+
+        if (items is null)
         {
             return ids;
         }
+
         foreach (var item in items)
         {
             if (item?[idName]?.GetValue<string>() is { } raw && Guid.TryParse(raw, out var id))

@@ -35,7 +35,8 @@ public static class E2ESteps
     public static async Task<Dictionary<Guid, string>> MediaNamesAsync(E2EHost host, Guid projectId)
     {
         var payload = await host.Ok("media.list", new { projectId });
-        return payload.GetProperty("media").EnumerateArray()
+        var array = payload.ValueKind == JsonValueKind.Array ? payload : payload.GetProperty("media");
+        return array.EnumerateArray()
             .ToDictionary(m => m.GetProperty("mediaId").GetGuid(), m => m.GetProperty("relativePath").GetString()!);
     }
 

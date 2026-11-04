@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using TravelCut.Contracts.Dtos;
@@ -49,7 +50,8 @@ public sealed class EndToEndMigrationTests : IDisposable
             Assert.Equal(projectId, opened.GetProperty("project").GetProperty("projectId").GetGuid());
 
             var media = await host.Ok("media.list", new { projectId });
-            var asset = Assert.Single(media.GetProperty("media").EnumerateArray().ToList());
+            var assetList = media.ValueKind == JsonValueKind.Array ? media.EnumerateArray().ToList() : media.GetProperty("media").EnumerateArray().ToList();
+            var asset = Assert.Single(assetList);
             Assert.Equal(mediaId, asset.GetProperty("mediaId").GetGuid());
         }
 
@@ -76,6 +78,119 @@ public sealed class EndToEndMigrationTests : IDisposable
         }
         Assert.Single(Directory.GetFiles(dbDir, "travelcut.db.bak-*"));
         Assert.Equal(1, CountScalar(dbPath, "SELECT COUNT(*) FROM SchemaMarkers WHERE Name = 'schema/1'"));
+    }
+
+    [Fact]
+    public void BancoComVersaoSchemaMaisNova_LancaSchemaTooNewENaoMigraParaTras()
+    {
+        string dbPath = _ws.DatabasePath;
+        var connectionString = new SqliteConnectionStringBuilder { DataSource = dbPath }.ToString();
+        var options = new DbContextOptionsBuilder<TravelCutDbContext>().UseSqlite(connectionString).Options;
+        using (var db = new TravelCutDbContext(options))
+        {
+            db.EnsureSchemaUpdated();
+        }
+
+        using (var connection = new SqliteConnection(connectionString))
+        {
+            connection.Open();
+            Exec(connection, "INSERT INTO SchemaMarkers (Name, AppliedAtUtc) VALUES ('schema/999', '2026-11-03T00:00:00Z');");
+        }
+
+        var readiness = TravelCutSchemaInspector.Inspect(dbPath);
+        Assert.False(readiness.IsReady);
+        Assert.Equal(SchemaReadinessCodes.TooNew, readiness.Code);
+
+        using var dbTooNew = new TravelCutDbContext(options);
+        var ex = Assert.Throws<InvalidOperationException>(() => dbTooNew.EnsureSchemaUpdated());
+        Assert.Equal("SCHEMA_TOO_NEW", ex.Message);
+    }
+
+    [Fact]
+    public void BancoInexistenteOuCorrompido_InspectorRetornaNotReadySemLancar()
+    {
+        string nonExistentPath = Path.Combine(_ws.Base, "non-existent.db");
+        var resMissing = TravelCutSchemaInspector.Inspect(nonExistentPath);
+        Assert.False(resMissing.IsReady);
+        Assert.Equal(SchemaReadinessCodes.NotReady, resMissing.Code);
+
+        string corruptPath = Path.Combine(_ws.Base, "corrupted.db");
+        File.WriteAllBytes(corruptPath, [0x00, 0xFF, 0x12, 0x34, 0xDE, 0xAD, 0xBE, 0xEF]);
+        var resCorrupt = TravelCutSchemaInspector.Inspect(corruptPath);
+        Assert.False(resCorrupt.IsReady);
+        Assert.Equal(SchemaReadinessCodes.NotReady, resCorrupt.Code);
+    }
+
+    [Fact]
+    public async Task ProjetoVazio_AbertoPelaComposicao_SemMidias_FuncionaCorretamente()
+    {
+        string dbPath = _ws.DatabasePath;
+        string root = _ws.ProjectRoot("Viagem Vazia");
+        foreach (var folder in Project.RequiredFourFolders)
+        {
+            Directory.CreateDirectory(Path.Combine(root, folder));
+        }
+
+        using var host = E2EHost.Start(dbPath, Happy());
+        var opened = await host.Ok("project.open", new OpenProjectRequest(root, AutoCreateFolders: false));
+        var projProp = opened.GetProperty("project");
+        var projectId = projProp.GetProperty("projectId").GetGuid();
+        Assert.Equal("Viagem Vazia", projProp.GetProperty("name").GetString());
+
+        var mediaListJson = await host.Ok("media.list", new { projectId });
+        var assets = mediaListJson.ValueKind == JsonValueKind.Array
+            ? mediaListJson.EnumerateArray().ToList()
+            : mediaListJson.GetProperty("media").EnumerateArray().ToList();
+        Assert.Empty(assets);
+
+        var suggestionsJson = await host.Ok("suggestions.list", new { projectId });
+        var suggestions = suggestionsJson.GetProperty("suggestions").EnumerateArray().ToList();
+        Assert.Empty(suggestions);
+
+        var revisionsJson = await host.Ok("plan.list", new { projectId });
+        var revisions = revisionsJson.ValueKind == JsonValueKind.Array
+            ? revisionsJson.EnumerateArray().ToList()
+            : revisionsJson.GetProperty("revisions").EnumerateArray().ToList();
+        Assert.Empty(revisions);
+
+        Assert.True(TravelCutSchemaInspector.Inspect(dbPath).IsReady);
+    }
+
+    [Fact]
+    public async Task BancoLegado_ComPalavrasOrfas_PreservaEmQuarentenaSemPerderDados()
+    {
+        string dbPath = _ws.DatabasePath;
+        string dbDir = Path.GetDirectoryName(dbPath)!;
+        string root = _ws.ProjectRoot("Viagem Orfas");
+        foreach (var folder in Project.RequiredFourFolders)
+        {
+            Directory.CreateDirectory(Path.Combine(root, folder));
+        }
+        var projectId = Guid.NewGuid();
+        var mediaId = Guid.NewGuid();
+        var transcriptId = Guid.NewGuid();
+
+        BuildLegacyDatabase(dbPath, projectId, mediaId, transcriptId, root);
+
+        // Inserir palavra órfã na tabela legada antes da migração
+        var connectionString = new SqliteConnectionStringBuilder { DataSource = dbPath }.ToString();
+        using (var connection = new SqliteConnection(connectionString))
+        {
+            connection.Open();
+            Exec(connection, $"INSERT INTO TranscriptWords (Seq, StartSeconds, EndSeconds, Text, Confidence, TranscriptId) VALUES (999, 10.0, 11.0, 'orfa', 0.8, '{Guid.NewGuid()}');");
+        }
+
+        using (var host = E2EHost.Start(dbPath, Happy()))
+        {
+            var opened = await host.Ok("project.open", new OpenProjectRequest(root, AutoCreateFolders: false));
+            Assert.Equal(projectId, opened.GetProperty("project").GetProperty("projectId").GetGuid());
+        }
+
+        // Tabela nova deve conter as 3 palavras válidas associadas ao transcriptId real
+        Assert.Equal(3, CountScalar(dbPath, "SELECT COUNT(*) FROM TranscriptWords"));
+        // Tabela de quarentena deve conter a palavra órfã preservada
+        Assert.Equal(1, CountScalar(dbPath, "SELECT COUNT(*) FROM TranscriptWords_orphans"));
+        Assert.Equal("orfa", ReadText(dbPath, "SELECT Text FROM TranscriptWords_orphans WHERE Seq = 999"));
     }
 
     private static void BuildLegacyDatabase(string dbPath, Guid projectId, Guid mediaId, Guid transcriptId, string root)

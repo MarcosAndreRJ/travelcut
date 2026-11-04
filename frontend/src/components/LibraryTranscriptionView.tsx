@@ -69,6 +69,7 @@ export const LibraryTranscriptionView: React.FC<LibraryTranscriptionViewProps> =
 
   const [environment, setEnvironment] = useState<AnalysisEnvironmentDto | null>(null);
   const [environmentError, setEnvironmentError] = useState<string | null>(null);
+  const [mediaListError, setMediaListError] = useState<string | null>(null);
 
   const [analysis, setAnalysis] = useState<MediaAnalysisDto | null>(null);
   const [isLoadingAnalysis, setIsLoadingAnalysis] = useState(false);
@@ -86,15 +87,19 @@ export const LibraryTranscriptionView: React.FC<LibraryTranscriptionViewProps> =
     if (!projectId) return null;
     try {
       const list = await ipc.listMedia(projectId);
-      setAssets(list);
-      setSelectedAsset((prev) => prev ?? list[0] ?? null);
+      const safeList = Array.isArray(list) ? list : ((list as any)?.media ?? []);
+      setAssets(safeList);
+      setMediaListError(null);
+      setSelectedAsset((prev) => prev ?? safeList[0] ?? null);
       if (autoResolveRef.current) {
         autoResolveRef.current = false;
-        setViewMode(list.length === 0 ? 'import' : 'clips');
+        setViewMode(safeList.length === 0 ? 'import' : 'clips');
       }
-      return list;
+      return safeList;
     } catch (err) {
       console.error('Falha ao listar mídias:', err);
+      const msg = err instanceof Error ? err.message : String(err);
+      setMediaListError(msg);
       return null;
     }
   }, [projectId]);
@@ -230,7 +235,8 @@ export const LibraryTranscriptionView: React.FC<LibraryTranscriptionViewProps> =
     }
   };
 
-  const filteredAssets = assets.filter((asset) => {
+  const safeAssets = Array.isArray(assets) ? assets : [];
+  const filteredAssets = safeAssets.filter((asset) => {
     const q = searchQuery.toLowerCase();
     return (
       asset.relativePath.toLowerCase().includes(q) ||
@@ -435,6 +441,18 @@ export const LibraryTranscriptionView: React.FC<LibraryTranscriptionViewProps> =
         /* Clips & Transcription View */
         <>
           <EnvironmentBanner environment={environment} error={environmentError} />
+          {mediaListError && (
+            <div role="alert" className="mx-6 mt-3 p-3 rounded-xl bg-red-950/50 border border-red-800/80 text-red-200 text-xs flex items-center justify-between gap-3">
+              <span className="flex-1">{mediaListError}</span>
+              <button
+                type="button"
+                onClick={() => void loadMediaList()}
+                className="px-3 py-1 bg-red-900/60 hover:bg-red-800 text-white rounded-lg text-xs font-medium transition shrink-0"
+              >
+                Tentar novamente
+              </button>
+            </div>
+          )}
 
           <div className="flex-1 flex min-h-0 overflow-hidden">
             {/* Left Panel: Media Clip List */}

@@ -19,6 +19,7 @@ import { TimelinePlanningView } from './components/TimelinePlanningView';
 import { SettingsIntegrationsView } from './components/SettingsIntegrationsView';
 import { MontageOverviewView } from './components/MontageOverviewView';
 import { ResolveHubView } from './components/ResolveHubView';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { ipc } from './services/ipcBridge';
 import { ProjectSummary, EditSuggestion, EditorCapabilities, DecisionResultDto } from './types/ipc';
 import {
@@ -359,119 +360,124 @@ export const App: React.FC = () => {
 
         {/* Dynamic View Router */}
         <main className="flex-1 flex overflow-hidden">
-          {currentTab === 'overview' && (
-            <DashboardOverviewView
-              project={project}
-              editorCaps={editorCaps}
-              onCreateProject={() => {
-                setModalMode('create');
-                setProjectError(null);
-              }}
-              onOpenProject={() => {
-                setModalMode('open');
-                setProjectError(null);
-              }}
-              onNavigateToCheck={() => setCurrentTab('environment')}
-              onNavigateToTab={(tab) => setCurrentTab(tab)}
-            />
-          )}
+          <ErrorBoundary
+            fallbackTitle="Falha na visualização atual"
+            onReset={() => setCurrentTab('onboarding')}
+          >
+            {currentTab === 'overview' && (
+              <DashboardOverviewView
+                project={project}
+                editorCaps={editorCaps}
+                onCreateProject={() => {
+                  setModalMode('create');
+                  setProjectError(null);
+                }}
+                onOpenProject={() => {
+                  setModalMode('open');
+                  setProjectError(null);
+                }}
+                onNavigateToCheck={() => setCurrentTab('environment')}
+                onNavigateToTab={(tab) => setCurrentTab(tab)}
+              />
+            )}
 
-          {currentTab === 'environment' && (
-            <EnvironmentCheckView
-              editorCaps={editorCaps}
-              onRefresh={handleRefreshCaps}
-              onContinue={() => setCurrentTab('overview')}
-            />
-          )}
+            {currentTab === 'environment' && (
+              <EnvironmentCheckView
+                editorCaps={editorCaps}
+                onRefresh={handleRefreshCaps}
+                onContinue={() => setCurrentTab('overview')}
+              />
+            )}
 
-          {currentTab === 'onboarding' && (
-            <WelcomeStartView
-              recentProjects={recentProjects}
-              onCreateProject={() => {
-                setModalMode('create');
-                setProjectError(null);
-              }}
-              onOpenProject={() => {
-                setModalMode('open');
-                setProjectError(null);
-              }}
-              onOpenRecent={(p) => handleOpenProject(p.rootPath)}
-            />
-          )}
+            {currentTab === 'onboarding' && (
+              <WelcomeStartView
+                recentProjects={recentProjects}
+                onCreateProject={() => {
+                  setModalMode('create');
+                  setProjectError(null);
+                }}
+                onOpenProject={() => {
+                  setModalMode('open');
+                  setProjectError(null);
+                }}
+                onOpenRecent={(p) => handleOpenProject(p.rootPath)}
+              />
+            )}
 
-          {(currentTab === 'library' || currentTab === 'transcription') && (
-            <LibraryTranscriptionView
-              project={project}
-              entryMode={libraryEntry.mode}
-              entryKey={libraryEntry.key}
-              onLibraryChanged={refreshProject}
-              onAnalysisFinished={handleAnalysisFinished}
-            />
-          )}
+            {(currentTab === 'library' || currentTab === 'transcription') && (
+              <LibraryTranscriptionView
+                project={project}
+                entryMode={libraryEntry.mode}
+                entryKey={libraryEntry.key}
+                onLibraryChanged={refreshProject}
+                onAnalysisFinished={handleAnalysisFinished}
+              />
+            )}
 
-          {currentTab === 'timeline' && (
-            <TimelinePlanningView project={project} onNavigateToExport={() => setCurrentTab('export')} />
-          )}
+            {currentTab === 'timeline' && (
+              <TimelinePlanningView project={project} onNavigateToExport={() => setCurrentTab('export')} />
+            )}
 
-          {currentTab === 'review' && (
-            <ReviewDecisionsView
-              projectId={projectId}
-              suggestions={suggestions}
-              loading={suggestionsLoading}
-              loadError={suggestionsError}
-              feedbackError={reviewError}
-              notice={reviewNotice}
-              onReload={reloadSuggestions}
-              onClearFeedback={clearReviewFeedback}
-              onDecide={handleDecision}
-              onBatchDecide={handleBatchDecide}
-              onModify={handleModify}
-              onUndo={handleUndoDecision}
-              onRedo={handleRedoDecision}
-            />
-          )}
+            {currentTab === 'review' && (
+              <ReviewDecisionsView
+                projectId={projectId}
+                suggestions={suggestions}
+                loading={suggestionsLoading}
+                loadError={suggestionsError}
+                feedbackError={reviewError}
+                notice={reviewNotice}
+                onReload={reloadSuggestions}
+                onClearFeedback={clearReviewFeedback}
+                onDecide={handleDecision}
+                onBatchDecide={handleBatchDecide}
+                onModify={handleModify}
+                onUndo={handleUndoDecision}
+                onRedo={handleRedoDecision}
+              />
+            )}
 
-          {currentTab === 'settings' && (
-            <SettingsIntegrationsView editorCaps={editorCaps} onRefreshCaps={handleRefreshCaps} />
-          )}
+            {currentTab === 'settings' && (
+              <SettingsIntegrationsView editorCaps={editorCaps} onRefreshCaps={handleRefreshCaps} />
+            )}
 
-          {currentTab === 'narrative' && (
-            <MontageOverviewView project={project} onNavigateToTimeline={() => setCurrentTab('timeline')} />
-          )}
+            {currentTab === 'narrative' && (
+              <MontageOverviewView project={project} onNavigateToTimeline={() => setCurrentTab('timeline')} />
+            )}
 
-          {currentTab === 'export' && (
-            <ResolveHubView project={project} editorCaps={editorCaps} onRefreshCaps={handleRefreshCaps} />
-          )}
+            {currentTab === 'export' && (
+              <ResolveHubView project={project} editorCaps={editorCaps} onRefreshCaps={handleRefreshCaps} />
+            )}
 
-          {(currentTab === 'audio' ||
-            currentTab === 'animations') && (
-            <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-[#070d18]">
-              <div className="w-16 h-16 rounded-2xl bg-[#0a1222] border border-slate-800 flex items-center justify-center text-cyan-400 mb-4 shadow-xl">
-                <span className="font-bold text-lg uppercase tracking-wider">{currentTab.substring(0, 3)}</span>
+            {(currentTab === 'audio' ||
+              currentTab === 'animations') && (
+              <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-[#070d18]">
+                <div className="w-16 h-16 rounded-2xl bg-[#0a1222] border border-slate-800 flex items-center justify-center text-cyan-400 mb-4 shadow-xl">
+                  <span className="font-bold text-lg uppercase tracking-wider">{currentTab.substring(0, 3)}</span>
+                </div>
+                <h2 className="text-xl font-bold text-white mb-2 capitalize">
+                  Módulo: {currentTab}
+                </h2>
+                <p className="text-xs text-slate-400 max-w-md mb-6 leading-relaxed">
+                  Este módulo ainda não está disponível nesta versão.
+                  Use a Revisão de Cortes ou a Verificação do Ambiente enquanto isso.
+                </p>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => setCurrentTab('overview')}
+                    className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 transition-colors"
+                  >
+                    Voltar para Visão Geral
+                  </button>
+                  <button
+                    onClick={() => setCurrentTab('review')}
+                    className="px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 text-xs font-bold text-white shadow-md shadow-cyan-950"
+                  >
+                    Ir para Revisão de Cortes
+                  </button>
+                </div>
               </div>
-              <h2 className="text-xl font-bold text-white mb-2 capitalize">
-                Módulo: {currentTab}
-              </h2>
-              <p className="text-xs text-slate-400 max-w-md mb-6 leading-relaxed">
-                Este módulo ainda não está disponível nesta versão.
-                Use a Revisão de Cortes ou a Verificação do Ambiente enquanto isso.
-              </p>
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={() => setCurrentTab('overview')}
-                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 transition-colors"
-                >
-                  Voltar para Visão Geral
-                </button>
-                <button
-                  onClick={() => setCurrentTab('review')}
-                  className="px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 text-xs font-bold text-white shadow-md shadow-cyan-950"
-                >
-                  Ir para Revisão de Cortes
-                </button>
-              </div>
-            </div>
-          )}
+            )}
+          </ErrorBoundary>
         </main>
       </div>
 

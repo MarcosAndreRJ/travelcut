@@ -15,7 +15,7 @@
 ## Roteiro mínimo
 
 - [ ] App inicia no host com WebView2 e dependências.
-- [ ] Projeto de teste com pastas 1–4 reconhecido.
+- [RETEST] Projeto de teste com pastas 1–4 reconhecido. FALHA BLOQUEANTE NO PACOTE 1: Ao abrir ou criar projeto no host Windows (0.10.0-host-test.1), a interface desaparecia ficando em tela preta (TypeError: assets.filter is not a function devido à divergência no contrato IPC media.list e ausência de Error Boundary). CORRIGIDO NA VM (branch fix/f11-black-screen-project-navigation): contrato media.list alinhado para retornar array direto de DTOs, camada defensiva no frontend (aceita array e { media: [...] }), Error Boundary com fallback e recuperação na raiz e nas views, tratamento de erro com banner na LibraryTranscriptionView, e script de captura de erros JS encaminhado ao log nativo WPF. Aguardando reteste no host com o pacote 0.10.0-host-test.2.
 - [ ] Mídias sintéticas importadas; originais preservados.
 - [ ] Transcrição testada no host, quando pertinente.
 - [ ] Consulta read-only Resolve bem-sucedida.

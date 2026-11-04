@@ -38,7 +38,11 @@ public sealed class TravelCutReadTools(TravelCutMcpFacade facade)
         {
             var id = facade.RequireAuthorizedProject(projectId);
             var response = await facade.DispatchAsync(TravelCutMcpFacade.IpcTypes.MediaList, new ProjectRequest(id), ct);
-            return McpOutcome.FromResponse(response);
+            return McpOutcome.FromResponse(response, payload => payload is IEnumerable<MediaAssetDto> list
+                ? new { media = list }
+                : payload is not null && payload.GetType().GetProperty("media") is null
+                    ? new { media = payload }
+                    : payload);
         }, cancellationToken);
         return ToolResults.From(outcome);
     }

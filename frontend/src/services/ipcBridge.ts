@@ -1944,7 +1944,8 @@ class IpcBridgeService {
   }
 
   public async listSuggestions(projectId: string): Promise<EditSuggestion[]> {
-    const res = await this.send<{ suggestions: EditSuggestion[] }>('suggestions.list', { projectId });
+    const res = await this.send<{ suggestions: EditSuggestion[] } | EditSuggestion[]>('suggestions.list', { projectId });
+    if (Array.isArray(res)) return res;
     return res?.suggestions ?? [];
   }
 
@@ -1953,7 +1954,12 @@ class IpcBridgeService {
   }
 
   public async listMedia(projectId: string): Promise<MediaAssetDto[]> {
-    return this.send<MediaAssetDto[]>('media.list', { projectId });
+    const res = await this.send<MediaAssetDto[] | { media: MediaAssetDto[] }>('media.list', { projectId });
+    if (Array.isArray(res)) return res;
+    if (res && typeof res === 'object' && Array.isArray((res as any).media)) return (res as any).media;
+    throw new Error(
+      `Falha de contrato IPC em 'media.list': esperava array MediaAssetDto[], mas recebeu payload inválido (${res === null ? 'null' : typeof res}).`
+    );
   }
 
   public async getMediaDetails(mediaId: string): Promise<MediaDetailsDto> {
@@ -1979,8 +1985,9 @@ class IpcBridgeService {
   }
 
   public async listPlanRevisions(projectId: string): Promise<PlanRevisionInfoDto[]> {
-    const res = await this.send<PlanRevisionsResponse>('plan.list', { projectId });
-    return res?.revisions ?? [];
+    const res = await this.send<PlanRevisionsResponse | PlanRevisionInfoDto[]>('plan.list', { projectId });
+    if (Array.isArray(res)) return res;
+    return (res as any)?.revisions ?? [];
   }
 
   public async validatePlan(projectId: string, revision: number): Promise<PlanValidationDto> {

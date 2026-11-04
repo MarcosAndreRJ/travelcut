@@ -55,3 +55,61 @@
 - Operação: `prompts/` e `progresso/`.
 - Agentes: `.claude/agents/`; Skills: `.claude/skills/`.
 - Referências atuais do Claude Code: https://code.claude.com/docs/en/sub-agents e https://code.claude.com/docs/en/skills.
+
+
+## Ambiente de Execução e Shell
+
+- **Shell Padrão:** O ambiente de execução do Bash é Git Bash (POSIX/Linux), mesmo estando no Windows.
+- **Sintaxe de Comandos:**
+  - NUNCA use cmdlets de PowerShell diretamente no Bash (ex.: `Get-Location`, `Get-ChildItem`, `Select-Object`, `Where-Object`, etc.).
+  - Sempre utilize comandos padrão Unix/POSIX (`pwd`, `ls`, `grep`, `find`, `cat`, `sed`, `awk`).
+  - Se for estritamente necessário usar PowerShell, invoque explicitamente: `powershell.exe -NoProfile -Command "<comando>"`.
+- **Tratamento de Erros:**
+  - Se um comando retornar código de saída `127` (command not found), NUNCA repita o mesmo comando. Analise o erro imediatamente e adapte a sintaxe para Unix/Bash.
+  - Não execute comandos em loops idênticos.
+
+## Relatórios de Execução e Progresso dos Agentes (Regra Permanente)
+
+### 1. Obrigatoriedade
+- O Claude Opus 5.5, atuando como orquestrador principal do TravelCut Studio, apresenta relatórios de progresso visíveis durante toda a execução.
+- Sempre que um agente ou subagente concluir uma tarefa, o orquestrador emite um relatório estruturado visível ao usuário antes de avançar para a próxima etapa relevante.
+- Aplica-se a todos os agentes (`dotnet-engineer`, `frontend-engineer`, `qa-auditor`, `senior-analyst`, etc.).
+- Proibido acumular conclusões sem informar resultados ou emitir mensagens genéricas sem evidências.
+
+### 2. Formato Obrigatório após cada Agente
+```markdown
+### RELATÓRIO DE EXECUÇÃO — [NOME DO AGENTE]
+**Tarefa:** descrição objetiva da atividade delegada.
+**Estado:** CONCLUÍDO / PARCIAL / FALHOU / BLOQUEADO.
+**Resultado:** o que foi efetivamente identificado, implementado ou corrigido.
+**Arquivos:** principais arquivos criados ou modificados.
+**Verificações:** comandos e testes executados, com resultados reais.
+**Pendências:** problemas não resolvidos, limitações e riscos.
+**Próxima ação:** o que o orquestrador fará a partir desse resultado.
+```
+
+### 3. Relatórios do Orquestrador
+Apresentar resumo consolidado ao concluir marcos importantes (Diagnóstico, Implementação, Correção, Testes, Auditoria, Build, Empacotamento, Commit, Merge, Push), informando progresso acumulado, arquivos, testes com números reais, SHA de commit ou hash/caminho de pacote.
+
+### 4. Progresso Verificável
+Manter `progresso/CHECKLIST.md`, `progresso/IMPLEMENTATION_LOG.md` e `progresso/STATE.md` rigorosamente consistentes com os relatórios emitidos. Diferenciar categoricamente: Implementado, Compilado, Testado na VM, Aprovado no CI, Publicado no GitHub e Homologado no host.
+
+### 5. Continuidade Autônoma
+Os relatórios são informativos, não pedidos de autorização. Após emitir o relatório, continuar o desenvolvimento autonomamente sem interrupções desnecessárias, solicitando intervenção apenas para decisões indispensáveis, operações não autorizadas ou bloqueios de segurança.
+
+### 6. Falhas e Bloqueios
+Relatar com total transparência o que falhou, causa identificada ou hipótese, evidência, o que foi tentado, alternativa corretiva e se a execução pode continuar.
+
+### 7. Formato Compacto para Microtarefas
+```markdown
+**[Agente] — [Estado]**
+**Feito:** resultado concreto.
+**Validado:** testes ou verificações.
+**Próximo:** próxima ação.
+```
+
+### 8. Regra de Comunicação
+Sem longos períodos sem apresentar resultados intermediários. Informar início de atividades relevantes, conclusão de cada agente e encerramento de cada marco técnico prontamente.
+
+### 9. Encerramento da Sessão
+Relatório final consolidado contendo: agentes acionados e entregas, arquivos modificados, problemas corrigidos, testes executados e aprovados, testes falhos/não executados, auditorias, commits e estado do Git, versão e hash do pacote, pendências e próxima etapa recomendada.

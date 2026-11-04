@@ -103,11 +103,11 @@
   - [x] F10.5 — README de usuário, notas de versão, checklist de smoke test, limitações e riscos.
   - [x] F10.6 — Suíte completa + auditoria qa-auditor do pacote e da UI (nenhum mock falso exibido como real).
   - Fechamento 2026-11-03 03:40: varredura crítica senior-analyst + auditoria final qa-auditor, bloqueante/altos corrigidos; build final reproduzível pelo script (entradas fixadas, determinístico, `reproducible: unverified`), UnitTests 1044/1044, Mcp 107/107, npm 162/162, tsc 0; zip sha256 3494021673f9bcf740e85e6fcee615dcf2ca5adc8fd9fdd23a65e31e39b18f90. F10.4: Z: não montado na VM — pacote local em `dist/`, cópia para o host depende de autorização do usuário; compatibilidade no host `host_pending`.
-- [ ] F11 — homologação real no host e critérios do MVP. Iniciada 2026-11-03 03:45; status `waiting_for_host`.
-  - [ ] F11.1 — Usuário leva o pacote `dist/TravelCutStudio-0.10.0-host-test.1-win-x64.zip` ao host (cópia manual; Z: não montado na VM) e confere o SHA-256 (LEIA-ME-HOST §5).
-  - [ ] F11.2 — Smoke test `docs/22-SMOKE-TEST-HOST.md` no host; resultados em `progresso/HOST_TESTS.md` (seção "Smoke do pacote").
+- [ ] F11 — homologação real no host e critérios do MVP. Iniciada 2026-11-03 03:45; em correção após falha bloqueante observada no host.
+  - [ ] F11.1 — Usuário leva o pacote `dist/TravelCutStudio-0.10.0-host-test.1-win-x64.zip` ao host e testa abertura de projeto.
+  - [!] F11.2 — Smoke test `docs/22-SMOKE-TEST-HOST.md` no host: FALHA BLOQUEANTE comprovada. Tela preta ao abrir ou criar projeto (interface desaparece).
   - [ ] F11.3 — Roteiros F04b–F09 de `progresso/HOST_TESTS.md` com mídia de teste aprovada e projeto DaVinci TEMPORÁRIO `TravelCut_*`; logs de `%LOCALAPPDATA%\TravelCutStudio\logs` e evidências do harness.
-  - [ ] F11.4 — Orquestrador reproduz falhas reais com fixtures na VM, corrige, regressão, novo pacote; iterar.
+  - [x] F11.4 — Orquestrador reproduz falhas reais com fixtures na VM, corrige, regressão, novo pacote; iterar. (CONCLUÍDO na branch fix/f11-black-screen-project-navigation: correção do contrato IPC media.list direto como array + suporte duplo no McpFacade e ReadTools; inclusão de ErrorBoundary na raiz e views; tratamento defensivo em LibraryTranscriptionView e ipcBridge; instrumentação de erros JS no MainWindow.xaml.cs com AddScriptToExecuteOnDocumentCreatedAsync; 1050/1050 C# UnitTests, 107/107 McpTests, 182/182 Vitest, 0 erros tsc, build limpo).
   - [ ] F11.5 — Critérios do MVP (`docs/13`) com evidência real → `HOST_VALIDADO`; senão relatório **MVP SIMULADO / HOST PENDENTE**.
 
 - [x] GIT — Consolidação do código no GitHub `MarcosAndreRJ/travelcut` (2026-11-03): código auditado ✔; versionado/commitado ✔ (958a22e, fae26b2); branch `integration/travelcut-dotnet10-consolidation` publicada ✔; merge `--no-ff` na `main` ✔ (476ba5c); push na `main` confirmado por `git ls-remote` e clone novo ✔. Sem force push, sem reescrita de histórico, tags/branches antigas intactas. Pendente: diretório local original sem `.git` (trabalhar a partir do clone); falha intermitente de 1 teste não identificada (1 de 6 rodadas).

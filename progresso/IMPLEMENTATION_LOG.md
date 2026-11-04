@@ -457,6 +457,20 @@ Validação: git status -sb limpo antes desta entrada; HEAD = origin/main = 339a
 Observação: o clone K:\Trabalho\Integracao\travelcut deixa de ser necessário. O 'first commit' foi enviado a outro repositório do usuário (URL não registrada no .git) — conferir lá. Esta entrada e o STATE ficam como alteração local até o usuário decidir commit/push.
 Próximo: decisão do usuário sobre commit/push deste registro.
 
+[2026-11-03 14:30 -03:00] F11-HOMOLOGACAO | orchestrator (Opus 5.5) | FALHOU
+Ação: Homologação no host Windows (pacote 0.10.0-host-test.1): identificado defeito bloqueante comprovado por captura de tela do usuário. Ao abrir ou criar projeto, a interface React desaparece e a janela fica totalmente escura (tela preta), sem sidebar, cabeçalho, biblioteca ou mensagem de erro. Criada branch fix/f11-black-screen-project-navigation a partir de main (625fa90). Status alterado para em_correcao_f11.
+Arquivos: progresso/HOST_TESTS.md, progresso/STATE.md, progresso/CHECKLIST.md, progresso/IMPLEMENTATION_LOG.md
+Validação: Captura de tela do usuário comprovando tela preta no host.
+Observação: Falha bloqueante da F11. Causa prioritária sob investigação: divergência no contrato IPC media.list ({ media: dtos } retornado por IpcDispatcher.cs vs array esperado por ipcBridge.ts / LibraryTranscriptionView.tsx -> TypeError em assets.filter). Ausência de Error Boundary permitiu que o erro derrubasse toda a árvore DOM. Falta de captura de erros JS no MainWindow.xaml.cs impediu log da exceção.
+Próximo: Auditoria completa dos contratos IPC, reprodução com testes, correção tipada, implementação de Error Boundaries e instrumentação WebView2.
+
+[2026-11-03 16:45 -03:00] F11-CORRECAO | orchestrator (Opus 5.5) | FEITO
+Ação: Correção completa da falha de tela preta ao abrir/criar projetos no host. Resolvida divergência no contrato IPC media.list (IpcDispatcher agora retorna MediaAssetDto[] diretamente, com suporte mantido para formato legado ou encapsulado via McpFacade e ReadTools). Adicionados aliases IPC media.details e media.chronology (com thresholdSeconds e sessionGapMinutes). No frontend, ipcBridge normaliza respostas encapsuladas de media.list, suggestions.list e plan.list; LibraryTranscriptionView valida array com fallback seguro, exibe banner de erro com retry sem quebrar o componente; implementado ErrorBoundary em React envolvendo a raiz e o roteador de views com fallback gráfico e recuperação. Em MainWindow.xaml.cs, adicionado script WebView2 para capturar window.error e unhandledrejection enviando para o logger C# nativo.
+Arquivos: src/TravelCut.Application/Ipc/IpcDispatcher.cs, src/TravelCut.Desktop/MainWindow.xaml.cs, src/TravelCut.Mcp/Facade/TravelCutMcpFacade.cs, src/TravelCut.Mcp/Tools/TravelCutReadTools.cs, frontend/src/services/ipcBridge.ts, frontend/src/components/LibraryTranscriptionView.tsx, frontend/src/components/ErrorBoundary.tsx, frontend/src/App.tsx, frontend/src/main.tsx, frontend/src/components/__tests__/ErrorBoundary.test.ts, frontend/src/components/__tests__/LibraryTranscriptionView.test.tsx, frontend/src/services/__tests__/ipcBridgeMedia.test.ts, tests/TravelCut.UnitTests/Application/IpcDispatcherTests.cs, tests/TravelCut.UnitTests/EndToEnd/E2ESteps.cs, tests/TravelCut.UnitTests/EndToEnd/EndToEndMigrationTests.cs, progresso/STATE.md, progresso/CHECKLIST.md, progresso/HOST_TESTS.md, progresso/IMPLEMENTATION_LOG.md
+Validação: UnitTests C# 1050/1050 (100% OK); Mcp.Tests 107/107 (100% OK); Vitest frontend 182/182 (100% OK); tsc --noEmit (0 erros); npm run build (sucesso); dotnet build TravelCutStudio.sln -c Release (0 erros).
+Observação: Branch fix/f11-black-screen-project-navigation pronta para revisão e merge. Pacote 0.10.0-host-test.2 pronto para ser empacotado para reteste no host Windows.
+Próximo: Usuário aprova merge na main e geração do novo pacote de homologação para o host.
+
 ## Modelo de entrada (copiar preenchendo com dados reais)
 
 ```text

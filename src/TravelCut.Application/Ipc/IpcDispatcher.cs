@@ -185,10 +185,11 @@ public class IpcDispatcher
                 {
                     var projectId = ExtractProjectId(request.Payload);
                     var dtos = await _listMediaUseCase.ExecuteAsync(projectId, ct);
-                    return IpcResponse.Success(request.RequestId, new { media = dtos });
+                    return IpcResponse.Success(request.RequestId, dtos);
                 }
 
                 case "media.getDetails":
+                case "media.details":
                 {
                     var mediaId = ExtractGuid(request.Payload, "mediaId");
                     if (mediaId == Guid.Empty)
@@ -206,6 +207,7 @@ public class IpcDispatcher
                 }
 
                 case "media.getChronology":
+                case "media.chronology":
                 {
                     var projectId = ExtractProjectId(request.Payload);
                     if (projectId == Guid.Empty)
@@ -222,6 +224,11 @@ public class IpcDispatcher
                             if (string.Equals(prop.Name, "sessionGapMinutes", StringComparison.OrdinalIgnoreCase) && prop.Value.TryGetDouble(out var gapMin))
                             {
                                 gap = TimeSpan.FromMinutes(gapMin);
+                                break;
+                            }
+                            if (string.Equals(prop.Name, "thresholdSeconds", StringComparison.OrdinalIgnoreCase) && prop.Value.TryGetDouble(out var thSec))
+                            {
+                                gap = TimeSpan.FromSeconds(thSec);
                                 break;
                             }
                         }

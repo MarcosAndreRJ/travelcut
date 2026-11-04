@@ -69,6 +69,39 @@ public partial class MainWindow : Window
         core.NavigationStarting += CoreWebView2_NavigationStarting;
         core.NewWindowRequested += CoreWebView2_NewWindowRequested;
 
+        // Captura erros e unhandled rejections do JavaScript no frontend e encaminha para o log nativo
+        await core.AddScriptToExecuteOnDocumentCreatedAsync(@"
+            window.addEventListener('error', function(e) {
+                try {
+                    if (window.chrome && window.chrome.webview) {
+                        window.chrome.webview.postMessage(JSON.stringify({
+                            type: 'system.logClientError',
+                            payload: {
+                                message: e.message,
+                                source: e.filename,
+                                lineno: e.lineno,
+                                colno: e.colno,
+                                stack: e.error ? e.error.stack : null
+                            }
+                        }));
+                    }
+                } catch (_) {}
+            });
+            window.addEventListener('unhandledrejection', function(e) {
+                try {
+                    if (window.chrome && window.chrome.webview) {
+                        window.chrome.webview.postMessage(JSON.stringify({
+                            type: 'system.logClientError',
+                            payload: {
+                                message: e.reason ? (e.reason.message || String(e.reason)) : 'Unhandled rejection',
+                                stack: e.reason && e.reason.stack ? e.reason.stack : null
+                            }
+                        }));
+                    }
+                } catch (_) {}
+            });
+        ");
+
         string? distDir = ResolveFrontendDist();
         if (distDir != null)
         {
@@ -260,6 +293,12 @@ public partial class MainWindow : Window
 
             if (request == null)
             {
+                return;
+            }
+
+            if (request.Type == "system.logClientError")
+            {
+                _logger.LogError("Client JS Error reportado: {Payload}", JsonSerializer.Serialize(request.Payload));
                 return;
             }
 

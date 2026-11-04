@@ -628,6 +628,53 @@ public class IpcDispatcherTests : IDisposable
         Assert.NotNull(response.Payload);
         var json = JsonSerializer.Serialize(response.Payload);
         Assert.Contains("DJI_0001.MP4", json);
+        using var doc = JsonDocument.Parse(json);
+        Assert.Equal(JsonValueKind.Array, doc.RootElement.ValueKind);
+        var list = JsonSerializer.Deserialize<IReadOnlyList<MediaAssetDto>>(doc.RootElement.GetRawText());
+        Assert.NotNull(list);
+        Assert.Single(list);
+        Assert.Equal("1-Bruto/DJI_0001.MP4", list[0].RelativePath);
+    }
+
+    [Fact]
+    public async Task DispatchAsync_MediaList_EmptyProject_ReturnsEmptyArray()
+    {
+        var emptyProjectId = Guid.NewGuid();
+        var request = new IpcRequest
+        {
+            RequestId = "req-media-list-empty",
+            Type = "media.list",
+            Payload = new { projectId = emptyProjectId }
+        };
+
+        var response = await _dispatcher.DispatchAsync(request);
+
+        Assert.True(response.Ok);
+        Assert.NotNull(response.Payload);
+        var json = JsonSerializer.Serialize(response.Payload);
+        using var doc = JsonDocument.Parse(json);
+        Assert.Equal(JsonValueKind.Array, doc.RootElement.ValueKind);
+        Assert.Equal(0, doc.RootElement.GetArrayLength());
+    }
+
+    [Fact]
+    public async Task DispatchAsync_MediaList_NullPayload_ReturnsEmptyArrayOrHandlesGracefully()
+    {
+        var request = new IpcRequest
+        {
+            RequestId = "req-media-list-null",
+            Type = "media.list",
+            Payload = null
+        };
+
+        var response = await _dispatcher.DispatchAsync(request);
+
+        Assert.True(response.Ok);
+        Assert.NotNull(response.Payload);
+        var json = JsonSerializer.Serialize(response.Payload);
+        using var doc = JsonDocument.Parse(json);
+        Assert.Equal(JsonValueKind.Array, doc.RootElement.ValueKind);
+        Assert.Equal(0, doc.RootElement.GetArrayLength());
     }
 
     [Fact]
