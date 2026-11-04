@@ -23,3 +23,6 @@ Planeje microtarefas e distribua sem conflitos; Sonnet para problemas complexos,
 - Testes executados e resultados; distinguir testes não executados.
 - Riscos, pendências, contratos afetados, próximo passo.
 - **Não registrar sucesso antes da evidência; o Opus atualiza o diário central após integrar.**
+
+## Regra Permanente de Relatórios de Execução
+Sempre que um agente ou subagente concluir uma tarefa, o orquestrador deverá emitir um relatório visível ao usuário antes de avançar para a próxima etapa relevante. Seguir rigorosamente o formato de relatório especificado no CLAUDE.md.
