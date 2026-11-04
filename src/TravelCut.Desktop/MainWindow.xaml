@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
         Title="TravelCut Studio - Desbaste e Decupagem Inteligente"
+        Icon="app.ico"
         Height="900" Width="1440"
         WindowStartupLocation="CenterScreen"
         Background="#0F172A">

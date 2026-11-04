@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using TravelCut.Application.Audio;
 using TravelCut.Application.Ports;
 using TravelCut.Application.Services;
 using TravelCut.Application.UseCases;
@@ -38,6 +39,7 @@ public sealed class MediaImportService : IMediaImportService
     private readonly IFreeSpaceProvider _freeSpace;
     private readonly ILogger<MediaImportService> _logger;
     private readonly MediaImportOptions _options;
+    private readonly IPipelineJobManager? _pipelineJobs;
     private readonly ConcurrentDictionary<Guid, ImportJob> _jobs = new();
     private readonly ConcurrentDictionary<Guid, Guid> _activeJobByProject = new();
 
@@ -45,12 +47,38 @@ public sealed class MediaImportService : IMediaImportService
         IServiceScopeFactory scopeFactory,
         IFreeSpaceProvider freeSpace,
         ILogger<MediaImportService> logger,
-        MediaImportOptions? options = null)
+        MediaImportOptions? options = null,
+        IPipelineJobManager? pipelineJobs = null)
     {
         _scopeFactory = scopeFactory;
         _freeSpace = freeSpace;
         _logger = logger;
         _options = options ?? new MediaImportOptions();
+        _pipelineJobs = pipelineJobs;
+    }
+
+    public MediaImportService(
+        IServiceScopeFactory scopeFactory,
+        IFreeSpaceProvider freeSpace,
+        ILogger<MediaImportService> logger,
+        IPipelineJobManager? pipelineJobs)
+        : this(scopeFactory, freeSpace, logger, null, pipelineJobs)
+    {
+    }
+
+    private IPipelineJobManager? ResolvePipelineJobManager()
+    {
+        if (_pipelineJobs != null) return _pipelineJobs;
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            return scope.ServiceProvider.GetService<IPipelineJobManager>();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Não foi possível resolver IPipelineJobManager");
+            return null;
+        }
     }
 
     public async Task<ImportStartResult> StartAsync(StartImportRequest request, CancellationToken ct = default)
@@ -101,7 +129,51 @@ public sealed class MediaImportService : IMediaImportService
         _jobs[jobId] = job;
         if (request.DetectSpeech)
         {
-            job.Mutate(j => j.AddNote(SpeechUnavailableNote));
+            var pipeline = ResolvePipelineJobManager();
+            if (pipeline == null)
+            {
+                job.Mutate(j =>
+                {
+                    j.SpeechAnalysis = "unavailable";
+                    j.AddNote("Detecção de fala indisponível: serviço de análise audiovisual não configurado; nada foi enfileirado.");
+                });
+            }
+            else
+            {
+                try
+                {
+                    var env = await pipeline.GetEnvironmentAsync(ct);
+                    if (!env.WhisperAvailable)
+                    {
+                        var reasons = env.Reasons.Where(r => !string.IsNullOrWhiteSpace(r)).ToList();
+                        string reason = reasons.Count > 0
+                            ? string.Join("; ", reasons)
+                            : "Whisper indisponível neste ambiente.";
+                        job.Mutate(j =>
+                        {
+                            j.SpeechAnalysis = "unavailable";
+                            j.AddNote($"Detecção de fala indisponível ({reason}): nada foi enfileirado.");
+                        });
+                    }
+                    else
+                    {
+                        job.Mutate(j =>
+                        {
+                            j.SpeechAnalysis = "queued";
+                            j.AddNote("Detecção de fala agendada para após a importação.");
+                        });
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Falha ao verificar ambiente de análise de fala para o job {JobId}", job.JobId);
+                    job.Mutate(j =>
+                    {
+                        j.SpeechAnalysis = "unavailable";
+                        j.AddNote("Falha ao consultar dependências de fala: análise indisponível; nada foi enfileirado.");
+                    });
+                }
+            }
         }
 
         _logger.LogInformation("Importação {JobId} enfileirada para o projeto {ProjectId} (destino {Folder}, cópia={Copy})",
@@ -348,7 +420,75 @@ public sealed class MediaImportService : IMediaImportService
             await GenerateThumbnailsAsync(job, registrable, byRelative, scope, ct, markCanceled);
         }
 
+        if (job.DetectSpeech && !ct.IsCancellationRequested)
+        {
+            await EnqueueSpeechAnalysisIfRequestedAsync(job, registeredAssets, ct);
+        }
+
         return true;
+    }
+
+    private async Task EnqueueSpeechAnalysisIfRequestedAsync(
+        ImportJob job,
+        IReadOnlyList<MediaAsset> registeredAssets,
+        CancellationToken ct)
+    {
+        if (!job.DetectSpeech || job.SpeechAnalysis != "queued" || ct.IsCancellationRequested)
+        {
+            return;
+        }
+
+        var mediaIds = registeredAssets
+            .Where(a => a.Kind is MediaKind.Video or MediaKind.Audio)
+            .Select(a => a.MediaId)
+            .ToList();
+
+        if (mediaIds.Count == 0)
+        {
+            job.Mutate(j => j.AddNote("Nenhum arquivo de vídeo ou áudio encontrado para detecção de fala."));
+            return;
+        }
+
+        var pipeline = ResolvePipelineJobManager();
+        if (pipeline == null)
+        {
+            job.Mutate(j =>
+            {
+                j.SpeechAnalysis = "unavailable";
+                j.AddNote("Detecção de fala: gerenciador de pipeline indisponível.");
+            });
+            return;
+        }
+
+        try
+        {
+            var req = new StartPipelineRequest(
+                ProjectId: job.ProjectId,
+                MediaIds: mediaIds,
+                Stages: null,
+                Language: "pt",
+                Force: false
+            );
+
+            var pipelineJobId = await pipeline.StartAsync(req, ct);
+            job.Mutate(j =>
+            {
+                j.SpeechAnalysis = "queued";
+                j.AddNote($"Detecção de fala enfileirada no pipeline audiovisual (job {pipelineJobId}).");
+            });
+            _logger.LogInformation(
+                "Job {JobId}: detecção de fala enfileirada com sucesso no pipeline ({PipelineJobId}) para {Count} mídia(s)",
+                job.JobId, pipelineJobId, mediaIds.Count);
+        }
+        catch (InvalidOperationException ex) when (ex.Message == "PIPELINE_IN_PROGRESS")
+        {
+            job.Mutate(j => j.AddNote("Detecção de fala agendada: outro processamento já está em andamento no projeto."));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Falha ao enfileirar análise de fala no pipeline para o job de importação {JobId}", job.JobId);
+            job.Mutate(j => j.AddNote("Falha ao registrar análise de fala no pipeline."));
+        }
     }
 
     private async Task GenerateThumbnailsAsync(

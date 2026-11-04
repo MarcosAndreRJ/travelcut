@@ -396,6 +396,79 @@ public class MediaImportServiceTests
     }
 
     [Fact]
+    public async Task SpeechAnalysis_WhenSupported_StartsPipelineAndRemainsQueued()
+    {
+        using var tmp = new TempDirectory();
+        string root = Path.Combine(tmp.Path, "Projeto");
+        var fakePipeline = new FakePipelineJobManager
+        {
+            WhisperAvailable = true,
+            FfmpegAvailable = true
+        };
+        using var h = new ImportHarness(pipelineJobs: fakePipeline);
+        var project = h.CreateProject(root);
+        string source = TestFiles.WriteSource(Path.Combine(tmp.Path, "origem", "entrevista.mp4"), TestFiles.RandomBytes(2048));
+
+        var start = await h.Service.StartAsync(ImportHarness.Request(project.ProjectId, new[] { source }, detectSpeech: true));
+        var status = await ImportHarness.WaitForFinalAsync(h.Service, start.JobId!.Value);
+
+        Assert.Equal("completed", status.State);
+        Assert.Equal("queued", status.SpeechAnalysis);
+        Assert.Single(fakePipeline.StartedRequests);
+        var pipelineReq = fakePipeline.StartedRequests[0];
+        Assert.Equal(project.ProjectId, pipelineReq.ProjectId);
+        Assert.NotNull(pipelineReq.MediaIds);
+        Assert.Single(pipelineReq.MediaIds);
+        Assert.Contains("enfileirada", status.Message);
+    }
+
+    [Fact]
+    public async Task SpeechAnalysis_WhenWhisperUnavailable_ReportsReasonAndQueuesNothing()
+    {
+        using var tmp = new TempDirectory();
+        string root = Path.Combine(tmp.Path, "Projeto");
+        var fakePipeline = new FakePipelineJobManager
+        {
+            WhisperAvailable = false,
+            Reasons = new List<string> { "Python 3.10+ não encontrado no PATH" }
+        };
+        using var h = new ImportHarness(pipelineJobs: fakePipeline);
+        var project = h.CreateProject(root);
+        string source = TestFiles.WriteSource(Path.Combine(tmp.Path, "origem", "video.mp4"), TestFiles.RandomBytes(2048));
+
+        var start = await h.Service.StartAsync(ImportHarness.Request(project.ProjectId, new[] { source }, detectSpeech: true));
+        var status = await ImportHarness.WaitForFinalAsync(h.Service, start.JobId!.Value);
+
+        Assert.Equal("completed", status.State);
+        Assert.Equal("unavailable", status.SpeechAnalysis);
+        Assert.Empty(fakePipeline.StartedRequests);
+        Assert.Contains("Python 3.10+ não encontrado", status.Message);
+        Assert.Contains("nada foi enfileirado", status.Message);
+    }
+
+    [Fact]
+    public async Task SpeechAnalysis_WhenPipelineAlreadyRunning_PreservesQueuedWithNote()
+    {
+        using var tmp = new TempDirectory();
+        string root = Path.Combine(tmp.Path, "Projeto");
+        var fakePipeline = new FakePipelineJobManager
+        {
+            WhisperAvailable = true,
+            ShouldThrowInProgress = true
+        };
+        using var h = new ImportHarness(pipelineJobs: fakePipeline);
+        var project = h.CreateProject(root);
+        string source = TestFiles.WriteSource(Path.Combine(tmp.Path, "origem", "clipe.mp4"), TestFiles.RandomBytes(2048));
+
+        var start = await h.Service.StartAsync(ImportHarness.Request(project.ProjectId, new[] { source }, detectSpeech: true));
+        var status = await ImportHarness.WaitForFinalAsync(h.Service, start.JobId!.Value);
+
+        Assert.Equal("completed", status.State);
+        Assert.Equal("queued", status.SpeechAnalysis);
+        Assert.Contains("já está em andamento", status.Message);
+    }
+
+    [Fact]
     public async Task AnalyzeMetadataUsesFfprobeAndStoresStatus()
     {
         using var tmp = new TempDirectory();

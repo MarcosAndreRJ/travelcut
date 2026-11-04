@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using Microsoft.Extensions.Logging.Abstractions;
+using TravelCut.Application.Audio;
 using TravelCut.Application.Ports;
 using TravelCut.Application.Services;
 using TravelCut.Application.UseCases;
@@ -104,6 +105,60 @@ internal sealed class FakeThumbnailService : IThumbnailService
     }
 }
 
+internal sealed class FakePipelineJobManager : IPipelineJobManager
+{
+    public bool WhisperAvailable { get; set; } = true;
+    public bool FfmpegAvailable { get; set; } = true;
+    public List<string> Reasons { get; set; } = new();
+    public List<StartPipelineRequest> StartedRequests { get; } = new();
+    public Guid NextJobId { get; set; } = Guid.NewGuid();
+    public bool ShouldThrowInProgress { get; set; } = false;
+
+    public Task<AnalysisEnvironmentDto> GetEnvironmentAsync(CancellationToken ct = default)
+    {
+        return Task.FromResult(new AnalysisEnvironmentDto(
+            FfmpegAvailable: FfmpegAvailable,
+            FfmpegVersion: FfmpegAvailable ? "6.1.1" : null,
+            PythonAvailable: WhisperAvailable,
+            WhisperAvailable: WhisperAvailable,
+            WhisperEngine: WhisperAvailable ? "faster-whisper" : null,
+            WhisperModel: "large-v3",
+            CudaAvailable: false,
+            Reasons: Reasons));
+    }
+
+    public Task<Guid> StartAsync(StartPipelineRequest request, CancellationToken ct = default)
+    {
+        if (ShouldThrowInProgress)
+        {
+            throw new InvalidOperationException("PIPELINE_IN_PROGRESS");
+        }
+        StartedRequests.Add(request);
+        return Task.FromResult(NextJobId);
+    }
+
+    public Task<PipelineStatusDto> GetStatusAsync(Guid projectId, CancellationToken ct = default)
+    {
+        return Task.FromResult(new PipelineStatusDto(
+            JobId: NextJobId,
+            ProjectId: projectId,
+            State: "completed",
+            Stages: new List<PipelineStageStatusDto>(),
+            Media: new List<PipelineMediaStatusDto>(),
+            CurrentMedia: null,
+            Environment: null,
+            StartedAtUtc: DateTime.UtcNow,
+            FinishedAtUtc: DateTime.UtcNow));
+    }
+
+    public bool Cancel(Guid jobId) => true;
+
+    public Task<MediaAnalysisDto?> GetMediaAnalysisAsync(Guid projectId, Guid mediaId, CancellationToken ct = default)
+    {
+        return Task.FromResult<MediaAnalysisDto?>(null);
+    }
+}
+
 /// <summary>Provedor de serviços mínimo: devolve instâncias pré-criadas por tipo.</summary>
 internal sealed class FixedServiceProvider : IServiceProvider
 {
@@ -168,8 +223,9 @@ internal sealed class TempDirectory : IDisposable
 /// <summary>Montagem do serviço de importação com repositórios em memória e ffprobe/ffmpeg falsos.</summary>
 internal sealed class ImportHarness : IDisposable
 {
-    public ImportHarness(MediaImportOptions? options = null)
+    public ImportHarness(MediaImportOptions? options = null, FakePipelineJobManager? pipelineJobs = null)
     {
+        PipelineJobs = pipelineJobs;
         var scan = new ScanMediaLibraryUseCase(
             Projects,
             Media,
@@ -185,11 +241,17 @@ internal sealed class ImportHarness : IDisposable
             [typeof(IThumbnailService)] = Thumbnails
         };
 
+        if (pipelineJobs != null)
+        {
+            services[typeof(IPipelineJobManager)] = pipelineJobs;
+        }
+
         Service = new MediaImportService(
             new FixedScopeFactory(new FixedServiceProvider(services)),
             FreeSpace,
             NullLogger<MediaImportService>.Instance,
-            options);
+            options,
+            pipelineJobs);
     }
 
     public InMemoryProjectRepository Projects { get; } = new();
@@ -197,6 +259,7 @@ internal sealed class ImportHarness : IDisposable
     public FakeFfprobeExtractor Ffprobe { get; } = new();
     public FakeFreeSpaceProvider FreeSpace { get; } = new();
     public FakeThumbnailService Thumbnails { get; } = new();
+    public FakePipelineJobManager? PipelineJobs { get; }
     public MediaImportService Service { get; }
 
     /// <summary>Cria o projeto com as quatro pastas obrigatórias.</summary>
