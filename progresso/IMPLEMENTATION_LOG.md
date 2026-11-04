@@ -471,6 +471,13 @@ Validação: UnitTests C# 1050/1050 (100% OK); Mcp.Tests 107/107 (100% OK); Vite
 Observação: Branch fix/f11-black-screen-project-navigation pronta para revisão e merge. Pacote 0.10.0-host-test.2 pronto para ser empacotado para reteste no host Windows.
 Próximo: Usuário aprova merge na main e geração do novo pacote de homologação para o host.
 
+[2026-11-04 01:00 -03:00] F11-RELEASE-PACOTE-2 | orchestrator (Opus 5.5) | FEITO
+Ação: Merge da branch fix/f11-black-screen-project-navigation na main (commit 3257068). Bump de versão para 0.10.0-host-test.2 em Directory.Build.props (commit d878385). Ajuste de PathMap para restringir ContinuousIntegrationBuild a src/ garantindo resolução de fixtures em testes via CallerFilePath e fallback (commit 7ed80f2). Execução bem-sucedida do script scripts/release/Build-Release.ps1 -Zip. Gerado pacote de distribuição dist/TravelCutStudio-0.10.0-host-test.2-win-x64 e arquivo ZIP correspondente para homologação no host Windows. Regra permanente de relatórios de progresso incorporada ao CLAUDE.md.
+Arquivos: Directory.Build.props, CLAUDE.md, tests/TravelCut.UnitTests/Audio/WhisperTranscriptionServiceTests.cs, progresso/STATE.md, progresso/CHECKLIST.md, progresso/HOST_TESTS.md, progresso/IMPLEMENTATION_LOG.md, dist/TravelCutStudio-0.10.0-host-test.2-win-x64/*, dist/TravelCutStudio-0.10.0-host-test.2-win-x64.zip
+Validação: Build-Release.ps1 executado em 201s. Testes C# Release (UnitTests 1050/1050 OK, Mcp.Tests 107/107 OK). Frontend tsc --noEmit (0 erros). npm run build (sucesso com versão 0.10.0-host-test.2 confirmada no bundle). Varredura de segurança limpa. ZIP gerado: dist/TravelCutStudio-0.10.0-host-test.2-win-x64.zip (104 MB) com SHA-256 0886b342d117e8a88c33374e667d6a83cea3df07a37ef86bd0491484db5b6722.
+Observação: Estado do produto = PACOTE 2 PRONTO PARA RETESTE NO HOST. Falha bloqueante de tela preta corrigida e coberta por testes.
+Próximo: Usuário transfere dist/TravelCutStudio-0.10.0-host-test.2-win-x64.zip para o host Windows, valida hash SHA-256 e executa reteste de abertura/criação de projetos e roteiro de homologação F11.
+
 ## Modelo de entrada (copiar preenchendo com dados reais)
 
 ```text
