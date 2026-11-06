@@ -436,6 +436,15 @@ public class MediaImportServiceTests
         var project = h.CreateProject(root);
         string source = TestFiles.WriteSource(Path.Combine(tmp.Path, "origem", "video.mp4"), TestFiles.RandomBytes(2048));
 
+    public async Task DetectSpeechWithoutRegisteredPipelineMarksSpeechUnavailable()
+    {
+        using var tmp = new TempDirectory();
+        string root = Path.Combine(tmp.Path, "Projeto");
+        using var h = new ImportHarness(registerPipeline: false);
+        var project = h.CreateProject(root);
+        string source = TestFiles.WriteSource(Path.Combine(tmp.Path, "origem", "clipe.mp4"), TestFiles.RandomBytes(2048));
+
+
         var start = await h.Service.StartAsync(ImportHarness.Request(project.ProjectId, new[] { source }, detectSpeech: true));
         var status = await ImportHarness.WaitForFinalAsync(h.Service, start.JobId!.Value);
 
@@ -459,12 +468,75 @@ public class MediaImportServiceTests
         using var h = new ImportHarness(pipelineJobs: fakePipeline);
         var project = h.CreateProject(root);
         string source = TestFiles.WriteSource(Path.Combine(tmp.Path, "origem", "clipe.mp4"), TestFiles.RandomBytes(2048));
-
         var start = await h.Service.StartAsync(ImportHarness.Request(project.ProjectId, new[] { source }, detectSpeech: true));
         var status = await ImportHarness.WaitForFinalAsync(h.Service, start.JobId!.Value);
 
         Assert.Equal("completed", status.State);
         Assert.Equal("queued", status.SpeechAnalysis);
+        Assert.Contains("já está em andamento", status.Message);
+    }
+
+    [Fact]
+    public async Task DetectSpeechWithoutRegisteredPipelineMarksSpeechUnavailable()
+    {
+        using var tmp = new TempDirectory();
+        string root = Path.Combine(tmp.Path, "Projeto");
+        using var h = new ImportHarness();
+        var project = h.CreateProject(root);
+        string source = TestFiles.WriteSource(Path.Combine(tmp.Path, "origem", "fala.mp4"), TestFiles.RandomBytes(2048));
+        var start = await h.Service.StartAsync(ImportHarness.Request(project.ProjectId, new[] { source }, detectSpeech: true));
+        var status = await ImportHarness.WaitForFinalAsync(h.Service, start.JobId!.Value);
+
+        Assert.Equal("completed", status.State);
+        Assert.Equal("unavailable", status.SpeechAnalysis);
+        Assert.Contains("não está registrado", status.Message);
+    }
+
+    [Fact]
+    public async Task DetectSpeechWithRegisteredPipelineTriggersSpeechAnalysisJob()
+    {
+        using var tmp = new TempDirectory();
+        string root = Path.Combine(tmp.Path, "Projeto");
+        using var h = new ImportHarness(registerPipeline: true);
+        var project = h.CreateProject(root);
+        string source = TestFiles.WriteSource(Path.Combine(tmp.Path, "origem", "fala.mp4"), TestFiles.RandomBytes(2048));
+        var start = await h.Service.StartAsync(ImportHarness.Request(project.ProjectId, new[] { source }, detectSpeech: true));
+        var status = await ImportHarness.WaitForFinalAsync(h.Service, start.JobId!.Value);
+
+        Assert.Equal("completed", status.State);
+        Assert.Equal("queued", status.SpeechAnalysis);
+        Assert.NotNull(h.PipelineJobs);
+        Assert.Single(h.PipelineJobs.StartedRequests);
+        var req = h.PipelineJobs.StartedRequests[0];
+        Assert.Equal(project.ProjectId, req.ProjectId);
+        Assert.Single(req.MediaIds!);
+    }
+
+    [Fact]
+    public async Task DetectSpeechWhenPipelineAlreadyRunningNotesExistingJob()
+    {
+        using var tmp = new TempDirectory();
+        string root = Path.Combine(tmp.Path, "Projeto");
+        using var h = new ImportHarness(registerPipeline: true);
+        var project = h.CreateProject(root);
+        h.PipelineJobs!.CurrentStatus = new PipelineStatusDto(
+            JobId: Guid.NewGuid(),
+            ProjectId: project.ProjectId,
+            State: "running",
+            Stages: new List<PipelineStageStatusDto>(),
+            Media: new List<PipelineMediaStatusDto>(),
+            CurrentMedia: "1-Bruto/clipe.mp4",
+            Environment: null,
+            StartedAtUtc: DateTime.UtcNow,
+            FinishedAtUtc: null);
+
+        string source = TestFiles.WriteSource(Path.Combine(tmp.Path, "origem", "clipe.mp4"), TestFiles.RandomBytes(2048));
+        var start = await h.Service.StartAsync(ImportHarness.Request(project.ProjectId, new[] { source }, detectSpeech: true));
+        var status = await ImportHarness.WaitForFinalAsync(h.Service, start.JobId!.Value);
+
+        Assert.Equal("completed", status.State);
+        Assert.Equal("queued", status.SpeechAnalysis);
+        Assert.Contains("já está em andamento", status.Message);
         Assert.Contains("já está em andamento", status.Message);
     }
 

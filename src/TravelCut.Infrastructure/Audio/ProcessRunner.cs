@@ -41,6 +41,11 @@ public sealed class ProcessRunner : IProcessRunner
             psi.ArgumentList.Add(arg);
         }
 
+        if (!string.IsNullOrWhiteSpace(request.WorkingDirectory) && Directory.Exists(request.WorkingDirectory))
+        {
+            psi.WorkingDirectory = request.WorkingDirectory;
+        }
+
         if (request.EnvironmentVariables is not null)
         {
             foreach (var kv in request.EnvironmentVariables)

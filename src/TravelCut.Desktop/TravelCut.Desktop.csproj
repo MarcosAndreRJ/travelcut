@@ -33,10 +33,14 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>frontend\dist\%(RecursiveDir)%(Filename)%(Extension)</Link>
     </Content>
-    <!-- Bridge DaVinci (F08): ResolveBridgeOptions procura <app>\workers\resolve_bridge.py -->
+    <!-- Workers Python (F05 / F08) -->
     <Content Include="..\..\workers\resolve_bridge.py">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>workers\resolve_bridge.py</Link>
+    </Content>
+    <Content Include="..\..\workers\whisper_worker.py">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>workers\whisper_worker.py</Link>
     </Content>
   </ItemGroup>
 

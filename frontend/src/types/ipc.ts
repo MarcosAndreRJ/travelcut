@@ -593,6 +593,144 @@ export interface PipelineStatusDto {
   finishedAtUtc: string | null;
 }
 
+// ============================================================================
+// Assistente de Ambiente e Instalações Assistidas (F12)
+// ============================================================================
+
+export type ToolEnvironmentState =
+  | 'NOT_INSTALLED'
+  | 'INSTALLED_NOT_FOUND'
+  | 'NOT_CONFIGURED'
+  | 'DEPENDENCY_MISSING'
+  | 'MODEL_MISSING'
+  | 'READY_CPU'
+  | 'READY_GPU'
+  | 'READY'
+  | 'ERROR'
+  | 'NOT_VERIFIED';
+
+export interface ToolDiagnosticDto {
+  toolKey: string;
+  displayName: string;
+  state: ToolEnvironmentState;
+  isReady: boolean;
+  version?: string | null;
+  executablePath?: string | null;
+  details: string;
+  supportedActions: string[];
+  winGetPackageId?: string | null;
+  metadata?: Record<string, string>;
+}
+
+export interface SystemInfoDto {
+  osDescription: string;
+  architecture: string;
+  isWindows: boolean;
+  totalMemoryMb: number;
+  freeDiskSpaceMb: number;
+  targetCacheDirectory: string;
+  hasWinget: boolean;
+  wingetPath?: string | null;
+  winGetAvailable?: boolean;
+}
+
+export interface EnvironmentAssistantDiagnosticDto {
+  tools: ToolDiagnosticDto[];
+  allReady: boolean;
+  evaluatedAtUtc: string;
+  timestampUtc?: string;
+  systemInfo: SystemInfoDto;
+}
+
+export interface InstallStepDto {
+  stepNumber: number;
+  title: string;
+  command: string;
+  description: string;
+}
+
+export interface EnvironmentInstallPlanDto {
+  toolKey: string;
+  title: string;
+  description: string;
+  canAutoInstall: boolean;
+  estimatedTime: string;
+  estimatedMinutes?: number | null;
+  estimatedDownloadSize: string;
+  downloadSizeMb?: number | null;
+  requiresElevation: boolean;
+  requiresUserConfirmation: boolean;
+  steps: InstallStepDto[];
+  warning?: string | null;
+  warningNotice?: string | null;
+  dependencies?: string[];
+  targetDirectory?: string | null;
+  approvalToken?: string | null;
+}
+
+export interface ToolInstallProgressDto {
+  jobId: string;
+  toolKey: string;
+  stage: string;
+  progressPercent?: number | null;
+  currentMessage: string;
+  outputLogs: string[];
+  canCancel: boolean;
+  isCompleted: boolean;
+  isSuccess: boolean;
+  isFailed: boolean;
+  isCanceled?: boolean;
+  errorMessage?: string | null;
+  startedAtUtc?: string | null;
+  finishedAtUtc?: string | null;
+}
+
+export interface StartToolInstallRequest {
+  toolKey: string;
+  confirmed?: boolean;
+  customInstallPath?: string | null;
+  preferCuda?: boolean;
+  options?: Record<string, string>;
+  approvalToken?: string | null;
+}
+
+export interface StartModelDownloadRequest {
+  modelName: string;
+  confirmed?: boolean;
+  destinationDirectory?: string | null;
+}
+
+export interface ConfigureToolPathRequest {
+  toolKey: string;
+  path: string;
+}
+
+export interface TestToolResponse {
+  toolKey: string;
+  success: boolean;
+  message: string;
+  details?: string | null;
+  outputLogs: string[];
+  logs?: string[];
+}
+
+export interface AutoLocateResponse {
+  toolKey: string;
+  candidates: string[];
+}
+
+export interface TravelCutSettingsDto {
+  pythonPath?: string | null;
+  nodePath?: string | null;
+  hyperFramesCliPath?: string | null;
+  ffmpegPath?: string | null;
+  preferredWhisperDevice?: string | null;
+  preferCuda?: boolean;
+  whisperModel?: string | null;
+  mediaSourceFolders: string[];
+  configuredToolPaths?: Record<string, string>;
+}
+
 export interface MediaAnalysisDto {
   mediaId: string;
   transcriptionStatus: AnalysisResultStatus;

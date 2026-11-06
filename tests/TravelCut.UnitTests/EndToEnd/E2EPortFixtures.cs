@@ -86,6 +86,9 @@ public sealed class E2EPortFixtures : IFfprobeExtractor, IWhisperTranscriptionSe
             DefaultModel: "large-v3",
             StatusSummary: "Fixture: Python/Whisper não sondados nesta máquina de teste."));
 
+    public Task<string?> FindPythonExecutableAsync(CancellationToken ct = default) =>
+        Task.FromResult<string?>(null);
+
     public Task<TranscriptionOutcome> TranscribeAsync(
         string mediaPath,
         Guid mediaId,

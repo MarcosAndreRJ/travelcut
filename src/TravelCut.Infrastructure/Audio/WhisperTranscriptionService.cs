@@ -74,6 +74,12 @@ public class WhisperTranscriptionService : IWhisperTranscriptionService
         return env.Probe;
     }
 
+    public async Task<string?> FindPythonExecutableAsync(CancellationToken ct = default)
+    {
+        var env = await GetEnvironmentAsync(ct).ConfigureAwait(false);
+        return env.Python?.FileName;
+    }
+
     public async Task<TranscriptionOutcome> TranscribeAsync(
         string mediaPath,
         Guid mediaId,
@@ -281,6 +287,14 @@ public class WhisperTranscriptionService : IWhisperTranscriptionService
 
         candidates.Add(("py-launcher", "py", new[] { "-3" }));
         candidates.Add(("path", "python", Array.Empty<string>()));
+
+        foreach (var extra in Tooling.ToolPathResolver.FindPythonCandidates(null))
+        {
+            if (!candidates.Any(c => string.Equals(c.FileName, extra, StringComparison.OrdinalIgnoreCase)))
+            {
+                candidates.Add(("discovered", extra, Array.Empty<string>()));
+            }
+        }
 
         foreach (var c in candidates)
         {

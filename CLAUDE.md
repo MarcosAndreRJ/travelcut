@@ -59,14 +59,15 @@
 
 ## Ambiente de Execução e Shell
 
-- **Shell Padrão:** O ambiente de execução do Bash é Git Bash (POSIX/Linux), mesmo estando no Windows.
+- **Interpretação e Protocolo Operacional:** Antes de executar comandos, respeitar o interpretador efetivo da ferramenta. Nunca executar cmdlets PowerShell diretamente em Bash. Priorizar ferramentas nativas de leitura e edição, limitar tentativas repetidas e interromper operações sem progresso verificável.
+- **Shell Padrão:** O ambiente de execução do Bash é Git Bash (POSIX/Linux no Windows 10).
 - **Sintaxe de Comandos:**
   - NUNCA use cmdlets de PowerShell diretamente no Bash (ex.: `Get-Location`, `Get-ChildItem`, `Select-Object`, `Where-Object`, etc.).
   - Sempre utilize comandos padrão Unix/POSIX (`pwd`, `ls`, `grep`, `find`, `cat`, `sed`, `awk`).
   - Se for estritamente necessário usar PowerShell, invoque explicitamente: `powershell.exe -NoProfile -Command "<comando>"`.
-- **Tratamento de Erros:**
+- **Tratamento de Erros e Prevenção de Bloqueios:**
   - Se um comando retornar código de saída `127` (command not found), NUNCA repita o mesmo comando. Analise o erro imediatamente e adapte a sintaxe para Unix/Bash.
-  - Não execute comandos em loops idênticos.
+  - Não execute comandos em loops idênticos. Limite de 2 tentativas por estratégia antes de interromper e adotar caminho alternativo.
 
 ## Relatórios de Execução e Progresso dos Agentes (Regra Permanente)
 

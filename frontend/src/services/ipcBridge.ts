@@ -55,7 +55,16 @@ import {
   EditorStepResult,
   EditorWarning,
   PrepareEditorApplyRequest,
-  MotionCapabilitiesDto
+  MotionCapabilitiesDto,
+  ToolDiagnosticDto,
+  EnvironmentAssistantDiagnosticDto,
+  EnvironmentInstallPlanDto,
+  ToolInstallProgressDto,
+  StartToolInstallRequest,
+  StartModelDownloadRequest,
+  TestToolResponse,
+  AutoLocateResponse,
+  TravelCutSettingsDto
 } from '../types/ipc';
 import { revisionLabel, timelineFrameRateLabel } from '../components/editor/editorModel';
 
@@ -464,6 +473,20 @@ class IpcBridgeService {
   // DEMONSTRAÇÃO: envios simulados em memória (mais recente primeiro), como o registro em 3-Trabalho/editor.
   private mockApplications: EditorApplyResult[] = [];
   private mockApplicationSeq = 0;
+
+  private mockSettings: TravelCutSettingsDto = {
+    configuredToolPaths: {
+      python: 'C:\\Python311\\python.exe',
+      ffmpeg: 'C:\\ffmpeg\\bin\\ffmpeg.exe',
+      node: 'C:\\Program Files\\nodejs\\node.exe',
+      hyperframes: 'C:\\Users\\User\\AppData\\Local\\TravelCutStudio\\tools\\hyperframes\\node_modules\\hyperframes\\dist\\cli.js'
+    },
+    mediaSourceFolders: ['D:\\Videos\\Gopro', 'D:\\Videos\\Drone'],
+    whisperModel: 'large-v3',
+    preferCuda: true
+  };
+  private mockInstallJobs = new Map<string, { toolKey: string; startedAt: number; canceled: boolean }>();
+  private mockDownloadJobs = new Map<string, { modelName: string; startedAt: number; canceled: boolean }>();
 
   private mockMediaAssets: MediaAssetDto[] = [
     {
@@ -1076,6 +1099,247 @@ class IpcBridgeService {
         const job = this.mockImportJobs.get(payload?.jobId);
         if (job && job.canceledAt === null) job.canceledAt = Date.now();
         return { success: true };
+      }
+
+      case 'settings.get':
+        return { ...this.mockSettings };
+
+      case 'settings.setToolPath': {
+        const { toolKey, path } = (payload ?? {}) as { toolKey: string; path: string };
+        if (toolKey) {
+          if (!this.mockSettings.configuredToolPaths) this.mockSettings.configuredToolPaths = {};
+          const dict = this.mockSettings.configuredToolPaths || {};
+          dict[toolKey] = path;
+          this.mockSettings.configuredToolPaths = dict;
+        }
+        return { configured: true };
+      }
+
+      case 'settings.setMediaSourceFolders': {
+        const { folders } = (payload ?? {}) as { folders: string[] };
+        this.mockSettings.mediaSourceFolders = folders ?? [];
+        return { success: true };
+      }
+
+      case 'settings.addMediaSourceFolder': {
+        const { folder } = (payload ?? {}) as { folder: string };
+        if (folder && !this.mockSettings.mediaSourceFolders.includes(folder)) {
+          this.mockSettings.mediaSourceFolders.push(folder);
+        }
+        return { success: true };
+      }
+
+      case 'settings.removeMediaSourceFolder': {
+        const { folder } = (payload ?? {}) as { folder: string };
+        this.mockSettings.mediaSourceFolders = this.mockSettings.mediaSourceFolders.filter((f) => f !== folder);
+        return { success: true };
+      }
+
+      case 'environment.diagnose': {
+        const diag: EnvironmentAssistantDiagnosticDto = {
+          tools: [
+            {
+              toolKey: 'python',
+              displayName: 'Python 3.11+',
+              state: 'READY',
+              isReady: true,
+              version: '3.11.9',
+              executablePath: this.mockSettings.configuredToolPaths?.['python'] || 'C:\\Python311\\python.exe',
+              details: 'Python instalado e verificado com sucesso no sistema.',
+              supportedActions: ['refresh', 'locate', 'configure_path', 'test'],
+              winGetPackageId: 'Python.Python.3.11'
+            },
+            {
+              toolKey: 'whisper',
+              displayName: 'OpenAI Whisper & PyTorch',
+              state: 'READY_GPU',
+              isReady: true,
+              version: 'large-v3',
+              executablePath: 'C:\\Users\\User\\.cache\\whisper\\large-v3.pt',
+              details: 'Whisper pronto com aceleração CUDA (NVIDIA GeForce RTX 4070).',
+              supportedActions: ['refresh', 'test'],
+              metadata: { device: 'cuda', model: 'large-v3', modelCached: 'True' }
+            },
+            {
+              toolKey: 'ffmpeg',
+              displayName: 'FFmpeg / FFprobe',
+              state: 'READY',
+              isReady: true,
+              version: '7.0.1',
+              executablePath: this.mockSettings.configuredToolPaths?.['ffmpeg'] || 'C:\\ffmpeg\\bin\\ffmpeg.exe',
+              details: 'FFmpeg e FFprobe funcionais com suporte a decodificação HEVC e extração de áudio.',
+              supportedActions: ['refresh', 'locate', 'configure_path', 'test'],
+              winGetPackageId: 'Gyan.FFmpeg'
+            },
+            {
+              toolKey: 'node',
+              displayName: 'Node.js LTS',
+              state: 'READY',
+              isReady: true,
+              version: '22.4.0',
+              executablePath: this.mockSettings.configuredToolPaths?.['node'] || 'C:\\Program Files\\nodejs\\node.exe',
+              details: 'Node.js LTS disponível para execução de scripts e ferramentas de motion graphics.',
+              supportedActions: ['refresh', 'locate', 'configure_path', 'test'],
+              winGetPackageId: 'OpenJS.NodeJS.LTS'
+            },
+            {
+              toolKey: 'hyperframes',
+              displayName: 'HyperFrames Motion Renderer',
+              state: 'READY',
+              isReady: true,
+              version: '1.2.0',
+              executablePath: this.mockSettings.configuredToolPaths?.['hyperframes'] || 'C:\\Users\\User\\AppData\\Local\\TravelCutStudio\\tools\\hyperframes\\node_modules\\hyperframes\\dist\\cli.js',
+              details: 'Renderizador de motion graphics pronto e verificado no diretório persistente.',
+              supportedActions: ['refresh', 'locate', 'configure_path', 'test']
+            }
+          ],
+          allReady: true,
+          timestampUtc: new Date().toISOString(),
+          systemInfo: {
+            osDescription: 'Microsoft Windows 11 Pro 64-bit',
+            architecture: 'X64',
+            isWindows: true,
+            totalMemoryMb: 16384,
+            freeDiskSpaceMb: 124500,
+            targetCacheDirectory: 'C:\\Users\\User\\.cache\\whisper',
+            hasWinget: true,
+            winGetAvailable: true
+          }
+        };
+        return diag;
+      }
+
+      case 'environment.diagnoseTool': {
+        const { toolKey } = (payload ?? {}) as { toolKey: string };
+        const diag = (await this.handleMockRequest('environment.diagnose')) as EnvironmentAssistantDiagnosticDto;
+        return diag.tools.find((t) => t.toolKey === toolKey) ?? diag.tools[0];
+      }
+
+      case 'environment.getInstallPlan': {
+        const { toolKey } = (payload ?? {}) as { toolKey: string };
+        const plan: EnvironmentInstallPlanDto = {
+          toolKey: toolKey || 'python',
+          title: `Instalação assistida de ${toolKey}`,
+          description: `Configuração automática de ${toolKey} para o TravelCut Studio.`,
+          canAutoInstall: true,
+          estimatedTime: '2 a 3 minutos',
+          estimatedDownloadSize: '~150 MB',
+          requiresElevation: false,
+          requiresUserConfirmation: true,
+          steps: [
+            { stepNumber: 1, title: 'Download de pacote', command: `winget install --id ${toolKey}`, description: 'Download dos binários oficiais.' },
+            { stepNumber: 2, title: 'Configuração de ambiente', command: 'travelcut configure', description: 'Registro dos caminhos no TravelCut.' }
+          ]
+        };
+        return plan;
+      }
+
+      case 'environment.startInstall': {
+        const jobId = `mock_inst_${Date.now()}`;
+        this.mockInstallJobs.set(jobId, { toolKey: payload?.toolKey ?? 'tool', startedAt: Date.now(), canceled: false });
+        return { jobId };
+      }
+
+      case 'environment.getInstallProgress': {
+        const job = this.mockInstallJobs.get(payload?.jobId);
+        const elapsed = job ? (Date.now() - job.startedAt) / 1000 : 10;
+        const percent = job?.canceled ? 0 : Math.min(100, Math.round(elapsed * 25));
+        const progress: ToolInstallProgressDto = {
+          jobId: payload?.jobId ?? 'unknown',
+          toolKey: job?.toolKey ?? 'python',
+          stage: job?.canceled ? 'Cancelado' : percent >= 100 ? 'Concluído' : 'Instalando componentes...',
+          progressPercent: percent,
+          currentMessage: job?.canceled ? 'Operação cancelada pelo usuário.' : percent >= 100 ? 'Instalação concluída com sucesso!' : 'Executando comando de instalação...',
+          outputLogs: [
+            'Iniciando rotina de instalação assistida...',
+            `Verificando pré-requisitos para ${job?.toolKey}...`,
+            percent >= 50 ? 'Baixando pacotes necessários...' : '',
+            percent >= 100 ? 'Ambiente configurado e testado com sucesso.' : ''
+          ].filter(Boolean),
+          canCancel: percent < 100 && !job?.canceled,
+          isCompleted: percent >= 100 || !!job?.canceled,
+          isSuccess: percent >= 100 && !job?.canceled,
+          isFailed: false
+        };
+        return progress;
+      }
+
+      case 'environment.cancelInstall': {
+        const job = this.mockInstallJobs.get(payload?.jobId);
+        if (job) job.canceled = true;
+        return { canceled: true };
+      }
+
+      case 'environment.startDownloadModel': {
+        const jobId = `mock_dl_${Date.now()}`;
+        this.mockDownloadJobs.set(jobId, { modelName: payload?.modelName ?? 'large-v3', startedAt: Date.now(), canceled: false });
+        return { jobId };
+      }
+
+      case 'environment.getModelDownloadProgress': {
+        const job = this.mockDownloadJobs.get(payload?.jobId);
+        const elapsed = job ? (Date.now() - job.startedAt) / 1000 : 10;
+        const percent = job?.canceled ? 0 : Math.min(100, Math.round(elapsed * 20));
+        const progress: ToolInstallProgressDto = {
+          jobId: payload?.jobId ?? 'unknown',
+          toolKey: 'whisper',
+          stage: job?.canceled ? 'Cancelado' : percent >= 100 ? 'Concluído' : 'Baixando modelo large-v3...',
+          progressPercent: percent,
+          currentMessage: job?.canceled ? 'Download cancelado.' : percent >= 100 ? 'Download e verificação SHA-256 concluídos com sucesso!' : `Transferindo ${Math.round((percent / 100) * 2880)} MB de 2880 MB...`,
+          outputLogs: [
+            'Conectando ao Azure Blob Storage...',
+            'Verificando espaço em disco: 120 GB livres (necessário: 3.5 GB)...',
+            percent >= 100 ? 'Verificando hash SHA-256 oficial: OK.' : ''
+          ].filter(Boolean),
+          canCancel: percent < 100 && !job?.canceled,
+          isCompleted: percent >= 100 || !!job?.canceled,
+          isSuccess: percent >= 100 && !job?.canceled,
+          isFailed: false
+        };
+        return progress;
+      }
+
+      case 'environment.cancelModelDownload': {
+        const job = this.mockDownloadJobs.get(payload?.jobId);
+        if (job) job.canceled = true;
+        return { canceled: true };
+      }
+
+      case 'environment.testTool': {
+        const key = payload?.toolKey ?? 'tool';
+        const res: TestToolResponse = {
+          toolKey: key,
+          success: true,
+          message: `Teste funcional de ${key} executado com sucesso no ambiente local.`,
+          outputLogs: [
+            `Invocando probe funcional para ${key}...`,
+            'Exit code: 0',
+            'stdout: OK: versão validada e processo finalizado sem erros.'
+          ]
+        };
+        return res;
+      }
+
+      case 'environment.configureToolPath': {
+        const { toolKey, path } = (payload ?? {}) as { toolKey: string; path: string };
+        if (toolKey) {
+          const dict = this.mockSettings.configuredToolPaths || {};
+          dict[toolKey] = path;
+          this.mockSettings.configuredToolPaths = dict;
+        }
+        return { configured: true };
+      }
+
+      case 'environment.autoLocateTool': {
+        const key = payload?.toolKey ?? 'tool';
+        const res: AutoLocateResponse = {
+          toolKey: key,
+          candidates: [
+            this.mockSettings.configuredToolPaths?.[key] || `C:\\Tools\\${key}\\${key}.exe`,
+            `C:\\Program Files\\${key}\\${key}.exe`
+          ]
+        };
+        return res;
       }
 
       default:
@@ -2082,6 +2346,82 @@ class IpcBridgeService {
   public async listDecisions(projectId: string): Promise<EditDecisionDto[]> {
     const res = await this.send<{ decisions: EditDecisionDto[] }>('decision.list', { projectId });
     return res?.decisions ?? [];
+  }
+
+  // ==========================================================================
+  // Assistente de Ambiente & Instalações Assistidas (F12)
+  // ==========================================================================
+
+  public async diagnoseEnvironment(): Promise<EnvironmentAssistantDiagnosticDto> {
+    return this.send<EnvironmentAssistantDiagnosticDto>('environment.diagnose');
+  }
+
+  public async diagnoseTool(toolKey: string): Promise<ToolDiagnosticDto> {
+    return this.send<ToolDiagnosticDto>('environment.diagnoseTool', { toolKey });
+  }
+
+  public async getEnvironmentInstallPlan(toolKey: string): Promise<EnvironmentInstallPlanDto> {
+    return this.send<EnvironmentInstallPlanDto>('environment.getInstallPlan', { toolKey });
+  }
+
+  public async startToolInstall(request: StartToolInstallRequest): Promise<{ jobId: string }> {
+    return this.send<{ jobId: string }>('environment.startInstall', request);
+  }
+
+  public async getToolInstallProgress(jobId: string): Promise<ToolInstallProgressDto | null> {
+    return this.send<ToolInstallProgressDto | null>('environment.getInstallProgress', { jobId });
+  }
+
+  public async cancelToolInstall(jobId: string): Promise<{ canceled: boolean }> {
+    return this.send<{ canceled: boolean }>('environment.cancelInstall', { jobId });
+  }
+
+  public async startModelDownload(request: StartModelDownloadRequest): Promise<{ jobId: string }> {
+    return this.send<{ jobId: string }>('environment.startDownloadModel', request);
+  }
+
+  public async getModelDownloadProgress(jobId: string): Promise<ToolInstallProgressDto | null> {
+    return this.send<ToolInstallProgressDto | null>('environment.getModelDownloadProgress', { jobId });
+  }
+
+  public async cancelModelDownload(jobId: string): Promise<{ canceled: boolean }> {
+    return this.send<{ canceled: boolean }>('environment.cancelModelDownload', { jobId });
+  }
+
+  public async testTool(toolKey: string): Promise<TestToolResponse> {
+    return this.send<TestToolResponse>('environment.testTool', { toolKey });
+  }
+
+  public async configureToolPath(toolKey: string, path: string): Promise<{ success: boolean }> {
+    return this.send<{ success: boolean }>('environment.configureToolPath', { toolKey, path });
+  }
+
+  public async autoLocateTool(toolKey: string): Promise<AutoLocateResponse> {
+    return this.send<AutoLocateResponse>('environment.autoLocateTool', { toolKey });
+  }
+
+  // ==========================================================================
+  // Configurações Persistentes (F12)
+  // ==========================================================================
+
+  public async getSettings(): Promise<TravelCutSettingsDto> {
+    return this.send<TravelCutSettingsDto>('settings.get');
+  }
+
+  public async setToolPath(toolKey: string, path: string): Promise<{ success: boolean }> {
+    return this.send<{ success: boolean }>('settings.setToolPath', { toolKey, path });
+  }
+
+  public async setMediaSourceFolders(folders: string[]): Promise<{ success: boolean }> {
+    return this.send<{ success: boolean }>('settings.setMediaSourceFolders', { folders });
+  }
+
+  public async addMediaSourceFolder(folder: string): Promise<{ success: boolean }> {
+    return this.send<{ success: boolean }>('settings.addMediaSourceFolder', { folder });
+  }
+
+  public async removeMediaSourceFolder(folder: string): Promise<{ success: boolean }> {
+    return this.send<{ success: boolean }>('settings.removeMediaSourceFolder', { folder });
   }
 }
 

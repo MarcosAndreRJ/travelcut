@@ -182,6 +182,10 @@ public sealed class HyperFramesRenderer : IMotionRenderer
         // 1) Node.js: sempre um caminho absoluto, para que o processo não seja procurado no diretório atual.
         bool nodeConfigured = _options.NodePath is not null;
         string? nodePath = ResolveNodePath(_options.NodePath, Environment.GetEnvironmentVariable("PATH"), File.Exists);
+        if (nodePath is null && !nodeConfigured)
+        {
+            nodePath = Tooling.ToolPathResolver.FindNodeCandidates(null).FirstOrDefault();
+        }
         if (nodePath is null)
         {
             return Unavailable(MotionEnvironmentStates.NodeUnavailable,
@@ -213,22 +217,27 @@ public sealed class HyperFramesRenderer : IMotionRenderer
                 "Resposta inesperada de node --version.", nodeVersion: null, now);
         }
 
-        // 2) CLI local apontado por variável de ambiente
-        if (string.IsNullOrWhiteSpace(_options.CliPath))
+        // 2) CLI local apontado por variável de ambiente ou autodescoberto
+        string? cliPath = _options.CliPath;
+        if (string.IsNullOrWhiteSpace(cliPath))
+        {
+            var candidates = Tooling.ToolPathResolver.FindHyperFramesCliCandidates(null);
+            cliPath = candidates.FirstOrDefault();
+        }
+
+        if (string.IsNullOrWhiteSpace(cliPath))
         {
             return Unavailable(MotionEnvironmentStates.NotInstalled, "CLI_NOT_CONFIGURED",
                 $"HyperFrames não configurado. Defina {HyperFramesOptions.CliEnvironmentVariable} com o caminho do CLI local (docs/20-HYPERFRAMES.md).",
                 nodeVersion, now);
         }
 
-        if (!Path.IsPathFullyQualified(_options.CliPath) || !File.Exists(_options.CliPath))
+        if (!Path.IsPathFullyQualified(cliPath) || !File.Exists(cliPath))
         {
             return Unavailable(MotionEnvironmentStates.NotInstalled, "CLI_PATH_NOT_FOUND",
                 $"O caminho em {HyperFramesOptions.CliEnvironmentVariable} deve ser um arquivo existente.",
                 nodeVersion, now);
         }
-
-        string cliPath = _options.CliPath;
 
         if (IsUnsupportedWrapper(cliPath))
         {

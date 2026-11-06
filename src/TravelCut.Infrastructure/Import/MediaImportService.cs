@@ -76,7 +76,7 @@ public sealed class MediaImportService : IMediaImportService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Não foi possível resolver IPipelineJobManager");
+            _logger.LogWarning(ex, "Não foi possível resolver IPipelineJobManager a partir do IServiceScopeFactory.");
             return null;
         }
     }
@@ -135,33 +135,45 @@ public sealed class MediaImportService : IMediaImportService
                 job.Mutate(j =>
                 {
                     j.SpeechAnalysis = "unavailable";
-                    j.AddNote("Detecção de fala indisponível: serviço de análise audiovisual não configurado; nada foi enfileirado.");
+                    j.AddNote("Detecção de fala indisponível: pipeline não está registrado neste host (serviço de análise audiovisual não configurado); nada foi enfileirado.");
                 });
             }
             else
             {
                 try
                 {
-                    var env = await pipeline.GetEnvironmentAsync(ct);
-                    if (!env.WhisperAvailable)
-                    {
-                        var reasons = env.Reasons.Where(r => !string.IsNullOrWhiteSpace(r)).ToList();
-                        string reason = reasons.Count > 0
-                            ? string.Join("; ", reasons)
-                            : "Whisper indisponível neste ambiente.";
-                        job.Mutate(j =>
-                        {
-                            j.SpeechAnalysis = "unavailable";
-                            j.AddNote($"Detecção de fala indisponível ({reason}): nada foi enfileirado.");
-                        });
-                    }
-                    else
+                    var status = await pipeline.GetStatusAsync(project.ProjectId, ct);
+                    if (status != null && status.State is "running" or "queued")
                     {
                         job.Mutate(j =>
                         {
                             j.SpeechAnalysis = "queued";
-                            j.AddNote("Detecção de fala agendada para após a importação.");
+                            j.AddNote("Detecção de fala solicitada: um pipeline já está em andamento para este projeto.");
                         });
+                    }
+                    else
+                    {
+                        var env = await pipeline.GetEnvironmentAsync(ct);
+                        if (env != null && !env.WhisperAvailable)
+                        {
+                            var reasons = env.Reasons.Where(r => !string.IsNullOrWhiteSpace(r)).ToList();
+                            string reason = reasons.Count > 0
+                                ? string.Join("; ", reasons)
+                                : "Whisper indisponível neste ambiente.";
+                            job.Mutate(j =>
+                            {
+                                j.SpeechAnalysis = "unavailable";
+                                j.AddNote($"Detecção de fala indisponível ({reason}): nada foi enfileirado.");
+                            });
+                        }
+                        else
+                        {
+                            job.Mutate(j =>
+                            {
+                                j.SpeechAnalysis = "queued";
+                                j.AddNote("Detecção de fala agendada para após a importação.");
+                            });
+                        }
                     }
                 }
                 catch (Exception ex)
@@ -445,7 +457,11 @@ public sealed class MediaImportService : IMediaImportService
 
         if (mediaIds.Count == 0)
         {
-            job.Mutate(j => j.AddNote("Nenhum arquivo de vídeo ou áudio encontrado para detecção de fala."));
+            job.Mutate(j =>
+            {
+                j.SpeechAnalysis = "unavailable";
+                j.AddNote("Detecção de fala: nenhum arquivo de áudio ou vídeo elegível importado.");
+            });
             return;
         }
 
@@ -455,7 +471,7 @@ public sealed class MediaImportService : IMediaImportService
             job.Mutate(j =>
             {
                 j.SpeechAnalysis = "unavailable";
-                j.AddNote("Detecção de fala: gerenciador de pipeline indisponível.");
+                j.AddNote("Detecção de fala: gerenciador de pipeline de análise indisponível.");
             });
             return;
         }
@@ -466,15 +482,14 @@ public sealed class MediaImportService : IMediaImportService
                 ProjectId: job.ProjectId,
                 MediaIds: mediaIds,
                 Stages: null,
-                Language: "pt",
-                Force: false
-            );
+                Language: null,
+                Force: false);
 
             var pipelineJobId = await pipeline.StartAsync(req, ct);
             job.Mutate(j =>
             {
                 j.SpeechAnalysis = "queued";
-                j.AddNote($"Detecção de fala enfileirada no pipeline audiovisual (job {pipelineJobId}).");
+                j.AddNote($"Detecção de fala enfileirada no pipeline audiovisual ({pipelineJobId}) para {mediaIds.Count} arquivo(s).");
             });
             _logger.LogInformation(
                 "Job {JobId}: detecção de fala enfileirada com sucesso no pipeline ({PipelineJobId}) para {Count} mídia(s)",

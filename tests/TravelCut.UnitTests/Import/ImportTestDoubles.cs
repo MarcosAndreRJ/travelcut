@@ -220,11 +220,65 @@ internal sealed class TempDirectory : IDisposable
     }
 }
 
+/// <summary>Gerenciador falso de pipeline para validar enfileiramento na importação.</summary>
+internal sealed class FakePipelineJobManager : IPipelineJobManager
+{
+    private readonly object _sync = new();
+    private readonly List<StartPipelineRequest> _started = new();
+
+    public bool ShouldStart { get; set; } = true;
+    public string? FailReason { get; set; }
+    public Guid MockJobId { get; set; } = Guid.NewGuid();
+    public PipelineStatusDto? CurrentStatus { get; set; }
+
+    public IReadOnlyList<StartPipelineRequest> StartedRequests
+    {
+        get { lock (_sync) return _started.ToList(); }
+    }
+
+    public Task<Guid> StartAsync(StartPipelineRequest request, CancellationToken ct = default)
+    {
+        lock (_sync)
+        {
+            if (!ShouldStart)
+            {
+                throw new InvalidOperationException(FailReason ?? "PIPELINE_IN_PROGRESS");
+            }
+            _started.Add(request);
+            return Task.FromResult(MockJobId);
+        }
+    }
+
+    public Task<PipelineStatusDto> GetStatusAsync(Guid projectId, CancellationToken ct = default)
+        => Task.FromResult(CurrentStatus ?? new PipelineStatusDto(
+            JobId: MockJobId,
+            ProjectId: projectId,
+            State: "queued",
+            Stages: new List<PipelineStageStatusDto>(),
+            Media: new List<PipelineMediaStatusDto>(),
+            CurrentMedia: null,
+            Environment: null,
+            StartedAtUtc: DateTime.UtcNow,
+            FinishedAtUtc: null));
+
+    public bool Cancel(Guid jobId) => true;
+
+    public Task<AnalysisEnvironmentDto> GetEnvironmentAsync(CancellationToken ct = default)
+        => Task.FromResult(new AnalysisEnvironmentDto(true, "7.1", true, true, "faster-whisper", "large-v3", true, new List<string>()));
+
+    public Task<MediaAnalysisDto?> GetMediaAnalysisAsync(Guid projectId, Guid mediaId, CancellationToken ct = default)
+        => Task.FromResult<MediaAnalysisDto?>(null);
+}
+
 /// <summary>Montagem do serviço de importação com repositórios em memória e ffprobe/ffmpeg falsos.</summary>
 internal sealed class ImportHarness : IDisposable
 {
-    public ImportHarness(MediaImportOptions? options = null, FakePipelineJobManager? pipelineJobs = null)
+    public ImportHarness(MediaImportOptions? options = null, FakePipelineJobManager? pipelineJobs = null, bool registerPipeline = false)
     {
+        if (registerPipeline && pipelineJobs == null)
+        {
+            pipelineJobs = new FakePipelineJobManager();
+        }
         PipelineJobs = pipelineJobs;
         var scan = new ScanMediaLibraryUseCase(
             Projects,
@@ -241,17 +295,25 @@ internal sealed class ImportHarness : IDisposable
             [typeof(IThumbnailService)] = Thumbnails
         };
 
-        if (pipelineJobs != null)
+        if (registerPipeline && pipelineJobs == null)
         {
-            services[typeof(IPipelineJobManager)] = pipelineJobs;
+            pipelineJobs = new FakePipelineJobManager();
         }
 
+        PipelineJobs = pipelineJobs;
+        if (PipelineJobs != null)
+        {
+            services[typeof(IPipelineJobManager)] = PipelineJobs;
+        }
+
+        var provider = new FixedServiceProvider(services);
+        var scopeFactory = new FixedScopeFactory(provider);
         Service = new MediaImportService(
-            new FixedScopeFactory(new FixedServiceProvider(services)),
+            scopeFactory,
             FreeSpace,
             NullLogger<MediaImportService>.Instance,
             options,
-            pipelineJobs);
+            PipelineJobs);
     }
 
     public InMemoryProjectRepository Projects { get; } = new();

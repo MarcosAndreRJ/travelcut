@@ -37,6 +37,9 @@ public sealed class FakeWhisperService : IWhisperTranscriptionService
             DefaultModel: "large-v3",
             StatusSummary: Available ? "fake disponível" : "fake indisponível"));
 
+    public Task<string?> FindPythonExecutableAsync(CancellationToken ct = default) =>
+        Task.FromResult(Available ? "fake-python" : (string?)null);
+
     public async Task<TranscriptionOutcome> TranscribeAsync(
         string mediaPath,
         Guid mediaId,
