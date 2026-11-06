@@ -21,7 +21,9 @@ using TravelCut.Infrastructure.Media.Thumbnails;
 using TravelCut.Infrastructure.Persistence;
 using TravelCut.Infrastructure.Planning;
 using TravelCut.Infrastructure.Repositories;
+using TravelCut.Infrastructure.Settings;
 using TravelCut.Infrastructure.Shell;
+using TravelCut.Infrastructure.Tooling;
 using TravelCut.ResolveBridge;
 
 namespace TravelCut.Infrastructure.Composition;
@@ -139,7 +141,14 @@ public static class TravelCutServiceCollectionExtensions
         services.AddSingleton<IMediaImportService>(sp => new MediaImportService(
             sp.GetRequiredService<IServiceScopeFactory>(),
             sp.GetRequiredService<IFreeSpaceProvider>(),
-            sp.GetRequiredService<ILogger<MediaImportService>>()));
+            sp.GetRequiredService<ILogger<MediaImportService>>(),
+            sp.GetService<IPipelineJobManager>()));
+
+        // Configurações persistentes e Assistente de Ambiente (F12)
+        services.AddSingleton<ITravelCutSettingsService, TravelCutSettingsService>();
+        services.AddSingleton<IModelDownloader, HttpModelDownloader>();
+        services.AddSingleton<INativeInstallationAuthorizer, DenyAllNativeInstallationAuthorizer>();
+        services.AddSingleton<IEnvironmentAssistantService, EnvironmentAssistantService>();
 
         // Use Cases
         services.AddScoped<OpenOrCreateProjectUseCase>();

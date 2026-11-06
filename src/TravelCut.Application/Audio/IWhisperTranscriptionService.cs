@@ -15,6 +15,7 @@ public record WhisperProbeResult(
 public interface IWhisperTranscriptionService
 {
     Task<WhisperProbeResult> ProbeEnvironmentAsync(CancellationToken ct = default);
+    Task<string?> FindPythonExecutableAsync(CancellationToken ct = default);
 
     // Nunca sintetiza texto: sem Python/Whisper/modelo retorna Status "unavailable" com Reason.
     Task<TranscriptionOutcome> TranscribeAsync(

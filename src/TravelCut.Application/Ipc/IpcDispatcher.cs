@@ -36,6 +36,8 @@ public class IpcDispatcher
     private readonly IMediaImportService _importService;
     private readonly OpenFolderUseCase _openFolderUseCase;
     private readonly ILogger<IpcDispatcher> _logger;
+    private readonly IEnvironmentAssistantService? _envAssistant;
+    private readonly ITravelCutSettingsService? _settingsService;
 
     public IpcDispatcher(
         OpenOrCreateProjectUseCase openProjectUseCase,
@@ -57,7 +59,9 @@ public class IpcDispatcher
         ILogger<IpcDispatcher> logger,
         PreviewIpcHandler? preview = null,
         EditorIpcHandler? editor = null,
-        TravelCut.Application.Motion.MotionIpcHandler? motion = null)
+        TravelCut.Application.Motion.MotionIpcHandler? motion = null,
+        IEnvironmentAssistantService? envAssistant = null,
+        ITravelCutSettingsService? settingsService = null)
     {
         _motion = motion;
         _planning = planning;
@@ -79,6 +83,8 @@ public class IpcDispatcher
         _getThumbnailUseCase = getThumbnailUseCase;
         _importService = importService;
         _logger = logger;
+        _envAssistant = envAssistant;
+        _settingsService = settingsService;
     }
 
     public async Task<IpcResponse> DispatchAsync(IpcRequest request, CancellationToken ct = default)
@@ -576,6 +582,221 @@ public class IpcDispatcher
 
                     var outcome = await _planning.RevertAsync(req, ct);
                     return PlanResponse(request.RequestId, outcome);
+                }
+
+                // --- Assistente de Ambiente & Instalações Assistidas (F12) ---
+                case "environment.diagnose":
+                {
+                    if (_envAssistant is null)
+                        return IpcResponse.Fail(request.RequestId, "ENV_ASSISTANT_UNAVAILABLE", "Assistente de ambiente não disponível.");
+                    var diag = await _envAssistant.DiagnoseAsync(ct);
+                    return IpcResponse.Success(request.RequestId, diag);
+                }
+
+                case "environment.diagnoseTool":
+                {
+                    if (_envAssistant is null)
+                        return IpcResponse.Fail(request.RequestId, "ENV_ASSISTANT_UNAVAILABLE", "Assistente de ambiente não disponível.");
+                    var toolKey = ExtractString(request.Payload, "toolKey");
+                    if (string.IsNullOrWhiteSpace(toolKey))
+                        return IpcResponse.Fail(request.RequestId, "INVALID_TOOL_KEY", "Chave da ferramenta não informada.");
+                    var diag = await _envAssistant.DiagnoseToolAsync(toolKey, ct);
+                    return IpcResponse.Success(request.RequestId, diag);
+                }
+
+                case "environment.getInstallPlan":
+                {
+                    if (_envAssistant is null)
+                        return IpcResponse.Fail(request.RequestId, "ENV_ASSISTANT_UNAVAILABLE", "Assistente de ambiente não disponível.");
+                    var toolKey = ExtractString(request.Payload, "toolKey");
+                    if (string.IsNullOrWhiteSpace(toolKey))
+                        return IpcResponse.Fail(request.RequestId, "INVALID_TOOL_KEY", "Chave da ferramenta não informada.");
+                    var plan = await _envAssistant.GetInstallPlanAsync(toolKey, ct);
+                    return IpcResponse.Success(request.RequestId, plan);
+                }
+
+                case "environment.startInstall":
+                {
+                    if (_envAssistant is null)
+                        return IpcResponse.Fail(request.RequestId, "ENV_ASSISTANT_UNAVAILABLE", "Assistente de ambiente não disponível.");
+                    var req = DeserializePayload<StartToolInstallRequest>(request.Payload);
+                    if (req is null || string.IsNullOrWhiteSpace(req.ToolKey))
+                        return IpcResponse.Fail(request.RequestId, "INVALID_PAYLOAD", "Requisição de instalação inválida.");
+                    try
+                    {
+                        var jobId = await _envAssistant.StartInstallAsync(req, ct);
+                        return IpcResponse.Success(request.RequestId, new { jobId });
+                    }
+                    catch (OperationCanceledException ex)
+                    {
+                        return IpcResponse.Fail(request.RequestId, "USER_CANCELED", ex.Message);
+                    }
+                    catch (InvalidOperationException ex)
+                    {
+                        return IpcResponse.Fail(request.RequestId, "AUTHORIZATION_REQUIRED", ex.Message);
+                    }
+                    catch (ArgumentException ex)
+                    {
+                        return IpcResponse.Fail(request.RequestId, "INVALID_ARGUMENT", ex.Message);
+                    }
+                }
+
+                case "environment.getInstallProgress":
+                {
+                    if (_envAssistant is null)
+                        return IpcResponse.Fail(request.RequestId, "ENV_ASSISTANT_UNAVAILABLE", "Assistente de ambiente não disponível.");
+                    var jobId = ExtractGuid(request.Payload, "jobId");
+                    if (jobId == Guid.Empty)
+                        return IpcResponse.Fail(request.RequestId, "INVALID_JOB_ID", "Identificador do job inválido.");
+                    var progress = _envAssistant.GetInstallProgress(jobId);
+                    return IpcResponse.Success(request.RequestId, progress);
+                }
+
+                case "environment.cancelInstall":
+                {
+                    if (_envAssistant is null)
+                        return IpcResponse.Fail(request.RequestId, "ENV_ASSISTANT_UNAVAILABLE", "Assistente de ambiente não disponível.");
+                    var jobId = ExtractGuid(request.Payload, "jobId");
+                    if (jobId == Guid.Empty)
+                        return IpcResponse.Fail(request.RequestId, "INVALID_JOB_ID", "Identificador do job inválido.");
+                    var canceled = _envAssistant.CancelInstall(jobId);
+                    return IpcResponse.Success(request.RequestId, new { canceled });
+                }
+
+                case "environment.startDownloadModel":
+                {
+                    if (_envAssistant is null)
+                        return IpcResponse.Fail(request.RequestId, "ENV_ASSISTANT_UNAVAILABLE", "Assistente de ambiente não disponível.");
+                    var req = DeserializePayload<StartModelDownloadRequest>(request.Payload);
+                    if (req is null || string.IsNullOrWhiteSpace(req.ModelName))
+                        return IpcResponse.Fail(request.RequestId, "INVALID_PAYLOAD", "Requisição de download inválida.");
+                    try
+                    {
+                        var jobId = await _envAssistant.StartDownloadModelAsync(req, ct);
+                        return IpcResponse.Success(request.RequestId, new { jobId });
+                    }
+                    catch (OperationCanceledException ex)
+                    {
+                        return IpcResponse.Fail(request.RequestId, "USER_CANCELED", ex.Message);
+                    }
+                    catch (InvalidOperationException ex)
+                    {
+                        return IpcResponse.Fail(request.RequestId, "AUTHORIZATION_REQUIRED", ex.Message);
+                    }
+                    catch (ArgumentException ex)
+                    {
+                        return IpcResponse.Fail(request.RequestId, "INVALID_ARGUMENT", ex.Message);
+                    }
+                }
+
+                case "environment.getModelDownloadProgress":
+                {
+                    if (_envAssistant is null)
+                        return IpcResponse.Fail(request.RequestId, "ENV_ASSISTANT_UNAVAILABLE", "Assistente de ambiente não disponível.");
+                    var jobId = ExtractGuid(request.Payload, "jobId");
+                    if (jobId == Guid.Empty)
+                        return IpcResponse.Fail(request.RequestId, "INVALID_JOB_ID", "Identificador do job inválido.");
+                    var progress = _envAssistant.GetModelDownloadProgress(jobId);
+                    return IpcResponse.Success(request.RequestId, progress);
+                }
+
+                case "environment.cancelModelDownload":
+                {
+                    if (_envAssistant is null)
+                        return IpcResponse.Fail(request.RequestId, "ENV_ASSISTANT_UNAVAILABLE", "Assistente de ambiente não disponível.");
+                    var jobId = ExtractGuid(request.Payload, "jobId");
+                    if (jobId == Guid.Empty)
+                        return IpcResponse.Fail(request.RequestId, "INVALID_JOB_ID", "Identificador do job inválido.");
+                    var canceled = _envAssistant.CancelModelDownload(jobId);
+                    return IpcResponse.Success(request.RequestId, new { canceled });
+                }
+
+                case "environment.testTool":
+                {
+                    if (_envAssistant is null)
+                        return IpcResponse.Fail(request.RequestId, "ENV_ASSISTANT_UNAVAILABLE", "Assistente de ambiente não disponível.");
+                    var toolKey = ExtractString(request.Payload, "toolKey");
+                    if (string.IsNullOrWhiteSpace(toolKey))
+                        return IpcResponse.Fail(request.RequestId, "INVALID_TOOL_KEY", "Chave da ferramenta não informada.");
+                    var testRes = await _envAssistant.TestToolAsync(toolKey, ct);
+                    return IpcResponse.Success(request.RequestId, testRes);
+                }
+
+                case "environment.configureToolPath":
+                {
+                    if (_envAssistant is null)
+                        return IpcResponse.Fail(request.RequestId, "ENV_ASSISTANT_UNAVAILABLE", "Assistente de ambiente não disponível.");
+                    var req = DeserializePayload<ConfigureToolPathRequest>(request.Payload);
+                    if (req is null || string.IsNullOrWhiteSpace(req.ToolKey))
+                        return IpcResponse.Fail(request.RequestId, "INVALID_PAYLOAD", "Requisição de configuração de caminho inválida.");
+                    var ok = await _envAssistant.ConfigureToolPathAsync(req.ToolKey, req.Path, ct);
+                    return IpcResponse.Success(request.RequestId, new { success = ok });
+                }
+
+                case "environment.autoLocateTool":
+                {
+                    if (_envAssistant is null)
+                        return IpcResponse.Fail(request.RequestId, "ENV_ASSISTANT_UNAVAILABLE", "Assistente de ambiente não disponível.");
+                    var toolKey = ExtractString(request.Payload, "toolKey");
+                    if (string.IsNullOrWhiteSpace(toolKey))
+                        return IpcResponse.Fail(request.RequestId, "INVALID_TOOL_KEY", "Chave da ferramenta não informada.");
+                    var locateRes = await _envAssistant.AutoLocateToolAsync(toolKey, ct);
+                    return IpcResponse.Success(request.RequestId, locateRes);
+                }
+
+                // --- Configurações Persistentes (F12) ---
+                case "settings.get":
+                {
+                    if (_settingsService is null)
+                        return IpcResponse.Fail(request.RequestId, "SETTINGS_SERVICE_UNAVAILABLE", "Serviço de configurações não disponível.");
+                    var settings = await _settingsService.GetSettingsAsync(ct);
+                    return IpcResponse.Success(request.RequestId, settings);
+                }
+
+                case "settings.setToolPath":
+                {
+                    if (_settingsService is null)
+                        return IpcResponse.Fail(request.RequestId, "SETTINGS_SERVICE_UNAVAILABLE", "Serviço de configurações não disponível.");
+                    var toolKey = ExtractString(request.Payload, "toolKey");
+                    var path = ExtractString(request.Payload, "path");
+                    if (string.IsNullOrWhiteSpace(toolKey) || string.IsNullOrWhiteSpace(path))
+                        return IpcResponse.Fail(request.RequestId, "INVALID_PAYLOAD", "toolKey e path são obrigatórios.");
+                    await _settingsService.SetToolPathAsync(toolKey, path, ct);
+                    return IpcResponse.Success(request.RequestId, new { success = true });
+                }
+
+                case "settings.setMediaSourceFolders":
+                {
+                    if (_settingsService is null)
+                        return IpcResponse.Fail(request.RequestId, "SETTINGS_SERVICE_UNAVAILABLE", "Serviço de configurações não disponível.");
+                    var folders = DeserializePayload<List<string>>(request.Payload)
+                        ?? (request.Payload is JsonElement je && je.TryGetProperty("folders", out var fj)
+                            ? JsonSerializer.Deserialize<List<string>>(fj.GetRawText())
+                            : new List<string>());
+                    await _settingsService.SetMediaSourceFoldersAsync(folders ?? new List<string>(), ct);
+                    return IpcResponse.Success(request.RequestId, new { success = true });
+                }
+
+                case "settings.addMediaSourceFolder":
+                {
+                    if (_settingsService is null)
+                        return IpcResponse.Fail(request.RequestId, "SETTINGS_SERVICE_UNAVAILABLE", "Serviço de configurações não disponível.");
+                    var folder = ExtractString(request.Payload, "folder");
+                    if (string.IsNullOrWhiteSpace(folder))
+                        return IpcResponse.Fail(request.RequestId, "INVALID_PAYLOAD", "Pasta não informada.");
+                    await _settingsService.AddMediaSourceFolderAsync(folder, ct);
+                    return IpcResponse.Success(request.RequestId, new { success = true });
+                }
+
+                case "settings.removeMediaSourceFolder":
+                {
+                    if (_settingsService is null)
+                        return IpcResponse.Fail(request.RequestId, "SETTINGS_SERVICE_UNAVAILABLE", "Serviço de configurações não disponível.");
+                    var folder = ExtractString(request.Payload, "folder");
+                    if (string.IsNullOrWhiteSpace(folder))
+                        return IpcResponse.Fail(request.RequestId, "INVALID_PAYLOAD", "Pasta não informada.");
+                    await _settingsService.RemoveMediaSourceFolderAsync(folder, ct);
+                    return IpcResponse.Success(request.RequestId, new { success = true });
                 }
 
                 default:

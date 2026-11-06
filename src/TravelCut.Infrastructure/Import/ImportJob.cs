@@ -91,7 +91,7 @@ internal sealed class ImportJob
         GenerateThumbnails = generateThumbnails;
         AnalyzeMetadata = analyzeMetadata;
         DetectSpeech = detectSpeech;
-        _speechAnalysis = detectSpeech ? "unavailable" : "not_requested";
+        _speechAnalysis = detectSpeech ? "pending" : "not_requested";
     }
 
     public Guid JobId { get; }
@@ -137,6 +137,7 @@ internal sealed class ImportJob
     internal long BytesTotal { get => _bytesTotal; set => _bytesTotal = value; }
     internal long BytesCopied { get => _bytesCopied; set => _bytesCopied = value; }
     internal string? CurrentFile { get => _currentFile; set => _currentFile = value; }
+    internal string SpeechAnalysis { get => _speechAnalysis; set => _speechAnalysis = value; }
     internal bool IsFinished => _finished;
 
     internal void AddNote(string note)
@@ -166,6 +167,26 @@ internal sealed class ImportJob
         _finalMessage = string.Join(" ", new[] { summary }.Concat(_notes).Where(s => !string.IsNullOrWhiteSpace(s)));
         _finishedAtUtc = DateTime.UtcNow;
         _finished = true;
+    }
+
+    /// <summary>Registra que a detecção de fala foi enfileirada no pipeline audiovisual (F05).</summary>
+    public void MarkSpeechQueued(string note)
+    {
+        lock (_sync)
+        {
+            _speechAnalysis = "queued";
+            _notes.Add(note);
+        }
+    }
+
+    /// <summary>Registra motivo pelo qual a detecção de fala não pôde ser enfileirada.</summary>
+    public void MarkSpeechUnavailable(string reason)
+    {
+        lock (_sync)
+        {
+            _speechAnalysis = "unavailable";
+            _notes.Add(reason);
+        }
     }
 
     /// <summary>Solicita cancelamento. Retorna false se o job já terminou.</summary>

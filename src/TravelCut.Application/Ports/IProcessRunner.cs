@@ -17,7 +17,8 @@ public sealed record ProcessRunRequest(
     IReadOnlyList<string> Arguments,
     TimeSpan Timeout,
     string? StandardInput = null,
-    IReadOnlyDictionary<string, string>? EnvironmentVariables = null
+    IReadOnlyDictionary<string, string>? EnvironmentVariables = null,
+    string? WorkingDirectory = null
 );
 
 public sealed record ProcessRunResult(

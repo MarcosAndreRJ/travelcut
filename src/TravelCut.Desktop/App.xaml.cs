@@ -1,3 +1,4 @@
+using TravelCut.Application.Ports;
 using System.Reflection;
 using System.Windows;
 using System.Windows.Threading;
@@ -85,6 +86,7 @@ public partial class App : System.Windows.Application
 
         // Application Core compartilhado com o servidor MCP (banco, repositórios, editor, análise, IPC).
         // Banco: %LOCALAPPDATA%\TravelCutStudio\travelcut.db. TRAVELCUT_EDITOR_ADAPTER=mock → simulador.
+        services.AddSingleton<INativeInstallationAuthorizer, WpfNativeInstallationAuthorizer>();
         services.AddTravelCutCore(TravelCutHostOptions.FromEnvironment(AppContext.BaseDirectory));
 
         // Prévia de mídia (F07) fica no Desktop: depende do host virtual/WebView2 e alimenta o IpcDispatcher.
