@@ -436,15 +436,6 @@ public class MediaImportServiceTests
         var project = h.CreateProject(root);
         string source = TestFiles.WriteSource(Path.Combine(tmp.Path, "origem", "video.mp4"), TestFiles.RandomBytes(2048));
 
-    public async Task DetectSpeechWithoutRegisteredPipelineMarksSpeechUnavailable()
-    {
-        using var tmp = new TempDirectory();
-        string root = Path.Combine(tmp.Path, "Projeto");
-        using var h = new ImportHarness(registerPipeline: false);
-        var project = h.CreateProject(root);
-        string source = TestFiles.WriteSource(Path.Combine(tmp.Path, "origem", "clipe.mp4"), TestFiles.RandomBytes(2048));
-
-
         var start = await h.Service.StartAsync(ImportHarness.Request(project.ProjectId, new[] { source }, detectSpeech: true));
         var status = await ImportHarness.WaitForFinalAsync(h.Service, start.JobId!.Value);
 

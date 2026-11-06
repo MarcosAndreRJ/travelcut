@@ -1137,6 +1137,7 @@ class IpcBridgeService {
 
       case 'environment.diagnose': {
         const diag: EnvironmentAssistantDiagnosticDto = {
+          evaluatedAtUtc: new Date().toISOString(),
           tools: [
             {
               toolKey: 'python',

@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using TravelCut.Application.Motion;
 using TravelCut.Infrastructure.Motion;
 using Microsoft.Data.Sqlite;
@@ -148,7 +149,7 @@ public static class TravelCutServiceCollectionExtensions
         // Configurações persistentes e Assistente de Ambiente (F12)
         services.AddSingleton<ITravelCutSettingsService, TravelCutSettingsService>();
         services.AddSingleton<IModelDownloader, HttpModelDownloader>();
-        services.AddSingleton<INativeInstallationAuthorizer, DenyAllNativeInstallationAuthorizer>();
+        services.TryAddSingleton<INativeInstallationAuthorizer, DenyAllNativeInstallationAuthorizer>();
         services.AddSingleton<IEnvironmentAssistantService, EnvironmentAssistantService>();
 
 

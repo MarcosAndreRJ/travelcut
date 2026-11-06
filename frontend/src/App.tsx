@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { FolderOpen, Loader2, AlertCircle, Plus } from 'lucide-react';
 import { SplashScreen } from './components/SplashScreen';
 import { Sidebar, NavigationTab } from './components/Sidebar';

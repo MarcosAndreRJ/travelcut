@@ -107,39 +107,35 @@ internal sealed class FakeThumbnailService : IThumbnailService
 
 internal sealed class FakePipelineJobManager : IPipelineJobManager
 {
+    private readonly object _sync = new();
+
     public bool WhisperAvailable { get; set; } = true;
     public bool FfmpegAvailable { get; set; } = true;
     public List<string> Reasons { get; set; } = new();
     public List<StartPipelineRequest> StartedRequests { get; } = new();
     public Guid NextJobId { get; set; } = Guid.NewGuid();
+    public Guid MockJobId { get => NextJobId; set => NextJobId = value; }
     public bool ShouldThrowInProgress { get; set; } = false;
-
-    public Task<AnalysisEnvironmentDto> GetEnvironmentAsync(CancellationToken ct = default)
-    {
-        return Task.FromResult(new AnalysisEnvironmentDto(
-            FfmpegAvailable: FfmpegAvailable,
-            FfmpegVersion: FfmpegAvailable ? "6.1.1" : null,
-            PythonAvailable: WhisperAvailable,
-            WhisperAvailable: WhisperAvailable,
-            WhisperEngine: WhisperAvailable ? "faster-whisper" : null,
-            WhisperModel: "large-v3",
-            CudaAvailable: false,
-            Reasons: Reasons));
-    }
+    public bool ShouldStart { get => !ShouldThrowInProgress; set => ShouldThrowInProgress = !value; }
+    public string? FailReason { get; set; }
+    public PipelineStatusDto? CurrentStatus { get; set; }
 
     public Task<Guid> StartAsync(StartPipelineRequest request, CancellationToken ct = default)
     {
-        if (ShouldThrowInProgress)
+        lock (_sync)
         {
-            throw new InvalidOperationException("PIPELINE_IN_PROGRESS");
+            if (ShouldThrowInProgress)
+            {
+                throw new InvalidOperationException(FailReason ?? "PIPELINE_IN_PROGRESS");
+            }
+            StartedRequests.Add(request);
+            return Task.FromResult(NextJobId);
         }
-        StartedRequests.Add(request);
-        return Task.FromResult(NextJobId);
     }
 
     public Task<PipelineStatusDto> GetStatusAsync(Guid projectId, CancellationToken ct = default)
     {
-        return Task.FromResult(new PipelineStatusDto(
+        return Task.FromResult(CurrentStatus ?? new PipelineStatusDto(
             JobId: NextJobId,
             ProjectId: projectId,
             State: "completed",
@@ -152,6 +148,19 @@ internal sealed class FakePipelineJobManager : IPipelineJobManager
     }
 
     public bool Cancel(Guid jobId) => true;
+
+    public Task<AnalysisEnvironmentDto> GetEnvironmentAsync(CancellationToken ct = default)
+    {
+        return Task.FromResult(new AnalysisEnvironmentDto(
+            FfmpegAvailable: FfmpegAvailable,
+            FfmpegVersion: "7.1",
+            PythonAvailable: true,
+            WhisperAvailable: WhisperAvailable,
+            WhisperEngine: "faster-whisper",
+            WhisperModel: "large-v3",
+            CudaAvailable: true,
+            Reasons: Reasons));
+    }
 
     public Task<MediaAnalysisDto?> GetMediaAnalysisAsync(Guid projectId, Guid mediaId, CancellationToken ct = default)
     {
@@ -218,56 +227,6 @@ internal sealed class TempDirectory : IDisposable
             // Limpeza best-effort de temporários de teste.
         }
     }
-}
-
-/// <summary>Gerenciador falso de pipeline para validar enfileiramento na importação.</summary>
-internal sealed class FakePipelineJobManager : IPipelineJobManager
-{
-    private readonly object _sync = new();
-    private readonly List<StartPipelineRequest> _started = new();
-
-    public bool ShouldStart { get; set; } = true;
-    public string? FailReason { get; set; }
-    public Guid MockJobId { get; set; } = Guid.NewGuid();
-    public PipelineStatusDto? CurrentStatus { get; set; }
-
-    public IReadOnlyList<StartPipelineRequest> StartedRequests
-    {
-        get { lock (_sync) return _started.ToList(); }
-    }
-
-    public Task<Guid> StartAsync(StartPipelineRequest request, CancellationToken ct = default)
-    {
-        lock (_sync)
-        {
-            if (!ShouldStart)
-            {
-                throw new InvalidOperationException(FailReason ?? "PIPELINE_IN_PROGRESS");
-            }
-            _started.Add(request);
-            return Task.FromResult(MockJobId);
-        }
-    }
-
-    public Task<PipelineStatusDto> GetStatusAsync(Guid projectId, CancellationToken ct = default)
-        => Task.FromResult(CurrentStatus ?? new PipelineStatusDto(
-            JobId: MockJobId,
-            ProjectId: projectId,
-            State: "queued",
-            Stages: new List<PipelineStageStatusDto>(),
-            Media: new List<PipelineMediaStatusDto>(),
-            CurrentMedia: null,
-            Environment: null,
-            StartedAtUtc: DateTime.UtcNow,
-            FinishedAtUtc: null));
-
-    public bool Cancel(Guid jobId) => true;
-
-    public Task<AnalysisEnvironmentDto> GetEnvironmentAsync(CancellationToken ct = default)
-        => Task.FromResult(new AnalysisEnvironmentDto(true, "7.1", true, true, "faster-whisper", "large-v3", true, new List<string>()));
-
-    public Task<MediaAnalysisDto?> GetMediaAnalysisAsync(Guid projectId, Guid mediaId, CancellationToken ct = default)
-        => Task.FromResult<MediaAnalysisDto?>(null);
 }
 
 /// <summary>Montagem do serviço de importação com repositórios em memória e ffprobe/ffmpeg falsos.</summary>

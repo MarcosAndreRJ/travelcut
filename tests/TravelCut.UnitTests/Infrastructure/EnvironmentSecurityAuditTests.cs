@@ -161,9 +161,16 @@ public sealed class EnvironmentSecurityAuditTests : IDisposable
         var req1 = new StartModelDownloadRequest("large-v3", Confirmed: true);
         await _assistant.StartDownloadModelAsync(req1);
 
-        var req2 = new StartModelDownloadRequest("large-v3", Confirmed: true);
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => _assistant.StartDownloadModelAsync(req2));
-        Assert.Contains("Já existe um download", ex.Message, StringComparison.OrdinalIgnoreCase);
+        try
+        {
+            var req2 = new StartModelDownloadRequest("large-v3", Confirmed: true);
+            var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => _assistant.StartDownloadModelAsync(req2));
+            Assert.Contains("Já existe um download", ex.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            _modelDownloader.DownloadGate.TrySetResult(true);
+        }
     }
 
     [Fact]
@@ -237,7 +244,9 @@ public sealed class EnvironmentSecurityAuditTests : IDisposable
 
     private sealed class FakeModelDownloader : IModelDownloader
     {
-        public Task DownloadFileAsync(
+        public TaskCompletionSource<bool> DownloadGate { get; set; } = new();
+
+        public async Task DownloadFileAsync(
             string url,
             string destinationFilePath,
             string expectedSha256,
@@ -246,7 +255,7 @@ public sealed class EnvironmentSecurityAuditTests : IDisposable
         {
             progress?.Report(new DownloadProgressUpdate(100, 100, 100));
             File.WriteAllText(destinationFilePath, "fake-model-content");
-            return Task.CompletedTask;
+            await Task.WhenAny(DownloadGate.Task, Task.Delay(2000, ct));
         }
     }
 
