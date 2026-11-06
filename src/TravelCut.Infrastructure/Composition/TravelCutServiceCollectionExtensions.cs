@@ -139,7 +139,8 @@ public static class TravelCutServiceCollectionExtensions
         services.AddSingleton<IMediaImportService>(sp => new MediaImportService(
             sp.GetRequiredService<IServiceScopeFactory>(),
             sp.GetRequiredService<IFreeSpaceProvider>(),
-            sp.GetRequiredService<ILogger<MediaImportService>>()));
+            sp.GetRequiredService<ILogger<MediaImportService>>(),
+            sp.GetService<IPipelineJobManager>()));
 
         // Use Cases
         services.AddScoped<OpenOrCreateProjectUseCase>();

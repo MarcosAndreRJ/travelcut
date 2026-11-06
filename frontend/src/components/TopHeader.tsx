@@ -7,9 +7,15 @@ interface TopHeaderProps {
   project: ProjectSummary | null;
   onRefresh?: () => void;
   onOpenProjectDialog?: () => void;
+  onCloseProject?: () => void;
 }
 
-export const TopHeader: React.FC<TopHeaderProps> = ({ project, onRefresh, onOpenProjectDialog }) => {
+export const TopHeader: React.FC<TopHeaderProps> = ({
+  project,
+  onRefresh,
+  onOpenProjectDialog,
+  onCloseProject
+}) => {
   return (
     <header className="h-14 bg-[#0a1120] border-b border-slate-800/80 px-6 flex items-center justify-between select-none font-sans shrink-0">
       {/* Projeto atual / breadcrumb */}
@@ -33,11 +39,24 @@ export const TopHeader: React.FC<TopHeaderProps> = ({ project, onRefresh, onOpen
         )}
 
         <button
+          type="button"
           onClick={onOpenProjectDialog}
           className="text-[11px] text-cyan-400 hover:text-cyan-300 hover:underline font-medium ml-2"
+          title={project ? 'Trocar ou abrir outro projeto' : 'Abrir um projeto existente'}
         >
           {project ? 'Trocar projeto' : 'Abrir projeto'}
         </button>
+
+        {project && onCloseProject && (
+          <button
+            type="button"
+            onClick={onCloseProject}
+            className="text-[11px] text-rose-400 hover:text-rose-300 hover:underline font-medium ml-2 border-l border-slate-800 pl-2"
+            title="Fechar o projeto ativo e retornar à tela inicial"
+          >
+            Fechar projeto
+          </button>
+        )}
 
         {/* Selo de demonstração só quando os dados vêm do mock do navegador */}
         {ipc.isMock && (

@@ -91,7 +91,7 @@ internal sealed class ImportJob
         GenerateThumbnails = generateThumbnails;
         AnalyzeMetadata = analyzeMetadata;
         DetectSpeech = detectSpeech;
-        _speechAnalysis = detectSpeech ? "unavailable" : "not_requested";
+        _speechAnalysis = detectSpeech ? "queued" : "not_requested";
     }
 
     public Guid JobId { get; }
@@ -137,6 +137,7 @@ internal sealed class ImportJob
     internal long BytesTotal { get => _bytesTotal; set => _bytesTotal = value; }
     internal long BytesCopied { get => _bytesCopied; set => _bytesCopied = value; }
     internal string? CurrentFile { get => _currentFile; set => _currentFile = value; }
+    internal string SpeechAnalysis { get => _speechAnalysis; set => _speechAnalysis = value; }
     internal bool IsFinished => _finished;
 
     internal void AddNote(string note)

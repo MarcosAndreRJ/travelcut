@@ -68,11 +68,37 @@ export const App: React.FC = () => {
   const [reviewError, setReviewError] = useState<ReviewErrorInfo | null>(null);
   const [reviewNotice, setReviewNotice] = useState<ReviewNotice | null>(null);
   const projectId = project?.projectId ?? null;
+  const activeProjectIdRef = useRef<string | null>(null);
 
   useEffect(() => {
+    activeProjectIdRef.current = projectId;
     setReviewError(null);
     setReviewNotice(null);
   }, [projectId]);
+
+  const loadRecentProjects = async () => {
+    try {
+      const res = await ipc.send<{ projects: ProjectSummary[] }>('project.recent');
+      setRecentProjects(res?.projects ?? []);
+    } catch (err) {
+      console.error('Falha ao carregar projetos recentes:', err);
+    }
+  };
+
+  const handleCloseProject = useCallback(() => {
+    activeProjectIdRef.current = null;
+    setProject(null);
+    setCurrentTab('onboarding');
+    setSuggestions([]);
+    setSuggestionsLoading(false);
+    setSuggestionsError(null);
+    setReviewError(null);
+    setReviewNotice(null);
+    setMissingFoldersPrompt(null);
+    setModalMode(null);
+    setProjectError(null);
+    void loadRecentProjects();
+  }, []);
 
   useEffect(() => {
     if (!projectId) {
@@ -87,17 +113,17 @@ export const App: React.FC = () => {
     ipc
       .listSuggestions(projectId)
       .then((list) => {
-        if (!cancelled) setSuggestions(list);
+        if (!cancelled && activeProjectIdRef.current === projectId) setSuggestions(list);
       })
       .catch((err: unknown) => {
         console.error('Falha ao carregar sugestões:', err);
-        if (!cancelled) {
+        if (!cancelled && activeProjectIdRef.current === projectId) {
           setSuggestions([]);
           setSuggestionsError(describeDecisionError(err).message);
         }
       })
       .finally(() => {
-        if (!cancelled) setSuggestionsLoading(false);
+        if (!cancelled && activeProjectIdRef.current === projectId) setSuggestionsLoading(false);
       });
     return () => {
       cancelled = true;
@@ -112,15 +138,6 @@ export const App: React.FC = () => {
   const handleAnalysisFinished = useCallback(() => {
     setSuggestionsReloadKey((k) => k + 1);
   }, []);
-
-  const loadRecentProjects = async () => {
-    try {
-      const res = await ipc.send<{ projects: ProjectSummary[] }>('project.recent');
-      setRecentProjects(res?.projects ?? []);
-    } catch (err) {
-      console.error('Falha ao carregar projetos recentes:', err);
-    }
-  };
 
   useEffect(() => {
     const initialize = async () => {
@@ -356,6 +373,7 @@ export const App: React.FC = () => {
             setModalMode('open');
             setProjectError(null);
           }}
+          onCloseProject={handleCloseProject}
         />
 
         {/* Dynamic View Router */}
