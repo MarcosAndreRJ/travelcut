@@ -173,7 +173,7 @@ public class EnvironmentAssistantServiceTests : IDisposable
 
     private sealed class FakeModelDownloader : IModelDownloader
     {
-        public Task DownloadFileAsync(
+        public async Task DownloadFileAsync(
             string url,
             string destinationFilePath,
             string expectedSha256,
@@ -181,8 +181,8 @@ public class EnvironmentAssistantServiceTests : IDisposable
             CancellationToken ct = default)
         {
             progress?.Report(new DownloadProgressUpdate(100, 100, 100));
+            await Task.Delay(500, ct).ConfigureAwait(false);
             File.WriteAllText(destinationFilePath, "fake-model-content");
-            return Task.CompletedTask;
         }
     }
 }
