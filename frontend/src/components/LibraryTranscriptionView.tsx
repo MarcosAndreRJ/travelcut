@@ -531,7 +531,7 @@ export const LibraryTranscriptionView: React.FC<LibraryTranscriptionViewProps> =
                       onClick={() => {
                         void pipeline.startAnalysis({ mediaIds: Array.from(selectedForAnalysis), force: forceReprocess });
                       }}
-                      disabled={pipeline.running || pipeline.isStarting}
+                      disabled={pipeline.isActive || pipeline.isStarting}
                       className="px-2 py-1 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-[10px] font-semibold flex items-center gap-1 shadow-sm transition disabled:opacity-50 cursor-pointer"
                       title={`Analisar apenas os ${selectedForAnalysis.size} vídeos selecionados`}
                     >

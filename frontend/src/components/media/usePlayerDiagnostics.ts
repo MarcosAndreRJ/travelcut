@@ -32,9 +32,9 @@ export interface PlayerDiagnosticData {
 }
 
 export function usePlayerDiagnostics(
+  videoRef: React.RefObject<HTMLVideoElement | null>,
   mediaId: string,
-  source: PlaybackSourceDto | null,
-  videoRef: React.RefObject<HTMLVideoElement | null>
+  source: PlaybackSourceDto | null
 ) {
   const [diagnostic, setDiagnostic] = useState<PlayerDiagnosticData | null>(null);
   const eventsRef = useRef<PlayerEventRecord[]>([]);

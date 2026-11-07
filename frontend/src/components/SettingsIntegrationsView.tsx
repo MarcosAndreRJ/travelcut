@@ -8,8 +8,6 @@ import {
   Server
 } from 'lucide-react';
 import { EditorCapabilities } from '../types/ipc';
-import { Volume2, VolumeX, Bell } from 'lucide-react';
-import { playSuccessChime, isSoundEnabled, setSoundEnabled, getSoundVolume, setSoundVolume } from '../services/soundEffects';
 import { ipc } from '../services/ipcBridge';
 import { EditorBadge } from './editor/EditorPrimitives';
 import {
@@ -74,8 +72,6 @@ export const SettingsIntegrationsView: React.FC<SettingsIntegrationsViewProps> =
   onRefreshCaps
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<SubTab>('integrations');
-  const [soundOn, setSoundOn] = useState<boolean>(() => isSoundEnabled());
-  const [soundVol, setSoundVol] = useState<number>(() => getSoundVolume());
   const [testing, setTesting] = useState<string | null>(null);
   const status = useIntegrationStatus();
   const isMock = ipc.isMock;

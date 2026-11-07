@@ -60,8 +60,10 @@ export const PlaybackNoticeOverlay: React.FC<{
     );
   }
 
-  const isError = notice.kind === 'element_error' || notice.kind === 'source_error' || notice.kind === 'unavailable';
+  const isError = notice.kind === 'media_error' || notice.kind === 'source_error' || notice.kind === 'unavailable' || notice.kind === 'no_video_track';
   const Icon = notice.kind === 'unavailable' ? Ban : AlertCircle;
+
+  const canOffer = 'offerProxy' in notice && Boolean(notice.offerProxy);
 
   return (
     <div
@@ -82,8 +84,8 @@ export const PlaybackNoticeOverlay: React.FC<{
         </button>
       )}
 
-      {notice.offerProxy && <ProxyButton proxy={proxy} />}
-      {notice.offerProxy && <p className="text-[10px] text-slate-400">O proxy é uma cópia em 3-Trabalho; o arquivo original não é alterado.</p>}
+      {canOffer && <ProxyButton proxy={proxy} />}
+      {canOffer && <p className="text-[10px] text-slate-400">O proxy é uma cópia em 3-Trabalho; o arquivo original não é alterado.</p>}
       {proxy.message && <p role="status" className="text-[11px] text-slate-300">{proxy.message}</p>}
 
       {isError && (
