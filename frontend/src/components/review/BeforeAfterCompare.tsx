@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { Maximize2, Minimize2 } from 'lucide-react';
 import { MediaIntervalPlayer } from '../media/MediaIntervalPlayer';
 import { WaveformStrip } from '../media/WaveformStrip';
 import { formatDraft, playerWindowOf, PLAYER_CONTEXT_SECONDS, type Interval } from './reviewModel';
@@ -36,11 +37,23 @@ export const BeforeAfterCompare: React.FC<BeforeAfterCompareProps> = ({
   onTimeUpdate
 }) => {
   const windowSeconds = playerWindowOf(interval);
+  // Altura limitada para vídeo, controles, intervalo e decisões caberem juntos; o usuário pode expandir.
+  const [expanded, setExpanded] = useState(false);
 
   return (
     <section aria-label="Antes e depois do candidato" className="rounded-2xl border border-slate-800 bg-[#0a1222] p-4 space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-xs font-bold text-white">Antes e depois</h3>
+        <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          aria-pressed={expanded}
+          className="px-2 py-1 rounded-lg text-[11px] font-semibold border border-slate-700 text-slate-300 hover:text-white flex items-center gap-1"
+        >
+          {expanded ? <Minimize2 className="w-3 h-3" aria-hidden="true" /> : <Maximize2 className="w-3 h-3" aria-hidden="true" />}
+          {expanded ? 'Reduzir vídeo' : 'Expandir vídeo'}
+        </button>
         <div role="group" aria-label="Modo de comparação" className="flex gap-1">
           {MODE_OPTIONS.map((opt) => {
             const pressed = mode === opt.value;
@@ -62,6 +75,7 @@ export const BeforeAfterCompare: React.FC<BeforeAfterCompareProps> = ({
             );
           })}
         </div>
+        </div>
       </div>
 
       <p className="text-[10px] text-slate-500">
@@ -77,6 +91,7 @@ export const BeforeAfterCompare: React.FC<BeforeAfterCompareProps> = ({
         mode={mode}
         seekToSeconds={seekTarget}
         onTimeUpdate={onTimeUpdate}
+        videoAreaClassName={expanded ? 'h-[65vh]' : 'h-[22vh] min-h-32 max-h-72'}
       />
 
       <div className="space-y-1">

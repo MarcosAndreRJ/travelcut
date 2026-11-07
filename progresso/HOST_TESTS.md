@@ -129,6 +129,15 @@ Não baixe o modelo de novo nem transcreva vídeo longo só para este roteiro; u
 - [ ] "Copiar comando de diagnóstico (PowerShell)": colar no Windows PowerShell 5.1 com um clipe curto; conferir stdout, stderr, código de saída e o arquivo salvo em `%TEMP%\travelcut-whisper-diagnostico-*.log`. Caminhos com espaço/acentos devem funcionar.
 - [ ] Cancelar uma análise: "Cancelado" nos detalhes e processo Python encerrado.
 
+## Roteiro F13.4 (player da Revisão de Cortes) — `HOST_PENDENTE`
+
+- [ ] Candidato num vídeo H.264: vídeo, controles, intervalo, Antes/Depois e Aprovar/Rejeitar visíveis sem rolar (anotar resolução e escala do Windows).
+- [ ] Candidato num HEVC do celular: anotar se aparece imagem; sem imagem, o aviso "não decodificou a imagem" com "Gerar proxy compatível" (nunca só tela preta).
+- [ ] Gerar o proxy: indicador "Gerando proxy…", depois "Reproduzindo proxy"; o intervalo em revisão continua o mesmo; SHA-256 do original igual antes/depois.
+- [ ] Antes/Depois num corte curto (≈0,1–0,6 s): "Antes" mostra o trecho, "Depois" pula só o trecho; anotar se o salto é perceptível.
+- [ ] "Expandir vídeo" / "Reduzir vídeo" e troca de candidato (o player recarrega pausado no novo intervalo).
+- [ ] Alternar Antes/Depois não muda decisão nem plano (Tela 03 sem nova revisão).
+
 ## Evidências e erros
 
 Preencher para cada teste: status (`PASS/FAIL/NOT_RUN`), versão, passos, resultado real, arquivo log/captura, erro e ticket regressão. Não anexar credenciais. Após o usuário retornar as evidências, Opus atualiza checklist/status.

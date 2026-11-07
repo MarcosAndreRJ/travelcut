@@ -123,6 +123,12 @@
   - [x] F13.3-B — Execução do worker auditável: valores reais enviados ao processo, stdout/stderr ao vivo com limite, `pipeline.diagnostics` explícito, script PowerShell 5.1 reproduzível.
   - [ ] Host — roteiro "F13.3" em `progresso/HOST_TESTS.md`.
 
+- [x] F13.4 — Player da Revisão de Cortes (2026-11-07 08:10 -03:00). Testado na VM; não publicado no GitHub; não homologado no host.
+  - [x] Diagnóstico de reprodução único (resolveClipNotice + PlaybackNoticeOverlay + compatibilityHint) nos dois players: HEVC só com áudio, erro do elemento, compatibilidade desconhecida/incompatível com proxy, proxy em geração/pronto/falho.
+  - [x] Proxy recarrega mantendo a posição e o intervalo; consulta da fonte enquanto um proxy anterior é gerado; liberação do arquivo ao trocar de candidato.
+  - [x] Layout: comparação logo após o cabeçalho, vídeo limitado a 22vh com "Expandir vídeo"; a 1366×768 vídeo, controles, intervalo, Antes/Depois e decisões cabem sem rolar.
+  - [ ] Host — roteiro "F13.4" em `progresso/HOST_TESTS.md`.
+
 ## Regras de atualização
 
 Antes de começar uma fase, desdobrar o item em microtarefas com paths/testes; marcar `[x]` apenas após evidência objetiva e entrada correspondente em `IMPLEMENTATION_LOG.md`. Não transformar `host_pending` em `host_pass` sem resultado do host.

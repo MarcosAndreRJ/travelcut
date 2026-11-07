@@ -63,6 +63,21 @@ export function resolveClipNotice(input: {
   return { kind: 'none' };
 }
 
+/**
+ * Aviso de compatibilidade para fonte original que ainda toca (sem erro e com imagem). null quando não há o que dizer.
+ * HEVC volta como "desconhecido": o WebView2 só decodifica com a extensão HEVC do Windows instalada.
+ */
+export function compatibilityHint(source: PlaybackSourceDto | null, notice: ClipPlayerNotice): { text: string; offerProxy: boolean } | null {
+  if (!source || source.status !== 'original' || notice.kind !== 'none') return null;
+  if (source.likelyPlayable === false) {
+    return { text: 'Codec provavelmente sem suporte no WebView2.', offerProxy: canOfferProxy(source) };
+  }
+  if (source.likelyPlayable === null) {
+    return { text: 'Suporte ao codec não confirmado neste ambiente: se a imagem não aparecer, gere o proxy.', offerProxy: canOfferProxy(source) };
+  }
+  return null;
+}
+
 /** Texto do estado do proxy; null quando não há nada a informar. */
 export function proxyIndicator(source: PlaybackSourceDto | null, proxyBusy: boolean): string | null {
   if (proxyBusy || source?.proxyStatus === 'generating') return 'Gerando proxy…';

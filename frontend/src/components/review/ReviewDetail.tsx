@@ -123,6 +123,28 @@ export const ReviewDetail: React.FC<ReviewDetailProps> = ({
           </div>
         </header>
 
+        {modifyOpen && (
+          <ModifyEditor
+            key={s.suggestionId}
+            suggestion={s}
+            busy={busy}
+            onSubmit={onModifySubmit}
+            onCancel={onCloseModify}
+          />
+        )}
+
+        {/* Vídeo e comparação primeiro: o usuário ouve e vê a transição antes de decidir. */}
+        <BeforeAfterCompare
+          projectId={projectId}
+          mediaId={s.mediaId}
+          interval={eff}
+          mode={compareMode}
+          onModeChange={onCompareModeChange}
+          seekTarget={seekTarget}
+          currentSeconds={currentSeconds}
+          onTimeUpdate={onTimeUpdate}
+        />
+
         {/* Intervalos e resumo da decisão */}
         <section aria-label="Intervalo de origem" className="rounded-2xl border border-slate-800 bg-[#0a1222] p-4 space-y-3">
           <dl className="grid grid-cols-2 lg:grid-cols-4 gap-x-4 gap-y-3">
@@ -156,27 +178,6 @@ export const ReviewDetail: React.FC<ReviewDetailProps> = ({
           <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-300">Justificativa</h3>
           <p className="text-xs leading-relaxed text-slate-300">{s.rationale || 'Sem justificativa registrada pelo host.'}</p>
         </section>
-
-        {modifyOpen && (
-          <ModifyEditor
-            key={s.suggestionId}
-            suggestion={s}
-            busy={busy}
-            onSubmit={onModifySubmit}
-            onCancel={onCloseModify}
-          />
-        )}
-
-        <BeforeAfterCompare
-          projectId={projectId}
-          mediaId={s.mediaId}
-          interval={eff}
-          mode={compareMode}
-          onModeChange={onCompareModeChange}
-          seekTarget={seekTarget}
-          currentSeconds={currentSeconds}
-          onTimeUpdate={onTimeUpdate}
-        />
 
         <TranscriptContext
           state={transcript}

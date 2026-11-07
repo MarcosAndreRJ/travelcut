@@ -1,15 +1,17 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { AlertCircle, Ban, Loader2, Maximize2, Minimize2, Pause, Play, RefreshCw, Volume2, VolumeX, Wrench } from 'lucide-react';
+import { Maximize2, Minimize2, Pause, Play, Volume2, VolumeX } from 'lucide-react';
 import { isPlayableSource, usePlaybackSource } from './usePlaybackSource';
 import { useProxyGeneration } from './useProxyGeneration';
 import {
   clampSeek,
   CLIP_TIME_NOTIFY_SECONDS,
+  compatibilityHint,
   formatPlayerTime,
   proxyIndicator,
   resolveClipNotice,
   type ClipSeekRequest
 } from './mediaClipModel';
+import { PlaybackNoticeOverlay, ProxyButton, type ProxyControl } from './PlaybackNoticeOverlay';
 
 interface MediaClipPlayerProps {
   projectId: string;
@@ -232,56 +234,14 @@ export const MediaClipPlayer: React.FC<MediaClipPlayerProps> = ({
     }
   };
 
-  const generatingProxy = proxy.busy || readySource?.proxyStatus === 'generating';
+  const proxyControl: ProxyControl = {
+    generating: proxy.busy || readySource?.proxyStatus === 'generating',
+    onStart: proxy.start,
+    message: proxy.message
+  };
   const proxyStatusText = proxyIndicator(readySource, proxy.busy);
-
-  const proxyButton = (
-    <button
-      type="button"
-      onClick={proxy.start}
-      disabled={generatingProxy}
-      className="px-3 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed text-[11px] font-bold text-white flex items-center gap-1.5"
-    >
-      {generatingProxy ? <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" /> : <Wrench className="w-3.5 h-3.5" aria-hidden="true" />}
-      {generatingProxy ? 'Gerando proxy…' : 'Gerar proxy compatível'}
-    </button>
-  );
-
-  const overlay = (() => {
-    switch (notice.kind) {
-      case 'none':
-        return null;
-      case 'loading':
-        return (
-          <div role="status" className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-center p-4 text-slate-300">
-            <Loader2 className="w-6 h-6 text-cyan-400 animate-spin" aria-hidden="true" />
-            <p className="text-xs">Carregando fonte de reprodução…</p>
-          </div>
-        );
-      case 'source_error':
-        return (
-          <div role="alert" className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-center p-4">
-            <AlertCircle className="w-6 h-6 text-rose-400" aria-hidden="true" />
-            <p className="text-xs text-rose-200 max-w-md">Não foi possível obter a fonte de reprodução: {notice.message}</p>
-            <button type="button" onClick={reload} className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-[11px] font-semibold text-slate-200 flex items-center gap-1.5">
-              <RefreshCw className="w-3.5 h-3.5" aria-hidden="true" /> Tentar novamente
-            </button>
-          </div>
-        );
-      default: {
-        const Icon = notice.kind === 'unavailable' ? Ban : AlertCircle;
-        return (
-          <div role="alert" className="absolute inset-0 bg-black/85 flex flex-col items-center justify-center gap-2 text-center p-4">
-            <Icon className="w-6 h-6 text-amber-400" aria-hidden="true" />
-            <p className="text-xs text-slate-200 max-w-md">{notice.message}</p>
-            {notice.offerProxy && proxyButton}
-            {notice.offerProxy && <p className="text-[10px] text-slate-400">O proxy é uma cópia em 3-Trabalho; o arquivo original não é alterado.</p>}
-            {proxy.message && <p role="status" className="text-[11px] text-slate-300">{proxy.message}</p>}
-          </div>
-        );
-      }
-    }
-  })();
+  const hint = compatibilityHint(readySource, notice);
+  const overlay = <PlaybackNoticeOverlay notice={notice} proxy={proxyControl} onReload={reload} />;
 
   return (
     <section
@@ -375,13 +335,13 @@ export const MediaClipPlayer: React.FC<MediaClipPlayerProps> = ({
         </button>
       </div>
 
-      {(proxyStatusText || playError || (readySource?.likelyPlayable === false && readySource.status === 'original' && notice.kind === 'none')) && (
+      {(proxyStatusText || playError || hint) && (
         <div className="flex flex-wrap items-center gap-2 text-[10px]">
           {proxyStatusText && <span role="status" className="text-cyan-300">{proxyStatusText}</span>}
-          {readySource?.likelyPlayable === false && readySource.status === 'original' && notice.kind === 'none' && (
+          {hint && (
             <>
-              <span className="text-amber-300">Codec provavelmente sem suporte no WebView2.</span>
-              {proxyButton}
+              <span className="text-amber-300">{hint.text}</span>
+              {hint.offerProxy && <ProxyButton proxy={proxyControl} />}
             </>
           )}
           {playError && <span role="alert" className="text-rose-300">{playError}</span>}

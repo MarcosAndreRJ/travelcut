@@ -22,4 +22,6 @@ export interface MediaIntervalPlayerProps {
   /** Busca externa (ex.: clique numa palavra da transcrição). Mudança do valor dispara seek. */
   seekToSeconds?: number | null;
   className?: string;
+  /** Altura da área de vídeo (padrão: aspect-video na largura toda). */
+  videoAreaClassName?: string;
 }

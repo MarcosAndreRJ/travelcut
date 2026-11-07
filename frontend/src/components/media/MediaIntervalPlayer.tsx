@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { AlertCircle, AlertTriangle, Ban, Loader2, Pause, Play, RefreshCw, Wrench } from 'lucide-react';
+import { AlertTriangle, Pause, Play } from 'lucide-react';
 import type { MediaIntervalPlayerProps } from './mediaPlayerTypes';
 import { isPlayableSource, usePlaybackSource } from './usePlaybackSource';
 import { useProxyGeneration } from './useProxyGeneration';
@@ -8,10 +8,11 @@ import {
   clampToWindow,
   contextWindow,
   formatSourceSeconds,
-  mediaElementErrorText,
   WINDOW_EDGE_EPSILON_S
 } from './mediaTime';
 import { ipc } from '../../services/ipcBridge';
+import { compatibilityHint, proxyIndicator, resolveClipNotice } from './mediaClipModel';
+import { PlaybackNoticeOverlay, ProxyButton, type ProxyControl } from './PlaybackNoticeOverlay';
 
 const DEFAULT_CONTEXT_SECONDS = 2;
 const KEYBOARD_STEP_SECONDS = 1;
@@ -34,16 +35,23 @@ export const MediaIntervalPlayer: React.FC<MediaIntervalPlayerProps> = ({
   playbackRate = 1,
   onTimeUpdate,
   seekToSeconds = null,
-  className = ''
+  className = '',
+  videoAreaClassName = 'aspect-video'
 }) => {
   const { state, reload } = usePlaybackSource(projectId, mediaId);
   const readySource = state.kind === 'ready' ? state.source : null;
   const playable = readySource !== null && isPlayableSource(readySource);
   const url = playable && readySource ? readySource.url : null;
-  const proxy = useProxyGeneration(projectId, mediaId, reload);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const pendingSeekRef = useRef<number | null>(null);
+  // Proxy pronto: recarrega a fonte voltando ao mesmo ponto (o intervalo em revisão não muda).
+  const reloadKeepingPosition = useCallback(() => {
+    const v = videoRef.current;
+    if (v && v.currentTime > 0) pendingSeekRef.current = v.currentTime;
+    reload();
+  }, [reload]);
+  const proxy = useProxyGeneration(projectId, mediaId, reloadKeepingPosition);
   const lastNotifiedRef = useRef<number>(Number.NaN);
   const onTimeUpdateRef = useRef(onTimeUpdate);
   onTimeUpdateRef.current = onTimeUpdate;
@@ -52,6 +60,8 @@ export const MediaIntervalPlayer: React.FC<MediaIntervalPlayerProps> = ({
   const [current, setCurrent] = useState<number>(0);
   const [playing, setPlaying] = useState<boolean>(false);
   const [mediaError, setMediaError] = useState<{ code: number | null } | null>(null);
+  // HEVC sem decodificador: o elemento carrega só o áudio, sem erro, com videoWidth 0 (tela preta).
+  const [noVideoTrack, setNoVideoTrack] = useState(false);
   const [playError, setPlayError] = useState<string | null>(null);
 
   const durationRef = useRef<number | null>(null);
@@ -74,10 +84,26 @@ export const MediaIntervalPlayer: React.FC<MediaIntervalPlayerProps> = ({
     setCurrent(0);
     setPlaying(false);
     setMediaError(null);
+    setNoVideoTrack(false);
     setPlayError(null);
-    pendingSeekRef.current = null;
     lastNotifiedRef.current = Number.NaN;
   }, [projectId, mediaId, url]);
+
+  // Troca de mídia descarta busca pendente; troca só de URL (proxy) a mantém.
+  useEffect(() => {
+    pendingSeekRef.current = null;
+  }, [projectId, mediaId]);
+
+  // Desmontagem: libera o arquivo no host de mídia.
+  useEffect(() => {
+    const v = videoRef.current;
+    return () => {
+      if (!v) return;
+      v.pause();
+      v.removeAttribute('src');
+      v.load();
+    };
+  }, []);
 
   // Velocidade aplicada ao elemento quando muda.
   useEffect(() => {
@@ -144,6 +170,7 @@ export const MediaIntervalPlayer: React.FC<MediaIntervalPlayerProps> = ({
     if (!v) return;
     const d = Number.isFinite(v.duration) && v.duration > 0 ? v.duration : null;
     setDuration(d);
+    setNoVideoTrack(v.videoWidth === 0);
     v.playbackRate = rate;
     const w = contextWindow(startSeconds, endSeconds, contextSeconds, d);
     const target = pendingSeekRef.current ?? w.start;
@@ -156,7 +183,8 @@ export const MediaIntervalPlayer: React.FC<MediaIntervalPlayerProps> = ({
 
   const handleVideoError = () => {
     const v = videoRef.current;
-    setMediaError({ code: v?.error?.code ?? null });
+    if (!v?.error) return;
+    setMediaError({ code: v.error.code });
     setPlaying(false);
   };
 
@@ -222,78 +250,25 @@ export const MediaIntervalPlayer: React.FC<MediaIntervalPlayerProps> = ({
     }
   };
 
-  const proxyAvailable = readySource !== null && readySource.proxyStatus !== 'ffmpeg_unavailable';
-  const proxyGenerating = readySource?.proxyStatus === 'generating';
-  const showProxyButton = proxyAvailable;
+  // Mesmo diagnóstico do player de clipe (resolveClipNotice + overlay compartilhado).
+  const notice = resolveClipNotice({ state, hasMediaError: mediaError !== null, mediaErrorCode: mediaError?.code, noVideoTrack });
+  const showOverlay = notice.kind !== 'none';
+  const proxyControl: ProxyControl = {
+    generating: proxy.busy || readySource?.proxyStatus === 'generating',
+    onStart: proxy.start,
+    message: proxy.message
+  };
+  const proxyStatusText = proxyIndicator(readySource, proxy.busy);
+  const hint = compatibilityHint(readySource, notice);
+  const overlay = <PlaybackNoticeOverlay notice={notice} proxy={proxyControl} onReload={reload} />;
 
-  const proxyButton = showProxyButton ? (
-    <button
-      type="button"
-      onClick={proxy.start}
-      disabled={proxy.busy || proxyGenerating}
-      className="px-3 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed text-[11px] font-bold text-white flex items-center gap-1.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300"
-    >
-      {proxy.busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" /> : <Wrench className="w-3.5 h-3.5" aria-hidden="true" />}
-      {proxy.busy ? 'Gerando proxy…' : 'Gerar proxy'}
-    </button>
-  ) : null;
-
-  const proxyFeedback = proxy.message && (
-    <p role="status" className="text-[11px] text-slate-300 mt-2">
-      {proxy.message}
-    </p>
-  );
-
-  const showOverlay = state.kind !== 'ready' || !playable || mediaError !== null;
-
-  const overlay = (() => {
-    if (state.kind === 'loading') {
-      return (
-        <div role="status" className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-center p-4 text-slate-300">
-          <Loader2 className="w-6 h-6 text-cyan-400 animate-spin" aria-hidden="true" />
-          <p className="text-xs">Carregando fonte de reprodução…</p>
-        </div>
-      );
-    }
-    if (state.kind === 'error') {
-      return (
-        <div role="alert" className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-center p-4">
-          <AlertCircle className="w-6 h-6 text-rose-400" aria-hidden="true" />
-          <p className="text-xs text-rose-200 max-w-md">Não foi possível obter a fonte de reprodução: {state.message}</p>
-          <button
-            type="button"
-            onClick={reload}
-            className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-[11px] font-semibold text-slate-200 flex items-center gap-1.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
-          >
-            <RefreshCw className="w-3.5 h-3.5" aria-hidden="true" /> Tentar novamente
-          </button>
-        </div>
-      );
-    }
-    if (!playable) {
-      return (
-        <div role="status" data-testid="player-unavailable" className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-center p-4">
-          <Ban className="w-6 h-6 text-amber-400" aria-hidden="true" />
-          <p className="text-xs text-slate-200 max-w-md">
-            {readySource?.reason ?? 'Esta mídia não tem fonte reproduzível no momento.'}
-          </p>
-          {proxyButton}
-          {proxyFeedback}
-        </div>
-      );
-    }
-    if (mediaError) {
-      return (
-        <div role="alert" data-testid="player-media-error" className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-center p-4">
-          <AlertCircle className="w-6 h-6 text-rose-400" aria-hidden="true" />
-          <p className="text-xs text-rose-200 max-w-md">Não foi possível reproduzir: {mediaElementErrorText(mediaError.code)}.</p>
-          {proxyButton}
-          {proxyFeedback}
-        </div>
-      );
-    }
-    return null;
-  })();
+  // Proxy já em geração (job anterior) e nada tocável: reconsulta a fonte até ficar pronto.
+  const waitingForProxy = readySource?.proxyStatus === 'generating' && !proxy.busy && showOverlay;
+  useEffect(() => {
+    if (!waitingForProxy) return;
+    const timer = setTimeout(reload, 3000);
+    return () => clearTimeout(timer);
+  }, [waitingForProxy, reload]);
 
   const trackLeft = winSpan > 0 ? ((startSeconds - win.start) / winSpan) * 100 : 0;
   const trackWidth = winSpan > 0 ? ((endSeconds - startSeconds) / winSpan) * 100 : 0;
@@ -325,18 +300,18 @@ export const MediaIntervalPlayer: React.FC<MediaIntervalPlayerProps> = ({
         </div>
       </div>
 
-      {playable && readySource?.likelyPlayable === false && readySource.status === 'original' && (
+      {hint && (
         <div role="status" className="flex flex-wrap items-center gap-2 px-3 py-2 rounded-lg bg-amber-950/50 border border-amber-500/30 text-[11px] text-amber-200">
           <AlertTriangle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-          <span className="flex-1">Codec provavelmente não suportado pelo WebView2 — gere proxy.</span>
-          {proxyButton}
+          <span className="flex-1">{hint.text}</span>
+          {hint.offerProxy && <ProxyButton proxy={proxyControl} />}
         </div>
       )}
-      {playable && readySource?.likelyPlayable === null && (
-        <p className="text-[10px] text-slate-500">Suporte ao codec não confirmado neste ambiente.</p>
+      {proxyStatusText && (
+        <p role="status" className="text-[10px] text-cyan-300">{proxyStatusText}</p>
       )}
 
-      <div className="relative aspect-video rounded-lg bg-black border border-slate-800/80 overflow-hidden">
+      <div className={`relative rounded-lg bg-black border border-slate-800/80 overflow-hidden ${videoAreaClassName}`}>
         <video
           ref={videoRef}
           src={url ?? undefined}

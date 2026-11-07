@@ -513,6 +513,14 @@ Validação: dotnet build Release 0 erros; dotnet test Release UnitTests 1138/11
 Observação: nenhuma transcrição nem processo Python real. Execução real do script com Python/Whisper no host pendente.
 Próximo: roteiro F13.3 no host.
 
+[2026-11-07 08:10 -03:00] F13.4 | orchestrator (Opus 5.5) | TESTADO
+Ação: Player da Revisão. Causa comprovada no código: MediaIntervalPlayer (usado por BeforeAfterCompare) não detectava vídeo sem imagem; para HEVC o host devolve likelyPlayable=null, o player só mostrava "Suporte ao codec não confirmado" e o WebView2 carregava só o áudio sem erro (videoWidth=0) → tela preta sem botão de proxy. Além disso o vídeo usava aspect-video na largura toda, abaixo de cabeçalho/intervalo/justificativa, empurrando controles para fora da tela. Correção: diagnóstico único nos dois players (resolveClipNotice, novo PlaybackNoticeOverlay + ProxyButton, compatibilityHint para desconhecido/incompatível com proxy proativo, proxyIndicator); noVideoTrack no player de intervalo; proxy recarrega mantendo posição e intervalo; reconsulta enquanto proxy anterior é gerado; libera src ao desmontar; erro do elemento só com MediaError real. Revisão: comparação logo após o cabeçalho; vídeo 22vh (min 128, máx 288 px) com "Expandir vídeo" (65vh); justificativa e transcrição contextual preservadas abaixo. Separação análise → revisão → planejamento intacta: nada é aprovado nem aplicado ao alternar Antes/Depois.
+Arquivos: frontend/src/components/media/{PlaybackNoticeOverlay.tsx,MediaIntervalPlayer.tsx,MediaClipPlayer.tsx,mediaClipModel.ts,mediaPlayerTypes.ts,__tests__/mediaIntervalPlayer.test.tsx}, frontend/src/components/review/{BeforeAfterCompare,ReviewDetail}.tsx, progresso/{HOST_TESTS,CHECKLIST,STATE}.md
+Validação: npm test 294/294 (23 arquivos); tsc 0; npm run build OK. Navegador interno (painel visível, vídeo sintético de canvas, sem arquivo no repo): Depois 0,1 s → 0 instantes em [2;2,1) e pausa no fim da janela; Antes 0,1 s → passa pelo trecho; Depois 0,6 s → 0 instantes; troca de candidato pausada na nova janela; mídia só de áudio como HEVC → aviso + "Gerar proxy compatível"; proxy simulado → "Reproduzindo proxy" na mesma janela; ReviewDetail real a 1366×768: modos 113 px, vídeo 276–442, controles 506–538, decisões a partir de 553.
+Observação: com o painel oculto, requestAnimationFrame entrega 0 quadros e o salto do modo Depois não roda (limitação do ambiente de teste; no WebView2 visível roda). Nenhum proxy ou transcrição real.
+Próximo: roteiro F13.4 no host.
+
+
 ## Modelo de entrada (copiar preenchendo com dados reais)
 
 ```text
