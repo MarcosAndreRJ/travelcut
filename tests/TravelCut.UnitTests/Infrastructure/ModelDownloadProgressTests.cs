@@ -85,7 +85,8 @@ public class ModelDownloadProgressTests : IDisposable
         _downloader.Script = p => p.Report(new DownloadProgressUpdate(2000, 2000, 100));
         var jobId = await StartAsync();
 
-        var dto = await WaitForAsync(jobId, d => d.Stage == "Verificando SHA-256");
+        // O mesmo estágio também aparece ao verificar um modelo já presente em disco (sem bytes): espera o fim da transferência.
+        var dto = await WaitForAsync(jobId, d => d.Stage == "Verificando SHA-256" && d.BytesDownloaded == 2000);
 
         Assert.Equal(99, dto.ProgressPercent);
         Assert.False(dto.IsCompleted);

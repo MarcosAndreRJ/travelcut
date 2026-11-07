@@ -521,6 +521,13 @@ Observação: com o painel oculto, requestAnimationFrame entrega 0 quadros e o s
 Próximo: roteiro F13.4 no host.
 
 
+[2026-11-07 08:29 -03:00] DEPLOY | orchestrator (Opus 5.5) | TESTADO
+Ação: A pedido do usuário, atalho de distribuição na raiz: deploy.ps1 (chama scripts\release\Build-Release.ps1 com OutputRoot=dist e -Zip por padrão; opções -SemTestes, -SemZip, -FrameworkDependent; resumo com caminho do pacote e SHA-256 do zip; código de saída repassado) e deploy.cmd (duplo clique, mantém a janela aberta). deploy.ps1 gravado em UTF-8 com BOM (PowerShell 5.1). README atualizado. A primeira execução falhou em ModelDownloadProgressTests.Progress_TransferFinished_ShowsShaVerificationStage (teste da F13.2 com espera ambígua: o estágio "Verificando SHA-256" também ocorre ao verificar um modelo já existente, e a VM tem um large-v3.pt falso no cache gravado por testes antigos); a espera passou a exigir o fim da transferência (BytesDownloaded == 2000). Produto inalterado.
+Arquivos: deploy.ps1, deploy.cmd, README.md, tests/TravelCut.UnitTests/Infrastructure/ModelDownloadProgressTests.cs
+Validação: parser do PowerShell sem erros; ModelDownloadProgressTests 6/6 em 3 rodadas; deploy.ps1 completo em 120 s: UnitTests 1138/1138, Mcp.Tests 107/107, varredura sem violações, pacote dist\TravelCutStudio-0.10.0-host-test.3-win-x64 e zip sha256=3e19739ba5abdfaf40e5e95e7cd4e8b0fd11853d8521c021388c4098ea44bccf.
+Observação: a versão continua 0.10.0-host-test.3 (Directory.Build.props), então o pacote substitui o anterior com o mesmo nome em dist\. deploy.cmd chamado por outro programa via "cmd /c" também pausa no fim.
+Próximo: nenhum.
+
 ## Modelo de entrada (copiar preenchendo com dados reais)
 
 ```text

@@ -79,6 +79,14 @@ Não mantenha um servidor Vite (`npm run dev`) aberto durante `npm ci` ou o buil
 
 ## Gerar o pacote de teste
 
+Na raiz do projeto (duplo clique em `deploy.cmd` também funciona):
+
+```powershell
+.\deploy.ps1
+```
+
+Opções: `-SemTestes` (pula `dotnet test`), `-SemZip` (só a pasta) e `-FrameworkDependent` (sem o runtime .NET embutido). O `deploy.ps1` chama `scripts\release\Build-Release.ps1 -Zip`, que também pode ser usado diretamente:
+
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\release\Build-Release.ps1 -Zip
 ```
