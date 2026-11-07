@@ -1,65 +1,58 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { ipc } from '../../services/ipcBridge';
+import { useEffect, useSyncExternalStore } from 'react';
+import {
+  integrationStatusStore,
+  slotStaleReason,
+  type IntegrationStatusState
+} from '../../services/integrationStatusStore';
 import type { AnalysisEnvironmentDto, MotionCapabilitiesDto } from '../../types/ipc';
-import { errorMessage } from '../analysis/analysisFormat';
 
 export interface IntegrationStatusSource {
+  /** Última leitura válida; continua aqui mesmo se a consulta seguinte falhar. */
   analysisEnv: AnalysisEnvironmentDto | null;
+  /** Falha de consulta sem nenhuma leitura válida (diferente de "ainda não consultado"). */
   analysisError: string | null;
+  analysisStaleReason: string | null;
+  analysisCheckedAtMs: number | null;
   motionCaps: MotionCapabilitiesDto | null;
   motionError: string | null;
+  motionStaleReason: string | null;
+  motionCheckedAtMs: number | null;
   loading: boolean;
-  /** Reconsulta analysis.environment e motion.capabilities no host. */
+  /** Reconsulta forçada no host; todas as telas recebem o resultado. */
   refresh: () => Promise<void>;
 }
 
-/**
- * Consulta as capacidades reais de análise e animação. Falhas viram mensagem visível (não sucesso);
- * antes da primeira resposta os dados ficam null e as linhas aparecem como "Não verificado".
- */
+/** Projeção do estado autoritativo para as telas. Falha só aparece como erro quando não há leitura válida. */
+export function toIntegrationSource(
+  state: IntegrationStatusState,
+  nowMs: number,
+  refresh: () => Promise<void>
+): IntegrationStatusSource {
+  const { analysis, motion } = state;
+  return {
+    analysisEnv: analysis.value,
+    analysisError: analysis.value ? null : analysis.error,
+    analysisStaleReason: slotStaleReason(analysis, nowMs),
+    analysisCheckedAtMs: analysis.checkedAtMs,
+    motionCaps: motion.value,
+    motionError: motion.value ? null : motion.error,
+    motionStaleReason: slotStaleReason(motion, nowMs),
+    motionCheckedAtMs: motion.checkedAtMs,
+    loading: state.loading,
+    refresh
+  };
+}
+
 export function useIntegrationStatus(): IntegrationStatusSource {
-  const [analysisEnv, setAnalysisEnv] = useState<AnalysisEnvironmentDto | null>(null);
-  const [analysisError, setAnalysisError] = useState<string | null>(null);
-  const [motionCaps, setMotionCaps] = useState<MotionCapabilitiesDto | null>(null);
-  const [motionError, setMotionError] = useState<string | null>(null);
-  const [loading, setLoading] = useState<boolean>(false);
-  const mounted = useRef<boolean>(true);
+  const state = useSyncExternalStore(
+    integrationStatusStore.subscribe,
+    integrationStatusStore.getState,
+    integrationStatusStore.getState
+  );
 
   useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
+    void integrationStatusStore.ensureFresh();
   }, []);
 
-  const refresh = useCallback(async (): Promise<void> => {
-    setLoading(true);
-    const [env, motion] = await Promise.allSettled([ipc.getAnalysisEnvironment(), ipc.getMotionCapabilities()]);
-    if (!mounted.current) return;
-
-    if (env.status === 'fulfilled') {
-      setAnalysisEnv(env.value);
-      setAnalysisError(null);
-    } else {
-      console.error('Falha ao consultar ambiente de análise:', env.reason);
-      setAnalysisEnv(null);
-      setAnalysisError(errorMessage(env.reason));
-    }
-
-    if (motion.status === 'fulfilled') {
-      setMotionCaps(motion.value);
-      setMotionError(null);
-    } else {
-      console.error('Falha ao consultar capacidades de animação:', motion.reason);
-      setMotionCaps(null);
-      setMotionError(errorMessage(motion.reason));
-    }
-    setLoading(false);
-  }, []);
-
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
-
-  return { analysisEnv, analysisError, motionCaps, motionError, loading, refresh };
+  return toIntegrationSource(state, Date.now(), integrationStatusStore.refresh);
 }

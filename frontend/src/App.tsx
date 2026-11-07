@@ -21,6 +21,8 @@ import { MontageOverviewView } from './components/MontageOverviewView';
 import { ResolveHubView } from './components/ResolveHubView';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ModelDownloadBanner } from './components/environment/ModelDownloadBanner';
+import { integrationStatusStore } from './services/integrationStatusStore';
+import { modelDownloadTracker } from './services/modelDownloadTracker';
 import { ipc } from './services/ipcBridge';
 import { ProjectSummary, EditSuggestion, EditorCapabilities, DecisionResultDto } from './types/ipc';
 import {
@@ -335,6 +337,14 @@ export const App: React.FC = () => {
   };
 
   const reloadSuggestions = () => setSuggestionsReloadKey((k) => k + 1);
+
+  // Download concluído em qualquer tela: reconsulta forçada para todas as telas verem o novo estado.
+  useEffect(() => modelDownloadTracker.onSuccess(() => void integrationStatusStore.refresh()), []);
+
+  // Ao navegar, revalida leituras antigas; a Sidebar não fica presa no resultado da primeira carga.
+  useEffect(() => {
+    void integrationStatusStore.ensureFresh();
+  }, [currentTab]);
 
   // Falha na reconsulta mantém o último estado conhecido; não há sucesso inventado.
   const handleRefreshCaps = async () => {

@@ -93,6 +93,22 @@ Códigos de erro: `model_not_available`, `ffmpeg_not_found`, `whisper_not_instal
 
 ---
 
+## Telemetria do `transcribe`
+
+Durante `transcribe` o worker emite, além da resposta final, linhas de evento com o mesmo `requestId` e **sem** o campo `ok`:
+
+```json
+{"protocol":"travelcut.whisper","version":1,"requestId":"abc","event":"progress","stage":"transcribing","percent":37.5}
+```
+
+- `event`: `progress` ou `heartbeat` (a cada 10 s; prova que o processo está vivo, não que houve avanço).
+- `stage`: `loading_audio`, `loading_model` ou `transcribing`.
+- `percent`: quadros decodificados / total, lido da barra interna do `openai-whisper`; `null` quando indisponível.
+
+O áudio nunca é dividido para gerar percentual. Se uma versão do `openai-whisper` mudar esse detalhe interno, restam só etapa e heartbeat. A resposta final continua sendo a única mensagem com `ok`.
+
+Testes sem Whisper instalado: `python -m unittest discover -s tests -v` nesta pasta.
+
 ## Bridge DaVinci (`resolve_bridge.py`, protocolo `resolve-bridge/1`)
 
 Bridge stdin/stdout para o DaVinci Resolve Studio. O app .NET o chama por `ProcessRunner`

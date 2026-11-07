@@ -353,7 +353,7 @@ public class IpcDispatcher
 
                 case "analysis.environment":
                 {
-                    var environment = await _pipelineJobs.GetEnvironmentAsync(ct);
+                    var environment = await _pipelineJobs.GetEnvironmentAsync(ct, ExtractBool(request.Payload, "refresh"));
                     return IpcResponse.Success(request.RequestId, environment);
                 }
 

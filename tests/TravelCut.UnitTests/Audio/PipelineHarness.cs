@@ -29,6 +29,9 @@ public sealed class FakeWhisperService : IWhisperTranscriptionService
     public TaskCompletionSource<bool>? ProgressDelivered { get; set; }
 
     public int TranscribeCalls => Volatile.Read(ref _transcribeCalls);
+    public int InvalidateCalls { get; private set; }
+
+    public void InvalidateEnvironment() => InvalidateCalls++;
 
     public Task<WhisperProbeResult> ProbeEnvironmentAsync(CancellationToken ct = default) =>
         Task.FromResult(new WhisperProbeResult(

@@ -112,6 +112,12 @@
 
 - [x] GIT — Consolidação do código no GitHub `MarcosAndreRJ/travelcut` (2026-11-03): código auditado ✔; versionado/commitado ✔ (958a22e, fae26b2); branch `integration/travelcut-dotnet10-consolidation` publicada ✔; merge `--no-ff` na `main` ✔ (476ba5c); push na `main` confirmado por `git ls-remote` e clone novo ✔. Sem force push, sem reescrita de histórico, tags/branches antigas intactas. Pendente: diretório local original sem `.git` (trabalhar a partir do clone); falha intermitente de 1 teste não identificada (1 de 6 rodadas).
 
+- [x] F13.2 — Observabilidade e consistência de status (2026-11-07 01:44 -03:00). Testado na VM; não publicado no GitHub; não homologado no host.
+  - [x] Etapa 1 — Download do modelo: timeout da confirmação nativa corrigido, acompanhamento da sessão fora das telas, bytes/velocidade/tempo real, estágio SHA-256 cancelável, cancelamento distinto de falha, modal com dados reais.
+  - [x] Etapa 2 — Pipeline: telemetria NDJSON do worker, `activity` em `pipeline.status`, cartão com clipe/etapa/tempo/último sinal, barra indeterminada sem percentual real, polling resiliente a falha de IPC.
+  - [x] Etapa 3 — Status: `integrationStatusStore` autoritativo (Sidebar, Painel, Configurações, Verificação), ordem de respostas garantida, leitura válida preservada e marcada como desatualizada, retry automático, reconsulta forçada no host.
+  - [ ] Host — roteiro "F13.2" em `progresso/HOST_TESTS.md`.
+
 ## Regras de atualização
 
 Antes de começar uma fase, desdobrar o item em microtarefas com paths/testes; marcar `[x]` apenas após evidência objetiva e entrada correspondente em `IMPLEMENTATION_LOG.md`. Não transformar `host_pending` em `host_pass` sem resultado do host.

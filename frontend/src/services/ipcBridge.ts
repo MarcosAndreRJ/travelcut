@@ -84,6 +84,8 @@ export const PROJECT_IPC_TIMEOUT_MS = 120000;
  * Com o timeout padrão, um usuário lendo o diálogo por mais de 10 s perdia o jobId e o job seguia sem acompanhamento.
  */
 export const NATIVE_CONFIRMATION_IPC_TIMEOUT_MS = 600000;
+/** analysis.environment pode rodar o probe do Python (até 120 s no host); com 10 s a primeira consulta expirava. */
+export const ENVIRONMENT_IPC_TIMEOUT_MS = 150000;
 /** Código estável de IpcError quando a resposta do host não chega no prazo. */
 export const IPC_TIMEOUT_CODE = 'IPC_TIMEOUT';
 const MOCK_IMPORT_DURATION_MS = 4000;
@@ -2166,8 +2168,11 @@ class IpcBridgeService {
 
   // ---- Análise audiovisual e pipeline (F05) — nomes conforme types/ipc.ts ----
 
-  public async getAnalysisEnvironment(): Promise<AnalysisEnvironmentDto> {
-    return this.send<AnalysisEnvironmentDto>('analysis.environment');
+  /** refresh=true faz o host ignorar o cache de ambiente (após instalar ou configurar). */
+  public async getAnalysisEnvironment(refresh = false): Promise<AnalysisEnvironmentDto> {
+    return this.send<AnalysisEnvironmentDto>('analysis.environment', refresh ? { refresh: true } : undefined, {
+      timeoutMs: ENVIRONMENT_IPC_TIMEOUT_MS
+    });
   }
 
   /** Capacidades de animação (motion/1); a leitura real vem do host, nunca de constantes. */

@@ -8,7 +8,7 @@ import { formatBytes } from '../import/importUtils';
 import { ActiveJobBanner } from './ActiveJobBanner';
 
 export function useModelDownload(): ModelDownloadState {
-  return useSyncExternalStore(modelDownloadTracker.subscribe, modelDownloadTracker.getState);
+  return useSyncExternalStore(modelDownloadTracker.subscribe, modelDownloadTracker.getState, modelDownloadTracker.getState);
 }
 
 const formatDuration = (seconds: number): string => {
@@ -72,7 +72,7 @@ export const ModelDownloadBannerView: React.FC<{
       onDismiss={progress.isCompleted ? onDismiss : undefined}
       metrics={modelDownloadMetrics(state)}
       notice={progress.isCompleted ? null : state.errorMessage}
-      successDetail="Diagnóstico do ambiente atualizado."
+      successDetail="O diagnóstico do ambiente é reconsultado automaticamente."
     />
   );
 };

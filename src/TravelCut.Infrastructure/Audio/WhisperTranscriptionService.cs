@@ -146,6 +146,8 @@ public class WhisperTranscriptionService : IWhisperTranscriptionService
         }
     }
 
+    public void InvalidateEnvironment() => _env = null;
+
     // ---- Ambiente (probe com cache; falha de cancelamento não é cacheada) ----
 
     private async Task<WorkerEnvironment> GetEnvironmentAsync(CancellationToken ct)

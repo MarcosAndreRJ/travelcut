@@ -29,6 +29,9 @@ public interface IWhisperTranscriptionService
     Task<WhisperProbeResult> ProbeEnvironmentAsync(CancellationToken ct = default);
     Task<string?> FindPythonExecutableAsync(CancellationToken ct = default);
 
+    /// <summary>Descarta o probe em cache: a próxima consulta reflete instalação ou configuração feita agora.</summary>
+    void InvalidateEnvironment() { }
+
     // Nunca sintetiza texto: sem Python/Whisper/modelo retorna Status "unavailable" com Reason.
     Task<TranscriptionOutcome> TranscribeAsync(
         string mediaPath,

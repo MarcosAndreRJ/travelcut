@@ -27,6 +27,7 @@ import {
 } from './environment/useIntegrationStatus';
 import {
   buildIntegrationRows,
+  formatCheckedAt,
   formatCounts,
   overallHeadline
 } from './environment/integrationStatus';
@@ -367,10 +368,8 @@ export const EnvironmentCheckView: React.FC<EnvironmentCheckViewProps> = ({
     void modelDownloadTracker.start(modelName);
   };
 
-  // Conclusão do download com esta tela aberta: reconsulta o diagnóstico.
-  const refreshRef = useRef(handleRefresh);
-  refreshRef.current = handleRefresh;
-  useEffect(() => modelDownloadTracker.onSuccess(() => void refreshRef.current()), []);
+  // Conclusão do download com esta tela aberta: as integrações são reconsultadas no App; aqui, o diagnóstico detalhado.
+  useEffect(() => modelDownloadTracker.onSuccess(() => void fetchAssistantDiag()), [fetchAssistantDiag]);
 
   // Linhas de integrações para a visualização
   const rows = buildIntegrationRows({
@@ -379,10 +378,17 @@ export const EnvironmentCheckView: React.FC<EnvironmentCheckViewProps> = ({
     analysisError: status.analysisError,
     editorCaps,
     motionCaps: status.motionCaps,
-    motionError: status.motionError
+    motionError: status.motionError,
+    analysisStaleReason: status.analysisStaleReason,
+    motionStaleReason: status.motionStaleReason,
+    analysisCheckedAtMs: status.analysisCheckedAtMs,
+    motionCheckedAtMs: status.motionCheckedAtMs
   });
 
   const headline = overallHeadline(rows);
+  const lastCheckedAt = formatCheckedAt(status.analysisCheckedAtMs);
+  const whisperModelOnDisk =
+    assistantDiag?.tools.find((t) => t.toolKey === 'whisper')?.metadata?.modelCached?.toLowerCase() === 'true';
 
 
   return (
@@ -476,6 +482,10 @@ export const EnvironmentCheckView: React.FC<EnvironmentCheckViewProps> = ({
               {headline.title}
             </h2>
             <p className="text-xs text-slate-300 mt-0.5">{formatCounts(rows)}</p>
+            <p className="text-[11px] text-slate-400 mt-0.5">
+              {lastCheckedAt ? `Última verificação às ${lastCheckedAt}` : 'Ainda sem leitura do host'}
+              {status.loading ? ' · atualizando…' : ''}
+            </p>
           </div>
         </div>
 
@@ -549,6 +559,10 @@ export const EnvironmentCheckView: React.FC<EnvironmentCheckViewProps> = ({
                           <span>{row.detail}</span>
                           <span className="text-slate-600">•</span>
                           <span className="text-slate-500 text-[11px]">Fonte: {row.source}</span>
+                          {row.stale && <span className="text-amber-300 text-[11px] font-medium">Desatualizado</span>}
+                          {row.id === 'whisper' && whisperModelOnDisk && (
+                            <span className="text-emerald-300 text-[11px]">Modelo presente em disco</span>
+                          )}
                         </div>
                       </div>
                     </div>

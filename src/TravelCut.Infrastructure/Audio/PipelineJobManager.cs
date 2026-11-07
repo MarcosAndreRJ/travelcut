@@ -202,16 +202,17 @@ public class PipelineJobManager : IPipelineJobManager
         }
     }
 
-    public async Task<AnalysisEnvironmentDto> GetEnvironmentAsync(CancellationToken ct = default)
+    public async Task<AnalysisEnvironmentDto> GetEnvironmentAsync(CancellationToken ct = default, bool forceRefresh = false)
     {
         var cached = _environment;
-        if (cached != null && DateTime.UtcNow - _environmentAtUtc < EnvironmentCacheTtl) return cached;
+        if (!forceRefresh && cached != null && DateTime.UtcNow - _environmentAtUtc < EnvironmentCacheTtl) return cached;
 
         await _environmentLock.WaitAsync(ct);
         try
         {
-            if (_environment != null && DateTime.UtcNow - _environmentAtUtc < EnvironmentCacheTtl) return _environment;
+            if (!forceRefresh && _environment != null && DateTime.UtcNow - _environmentAtUtc < EnvironmentCacheTtl) return _environment;
 
+            if (forceRefresh) _whisper.InvalidateEnvironment();
             _environment = await ProbeEnvironmentAsync(ct);
             _environmentAtUtc = DateTime.UtcNow;
             return _environment;

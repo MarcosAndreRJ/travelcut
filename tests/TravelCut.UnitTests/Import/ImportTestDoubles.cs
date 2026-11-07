@@ -149,7 +149,7 @@ internal sealed class FakePipelineJobManager : IPipelineJobManager
 
     public bool Cancel(Guid jobId) => true;
 
-    public Task<AnalysisEnvironmentDto> GetEnvironmentAsync(CancellationToken ct = default)
+    public Task<AnalysisEnvironmentDto> GetEnvironmentAsync(CancellationToken ct = default, bool forceRefresh = false)
     {
         return Task.FromResult(new AnalysisEnvironmentDto(
             FfmpegAvailable: FfmpegAvailable,

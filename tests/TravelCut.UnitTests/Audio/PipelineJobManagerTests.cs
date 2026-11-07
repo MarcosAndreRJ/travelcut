@@ -302,6 +302,23 @@ public class PipelineJobManagerTests : IDisposable
     }
 
     [Fact]
+    public async Task Environment_ForceRefresh_BypassesCache_AfterInstall()
+    {
+        var whisper = new FakeWhisperService { Available = false };
+        var h = NewHarness(whisper);
+
+        Assert.False((await h.Manager.GetEnvironmentAsync()).WhisperAvailable);
+
+        // Instalação concluída: o cache de 60 s ainda responde o estado antigo.
+        whisper.Available = true;
+        Assert.False((await h.Manager.GetEnvironmentAsync()).WhisperAvailable);
+        Assert.Equal(0, whisper.InvalidateCalls);
+
+        Assert.True((await h.Manager.GetEnvironmentAsync(forceRefresh: true)).WhisperAvailable);
+        Assert.Equal(1, whisper.InvalidateCalls);
+    }
+
+    [Fact]
     public async Task IdleProject_HasNoActivity()
     {
         var h = NewHarness();

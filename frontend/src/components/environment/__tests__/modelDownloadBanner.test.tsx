@@ -85,7 +85,7 @@ describe('ModelDownloadBannerView', () => {
       })
     );
     expect(html).toContain('validado com sucesso');
-    expect(html).toContain('Diagnóstico do ambiente atualizado');
+    expect(html).toContain('reconsultado automaticamente');
     expect(html).toContain('Fechar');
     expect(html).not.toContain('Cancelar');
   });

@@ -867,6 +867,19 @@ public sealed partial class EnvironmentAssistantService
         ctx.AddLog("Instalação do HyperFrames finalizada e verificada com sucesso.");
     }
 
+    private static async Task<bool> ExistingModelMatchesAsync(string filePath, string expectedSha256, CancellationToken ct)
+    {
+        try
+        {
+            var actual = await HttpModelDownloader.ComputeFileSha256Async(filePath, ct).ConfigureAwait(false);
+            return string.Equals(actual, expectedSha256, StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
     private async Task ExecuteModelDownloadAsync(ModelDownloadJobContext ctx, CancellationToken ct)
     {
         var modelName = ctx.ModelName;
@@ -897,13 +910,12 @@ public sealed partial class EnvironmentAssistantService
             ctx.AddLog("Verificando integridade de modelo já existente em disco...");
             lock (ctx.Lock)
             {
-                // Hash de ~3 GB sem percentual real nem cancelamento: a UI mostra estágio indeterminado.
+                // Hash de ~3 GB sem percentual real: a UI mostra estágio indeterminado. Continua cancelável.
                 ctx.Stage = "Verificando SHA-256";
                 ctx.ProgressPercent = null;
-                ctx.CanCancel = false;
                 ctx.CurrentMessage = $"Verificando o modelo {modelName} já presente em disco (SHA-256)...";
             }
-            if (ToolPathResolver.VerifyFileSha256(destinationFile, expectedSha256))
+            if (await ExistingModelMatchesAsync(destinationFile, expectedSha256, ct).ConfigureAwait(false))
             {
                 ctx.AddLog("Modelo pré-existente íntegro. Download dispensado.");
                 ctx.CompleteSuccess($"Modelo {modelName} já está instalado e íntegro com hash SHA-256 verificado!");
@@ -916,7 +928,6 @@ public sealed partial class EnvironmentAssistantService
         {
             ctx.Stage = "Baixando Modelo";
             ctx.ProgressPercent = null;
-            ctx.CanCancel = true;
             ctx.CurrentMessage = $"Conectando para baixar o modelo {modelName}...";
         }
         ctx.AddLog($"Iniciando download seguro de {url} para {destinationFile}...");

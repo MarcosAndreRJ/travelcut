@@ -82,7 +82,11 @@ export const SettingsIntegrationsView: React.FC<SettingsIntegrationsViewProps> =
     analysisError: status.analysisError,
     editorCaps,
     motionCaps: status.motionCaps,
-    motionError: status.motionError
+    motionError: status.motionError,
+    analysisStaleReason: status.analysisStaleReason,
+    motionStaleReason: status.motionStaleReason,
+    analysisCheckedAtMs: status.analysisCheckedAtMs,
+    motionCheckedAtMs: status.motionCheckedAtMs
   });
   const rowById = (id: IntegrationId): IntegrationRow | undefined => rows.find((r) => r.id === id);
 

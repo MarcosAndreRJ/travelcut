@@ -104,6 +104,20 @@ Checklist completo em `docs/22-SMOKE-TEST-HOST.md`; registrar aqui o resultado d
 - [ ] Release: sem DevTools, sem menu de contexto do navegador; colar com Ctrl+V funciona nos campos.
 - [ ] Sidebar mostra `TravelCut v0.10.0-host-test.1`.
 
+## Roteiro F13.2 (observabilidade) — `HOST_PENDENTE`
+
+Não baixe o modelo de novo nem transcreva vídeo longo só para este roteiro; use um clipe curto.
+
+- [ ] `python -m unittest discover -s tests -v` em `workers/` → testes de `test_whisper_worker.py` verdes (nunca executados na VM).
+- [ ] Abrir a app, ir direto para a Biblioteca: a Sidebar mostra Whisper/FFmpeg com o mesmo estado da Verificação do Ambiente e "Verificado às HH:MM"; nenhum "Falha na consulta" residual.
+- [ ] "Baixar large-v3" com o modelo já presente: demorar mais de 10 s no diálogo do Windows, confirmar e ver a faixa no topo com "Verificando SHA-256" (barra indeterminada) e depois "já está instalado e íntegro".
+- [ ] Trocar de tela durante essa verificação: a faixa continua visível; ao concluir, fica até clicar em Fechar.
+- [ ] Clipe curto: durante a análise o cartão mostra nome, "Decodificando o áudio" → "Carregando o modelo" → "Transcrevendo", tempo decorrido e último sinal; anotar se o **percentual real** apareceu (depende da versão do openai-whisper) ou se ficou indeterminado.
+- [ ] Último sinal não passa de ~10 s durante a transcrição (heartbeat); anotar se o aviso "sem telemetria recente" apareceu.
+- [ ] Cancelar a análise: "Cancelando…" e depois "Cancelado"; processo Python encerrado no Gerenciador de Tarefas; clipe volta ao estado real.
+- [ ] Concluir: transcrição e resultados do clipe selecionado aparecem sem recarregar a tela.
+- [ ] Instalar/configurar uma ferramenta e confirmar que Sidebar e Verificação mudam juntas sem reiniciar o app.
+
 ## Evidências e erros
 
 Preencher para cada teste: status (`PASS/FAIL/NOT_RUN`), versão, passos, resultado real, arquivo log/captura, erro e ticket regressão. Não anexar credenciais. Após o usuário retornar as evidências, Opus atualiza checklist/status.

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import {
   Home,
   FolderOpen,
@@ -12,34 +12,36 @@ import {
   CheckCircle2,
   AlertCircle
 } from 'lucide-react';
-import { AnalysisEnvironmentDto, EditorCapabilities } from '../types/ipc';
+import { EditorCapabilities } from '../types/ipc';
 import { ipc } from '../services/ipcBridge';
 import { editorStatusBadge, isEditorConnected } from './editor/editorModel';
 import { TONE_TEXT } from './editor/EditorPrimitives';
 import { APP_VERSION } from '../version';
+import { useIntegrationStatus } from './environment/useIntegrationStatus';
+import { formatCheckedAt, toolAvailability, type ToolAvailability } from './environment/integrationStatus';
 
-// available undefined = ainda não consultado (não verificado); nunca exibir "ativo" sem confirmação do host.
-const ToolStatusRow: React.FC<{ label: string; available: boolean | undefined; failed?: boolean; detail?: string }> = ({
+// Nunca exibir "ativo" sem confirmação do host. Mesma fonte e mesma regra da tela de Verificação do Ambiente.
+const ToolStatusRow: React.FC<{ label: string; status: ToolAvailability; detail?: string; reason?: string | null }> = ({
   label,
-  available,
-  failed = false,
-  detail
+  status,
+  detail,
+  reason
 }) => (
-  <div className="flex items-center justify-between text-slate-300">
+  <div className="flex items-center justify-between text-slate-300" title={reason ?? undefined}>
     <span className="truncate">{label}</span>
-    {failed ? (
+    {status.kind === 'failed' ? (
       <span className="flex items-center gap-1 text-[10px] text-rose-400 font-medium">
         <AlertCircle className="w-3 h-3" /> Falha na consulta
       </span>
-    ) : available === undefined ? (
+    ) : status.kind === 'unverified' ? (
       <span className="text-[10px] text-slate-500 font-medium">Não verificado</span>
-    ) : available ? (
-      <span className="flex items-center gap-1 text-[10px] text-emerald-400 font-medium">
-        <CheckCircle2 className="w-3 h-3" /> {detail ?? 'Disponível'}
+    ) : status.kind === 'available' ? (
+      <span className={`flex items-center gap-1 text-[10px] font-medium ${status.stale ? 'text-amber-300' : 'text-emerald-400'}`}>
+        <CheckCircle2 className="w-3 h-3" /> {detail ?? 'Disponível'}{status.stale ? ' (desatualizado)' : ''}
       </span>
     ) : (
-      <span className="flex items-center gap-1 text-[10px] text-rose-400 font-medium">
-        <AlertCircle className="w-3 h-3" /> Não encontrado
+      <span className={`flex items-center gap-1 text-[10px] font-medium ${status.stale ? 'text-amber-300' : 'text-rose-400'}`}>
+        <AlertCircle className="w-3 h-3" /> Não encontrado{status.stale ? ' (desatualizado)' : ''}
       </span>
     )}
   </div>
@@ -89,22 +91,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   // Estado derivado do host: conectado só com DaVinci real; simulador é rotulado como tal.
   const isResolveConnected = isEditorConnected(editorCaps);
   const resolveBadge = editorStatusBadge(editorCaps);
-  const [analysisEnv, setAnalysisEnv] = useState<AnalysisEnvironmentDto | null>(null);
-  const [analysisFailed, setAnalysisFailed] = useState<boolean>(false);
-
-  useEffect(() => {
-    ipc
-      .send<AnalysisEnvironmentDto>('analysis.environment')
-      .then((env) => {
-        setAnalysisEnv(env);
-        setAnalysisFailed(false);
-      })
-      .catch((err) => {
-        console.error('Falha ao consultar ambiente de análise:', err);
-        setAnalysisEnv(null);
-        setAnalysisFailed(true);
-      });
-  }, []);
+  const integration = useIntegrationStatus();
+  const { analysisEnv, analysisError, analysisStaleReason } = integration;
+  const checkedAt = formatCheckedAt(integration.analysisCheckedAtMs);
 
   return (
     <aside className="w-64 bg-[#0a1120] border-r border-slate-800/80 flex flex-col justify-between select-none shrink-0 h-full font-sans">
@@ -201,15 +190,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {/* Ferramentas de análise — estado real reportado pelo host (analysis.environment) */}
           <ToolStatusRow
             label={analysisEnv?.whisperModel ? `Whisper ${analysisEnv.whisperModel}` : 'Whisper'}
-            available={analysisEnv?.whisperAvailable}
-            failed={analysisFailed}
+            status={toolAvailability(analysisEnv?.whisperAvailable, analysisError, analysisStaleReason)}
             detail={analysisEnv?.whisperAvailable && analysisEnv.cudaAvailable === true ? 'Disponível (GPU)' : undefined}
+            reason={analysisError ?? analysisStaleReason}
           />
           <ToolStatusRow
             label="FFmpeg / FFprobe"
-            available={analysisEnv?.ffmpegAvailable}
-            failed={analysisFailed}
+            status={toolAvailability(analysisEnv?.ffmpegAvailable, analysisError, analysisStaleReason)}
+            reason={analysisError ?? analysisStaleReason}
           />
+          {checkedAt && <p className="text-[10px] text-slate-500">Verificado às {checkedAt}</p>}
         </div>
 
         <div className="mt-3 pt-3 border-t border-slate-800/50 flex items-center justify-between text-[10px] text-slate-500 font-mono">

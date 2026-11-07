@@ -88,7 +88,7 @@ public sealed class FakePipelineAnalysis : IPipelineJobManager
 
     public bool Cancel(Guid jobId) => throw new NotSupportedException("Não usado nos testes de plano.");
 
-    public Task<AnalysisEnvironmentDto> GetEnvironmentAsync(CancellationToken ct = default) =>
+    public Task<AnalysisEnvironmentDto> GetEnvironmentAsync(CancellationToken ct = default, bool forceRefresh = false) =>
         throw new NotSupportedException("Não usado nos testes de plano.");
 }
 

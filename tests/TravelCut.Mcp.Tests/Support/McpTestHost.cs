@@ -233,7 +233,7 @@ public sealed class TestPipelineJobManager : IPipelineJobManager
 
     public bool Cancel(Guid jobId) => false;
 
-    public Task<AnalysisEnvironmentDto> GetEnvironmentAsync(CancellationToken ct = default) =>
+    public Task<AnalysisEnvironmentDto> GetEnvironmentAsync(CancellationToken ct = default, bool forceRefresh = false) =>
         Task.FromResult(new AnalysisEnvironmentDto(
             FfmpegAvailable: false,
             FfmpegVersion: null,

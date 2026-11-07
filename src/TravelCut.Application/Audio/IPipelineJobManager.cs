@@ -8,6 +8,6 @@ public interface IPipelineJobManager
     Task<Guid> StartAsync(StartPipelineRequest request, CancellationToken ct = default);
     Task<PipelineStatusDto> GetStatusAsync(Guid projectId, CancellationToken ct = default);
     bool Cancel(Guid jobId);
-    Task<AnalysisEnvironmentDto> GetEnvironmentAsync(CancellationToken ct = default);
+    Task<AnalysisEnvironmentDto> GetEnvironmentAsync(CancellationToken ct = default, bool forceRefresh = false);
     Task<MediaAnalysisDto?> GetMediaAnalysisAsync(Guid projectId, Guid mediaId, CancellationToken ct = default);
 }

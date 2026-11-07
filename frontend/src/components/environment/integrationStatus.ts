@@ -35,6 +35,8 @@ export interface IntegrationRow {
   detail: string;
   /** Origem técnica do dado (rótulo de auditoria visível na tela). */
   source: string;
+  /** Leitura válida, porém antiga ou seguida de falha de consulta: nunca apresentar como nova. */
+  stale?: boolean;
 }
 
 export interface IntegrationInputs {
@@ -45,7 +47,47 @@ export interface IntegrationInputs {
   editorCaps: EditorCapabilities | null;
   motionCaps: MotionCapabilitiesDto | null;
   motionError: string | null;
+  /** Motivo de a leitura válida estar desatualizada; null quando está atual. */
+  analysisStaleReason?: string | null;
+  motionStaleReason?: string | null;
+  analysisCheckedAtMs?: number | null;
+  motionCheckedAtMs?: number | null;
 }
+
+/** Hora local da última leitura válida. */
+export const formatCheckedAt = (ms: number | null | undefined): string | null =>
+  ms == null ? null : new Date(ms).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+export interface ToolAvailability {
+  kind: 'unverified' | 'failed' | 'available' | 'missing';
+  stale: boolean;
+}
+
+/**
+ * Estado resumido de uma ferramenta para a barra lateral, com a mesma regra das linhas detalhadas:
+ * "failed" é falha de consulta sem leitura válida; "missing" é o host dizendo que a ferramenta não existe.
+ */
+export function toolAvailability(
+  available: boolean | undefined,
+  queryError: string | null,
+  staleReason: string | null
+): ToolAvailability {
+  if (available === undefined) return { kind: queryError ? 'failed' : 'unverified', stale: false };
+  return { kind: available ? 'available' : 'missing', stale: !!staleReason };
+}
+
+const withFreshness = (
+  r: IntegrationRow,
+  staleReason: string | null | undefined,
+  checkedAtMs: number | null | undefined
+): IntegrationRow => {
+  const checkedAt = formatCheckedAt(checkedAtMs);
+  if (r.state === 'error' || r.state === 'unverified' || !checkedAt) return r;
+  const source = `${r.source} · verificado às ${checkedAt}`;
+  return staleReason
+    ? { ...r, source, stale: true, detail: `${r.detail} Dados desatualizados: ${staleReason}.` }
+    : { ...r, source };
+};
 
 const TONE_BY_STATE: Record<IntegrationState, EditorTone> = {
   ready: 'emerald',
@@ -189,8 +231,8 @@ export function buildIntegrationRows(inputs: IntegrationInputs): IntegrationRow[
     dotnet,
     webview2,
     davinciRow(inputs.editorCaps),
-    ...analysisRows(inputs),
-    motionRow(inputs.motionCaps, inputs.motionError),
+    ...analysisRows(inputs).map((r) => withFreshness(r, inputs.analysisStaleReason, inputs.analysisCheckedAtMs)),
+    withFreshness(motionRow(inputs.motionCaps, inputs.motionError), inputs.motionStaleReason, inputs.motionCheckedAtMs),
     row('claude', 'Claude Code (MCP)', 'unverified', 'Não verificado pelo app', null,
       'Esta tela não consulta o MCP. Valide a conexão no computador host.', SRC_NONE)
   ];

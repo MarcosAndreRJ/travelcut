@@ -1,6 +1,10 @@
 # Estado operacional — ponto de retomada
 
-- **Status:** `waiting_for_host` — F11.4 corrigida na VM, merge concluído na branch `main` e pacote `0.10.0-host-test.2` gerado com sucesso para reteste humano no host Windows.
+- **Status:** `waiting_for_host` — F13.2 (observabilidade) concluída na VM em 2026-11-07 01:44 -03:00; commits locais em `main`, sem push e sem novo pacote.
+- **Fase atual:** `F13.2 — Observabilidade e consistência de status`. Próximo passo humano: roteiro "F13.2" de `progresso/HOST_TESTS.md` num pacote gerado a partir desta `main`.
+- **Última evidência F13.2:** `dotnet build -c Release` 0 erros; `dotnet test -c Release` UnitTests 1125/1125 e Mcp.Tests 107/107 (3 rodadas); `npm test` 258/258; `tsc --noEmit` 0; `npm run build` OK. NÃO executados: `workers/tests/test_whisper_worker.py` (VM sem Python), app WPF, download real, transcrição real.
+- **Histórico anterior (F11) abaixo:** mantido como registro; as linhas seguintes descrevem o estado do pacote `0.10.0-host-test.2`.
+- **Status em F11:** `waiting_for_host` — F11.4 corrigida na VM, merge concluído na branch `main` e pacote `0.10.0-host-test.2` gerado com sucesso para reteste humano no host Windows.
 - **Fase atual:** `11 — Homologação no host, correções e fechamento do MVP (F11.4: Correção da tela preta na navegação de projeto e geração do pacote 2)`. Branch ativa: `main`.
 - **Causa-raiz sanada:**
   1. Contrato IPC `media.list`: backend C# retornava `{ media: dtos }` enquanto frontend em `LibraryTranscriptionView.tsx` e `ipcBridge.ts` esperavam array direto. A tentativa de executar `assets.filter(...)` causava `TypeError: assets.filter is not a function`, que sem Error Boundary desarmava toda a árvore React, deixando a tela preta.

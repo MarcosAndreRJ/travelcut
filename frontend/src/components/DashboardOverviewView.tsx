@@ -71,7 +71,11 @@ export const DashboardOverviewView: React.FC<DashboardOverviewViewProps> = ({
     analysisError: status.analysisError,
     editorCaps,
     motionCaps: status.motionCaps,
-    motionError: status.motionError
+    motionError: status.motionError,
+    analysisStaleReason: status.analysisStaleReason,
+    motionStaleReason: status.motionStaleReason,
+    analysisCheckedAtMs: status.analysisCheckedAtMs,
+    motionCheckedAtMs: status.motionCheckedAtMs
   });
   const panelRows = PANEL_INTEGRATION_IDS.map((id) => rows.find((r) => r.id === id)).filter(
     (r): r is IntegrationRow => r !== undefined
