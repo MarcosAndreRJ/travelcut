@@ -552,6 +552,7 @@ export const LibraryTranscriptionView: React.FC<LibraryTranscriptionViewProps> =
                 )}
                 {filteredAssets.map((asset) => {
                   const isSelected = selectedMediaId === asset.mediaId;
+                  const isBatchSelected = selectedForAnalysis.has(asset.mediaId);
                   const fileName = asset.relativePath.split(/[/\\]/).pop() || asset.relativePath;
 
                   return (
