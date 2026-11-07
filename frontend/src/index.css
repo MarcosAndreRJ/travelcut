@@ -27,3 +27,24 @@
 ::-webkit-scrollbar-thumb:hover {
   background: #475569;
 }
+
+@keyframes indeterminate-slide {
+  0% {
+    left: -35%;
+    width: 35%;
+  }
+  50% {
+    left: 30%;
+    width: 40%;
+  }
+  100% {
+    left: 100%;
+    width: 35%;
+  }
+}
+.animate-indeterminate-slide {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  animation: indeterminate-slide 1.8s ease-in-out infinite;
+}

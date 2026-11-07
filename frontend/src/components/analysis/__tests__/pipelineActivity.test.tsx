@@ -148,6 +148,21 @@ describe('PipelineActivityCard', () => {
     expect(render(status({ state: 'canceled', finishedAtUtc: ago(0) }))).toContain('Cancelado');
     expect(render(status({ state: 'completed', finishedAtUtc: ago(0) }))).toContain('Concluído');
   });
+  it('transicao de indeterminada para percentual real de 50.8% sem regressao ficticia', () => {
+    // 1. Etapa indeterminada: nunca preenche 100%, sem aria-valuenow e usa animacao de segmento
+    const indHtml = render(status({ activity: activity({ percent: null }) }));
+    expect(indHtml).toContain('animate-indeterminate-slide');
+    expect(indHtml).not.toContain('width: 100%');
+    expect(indHtml).not.toContain('aria-valuenow');
+    expect(indHtml).toContain('progresso desta etapa indisponível');
+
+    // 2. Transicao para 50.8%: determinada com percentual real
+    const detHtml = render(status({ activity: activity({ percent: 50.8 }) }));
+    expect(detHtml).toContain('data-testid="determinate-bar"');
+    expect(detHtml).toContain('width:50.8%');
+    expect(detHtml).toContain('aria-valuenow="50.8"');
+    expect(detHtml).toContain('50.8% desta etapa');
+  });
 });
 
 describe('acompanhamento do pipeline', () => {

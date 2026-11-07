@@ -55,20 +55,28 @@ export const PipelineActivityCard: React.FC<{ view: PipelineActivityView; hostUn
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={view.percent ?? undefined}
-          className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden"
+          className="relative h-1.5 w-full bg-slate-800 rounded-full overflow-hidden"
         >
-          <div
-            className={`h-full rounded-full bg-cyan-500 ${indeterminate ? 'animate-pulse' : ''}`}
-            style={{ width: indeterminate ? '100%' : `${view.percent}%` }}
-          />
+          {indeterminate ? (
+            <div
+              data-testid="indeterminate-bar"
+              className="animate-indeterminate-slide rounded-full bg-cyan-500 animate-pulse"
+              style={{ width: "35%" }}
+            />
+          ) : (
+            <div
+              data-testid="determinate-bar"
+              className="h-full rounded-full bg-cyan-500 transition-all duration-300"
+              style={{ width: `${view.percent}%` }}
+            />
+          )}
         </div>
       )}
-
       {running && (
         <p className="text-[10px] text-slate-400">
           {view.percent !== null
-            ? `${view.percent.toFixed(1)}% desta etapa, informado pelo motor.`
-            : 'Em andamento; o motor não informou percentual nesta etapa.'}
+            ? (view.stageLabel ? `${view.stageLabel} — ${view.percent.toFixed(1)}% desta etapa, informado pelo motor.` : `${view.percent.toFixed(1)}% desta etapa, informado pelo motor.`)
+            : (view.stageLabel ? `${view.stageLabel} — progresso desta etapa indisponível (o motor não informou percentual nesta etapa).` : "Em andamento; o motor não informou percentual nesta etapa.")}
           {signal && ` ${signal}.`}
         </p>
       )}
