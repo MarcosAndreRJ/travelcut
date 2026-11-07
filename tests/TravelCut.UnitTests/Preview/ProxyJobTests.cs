@@ -23,9 +23,10 @@ public class ProxyJobTests
                 "-i", @"C:\proj\1-Bruto\a.mp4",
                 "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
                 "-vf", "scale=-2:720",
+                "-profile:v", "main", "-level", "3.1",
                 "-pix_fmt", "yuv420p",
                 "-fps_mode", "passthrough",
-                "-c:a", "aac", "-b:a", "128k",
+                "-c:a", "aac", "-ac", "2", "-b:a", "128k",
                 "-movflags", "+faststart",
                 @"C:\proj\3-Trabalho\cache\proxies\x.tcpart.mp4"
             },
@@ -57,7 +58,7 @@ public class ProxyJobTests
         Assert.Equal("ready", Assert.Single(finished.Items).State);
 
         // Argumentos: saída parcial com -n, sem -y.
-        var call = Assert.Single(h.Process.Calls);
+        var call = h.Process.Calls[0]; Assert.True(h.Process.Calls.Count >= 2);
         Assert.Contains("-n", call.Arguments);
         Assert.DoesNotContain("-y", call.Arguments);
         Assert.EndsWith(".tcpart.mp4", call.Arguments[^1]);
@@ -110,7 +111,10 @@ public class ProxyJobTests
         {
             started.TrySetResult();
             await release.Task.WaitAsync(ct);
-            await File.WriteAllBytesAsync(req.Arguments[^1], new byte[] { 1 }, ct);
+            if (req.Arguments[^1] == "-")
+                return new ProcessRunResult(ProcessRunStatus.Completed, 0, string.Empty, string.Empty);
+            var mock = new byte[1024]; mock[3] = 32; mock[4] = 0x66; mock[5] = 0x74; mock[6] = 0x79; mock[7] = 0x70;
+            await File.WriteAllBytesAsync(req.Arguments[^1], mock, ct);
             return new ProcessRunResult(ProcessRunStatus.Completed, 0, string.Empty, string.Empty);
         };
 
@@ -154,7 +158,7 @@ public class ProxyJobTests
         h.Ffmpeg.Path = @"C:\ffmpeg\bin\ffmpeg.exe";
         var media = h.AddMedia("1-Bruto/a.mp4", fingerprint: "fp-existing");
         Directory.CreateDirectory(h.ProxiesFolder);
-        File.WriteAllBytes(Path.Combine(h.ProxiesFolder, PreviewPaths.ProxyFileName(media.MediaId, "fp-existing")), new byte[] { 1 });
+        var validMock = new byte[1024]; validMock[3] = 32; validMock[4] = 0x66; validMock[5] = 0x74; validMock[6] = 0x79; validMock[7] = 0x70; File.WriteAllBytes(Path.Combine(h.ProxiesFolder, PreviewPaths.ProxyFileName(media.MediaId, "fp-existing")), validMock);
 
         var outcome = h.Jobs.Start(h.Project.ProjectId, h.Root, new[] { Plan(h, media) });
 

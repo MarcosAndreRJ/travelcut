@@ -168,7 +168,7 @@ public partial class MainWindow : Window
                 return;
             }
 
-            core.SetVirtualHostNameToFolderMapping(PreviewPaths.MediaHost, fullRoot, CoreWebView2HostResourceAccessKind.DenyCors);
+            core.SetVirtualHostNameToFolderMapping(PreviewPaths.MediaHost, fullRoot, CoreWebView2HostResourceAccessKind.Allow);
             _logger.LogInformation("Host virtual de mídia mapeado para o projeto aberto (somente leitura)");
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or NotSupportedException)

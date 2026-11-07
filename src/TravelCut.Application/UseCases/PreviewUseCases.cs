@@ -132,7 +132,31 @@ public sealed class PreviewUseCases
         string fileName = PreviewPaths.ProxyFileName(media.MediaId, media.Fingerprint);
         string relative = $"{PreviewPaths.ProxyFolderRelative}/{fileName}";
         string full = Path.Combine(Path.GetFullPath(projectRoot), PreviewPaths.ProxyFolderRelative.Replace('/', Path.DirectorySeparatorChar), fileName);
-        return File.Exists(full) && new FileInfo(full).Length > 0 ? relative : null;
+        if (!File.Exists(full))
+            return null;
+        try
+        {
+            var info = new FileInfo(full);
+            if (info.Length < 1024)
+            {
+                File.Delete(full);
+                return null;
+            }
+            using var stream = File.OpenRead(full);
+            Span<byte> header = stackalloc byte[12];
+            int read = stream.Read(header);
+            if (read < 8 || header[4] != 0x66 || header[5] != 0x74 || header[6] != 0x79 || header[7] != 0x70)
+            {
+                stream.Dispose();
+                File.Delete(full);
+                return null;
+            }
+            return relative;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     /// <summary>ready | generating | failed | none | ffmpeg_unavailable (sem ffmpeg e sem proxy).</summary>

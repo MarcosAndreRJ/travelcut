@@ -98,7 +98,20 @@ internal sealed class FakeProcessRunner : IProcessRunner
             return await Handler(request, ct);
 
         string output = request.Arguments[^1];
-        await File.WriteAllBytesAsync(output, new byte[] { 1, 2, 3, 4 }, ct);
+        if (output == "-" || (request.Arguments.Contains("-f") && request.Arguments.Contains("null")))
+            return new ProcessRunResult(ProcessRunStatus.Completed, 0, string.Empty, string.Empty);
+        if (request.Arguments.Contains("-of") && request.Arguments.Contains("json"))
+        {
+            string json = "{\"streams\": [{\"codec_name\": \"h264\", \"pix_fmt\": \"yuv420p\"}], \"format\": {\"format_name\": \"mp4\", \"duration\": \"10.0\"}}";
+            return new ProcessRunResult(ProcessRunStatus.Completed, 0, json, string.Empty);
+        }
+        var mockMp4 = new byte[2048];
+        mockMp4[3] = 32;
+        mockMp4[4] = (byte)'f';
+        mockMp4[5] = (byte)'t';
+        mockMp4[6] = (byte)'y';
+        mockMp4[7] = (byte)'p';
+        await File.WriteAllBytesAsync(output, mockMp4, ct);
         return new ProcessRunResult(ProcessRunStatus.Completed, 0, string.Empty, string.Empty);
     }
 }

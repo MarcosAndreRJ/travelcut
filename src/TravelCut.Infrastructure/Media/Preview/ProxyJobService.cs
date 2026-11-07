@@ -26,9 +26,10 @@ public static class ProxyFfmpegArguments
         "-i", sourcePath,
         "-c:v", VideoCodec, "-preset", Preset, "-crf", Crf,
         "-vf", VideoFilter,
+        "-profile:v", "main", "-level", "3.1",
         "-pix_fmt", PixelFormat,
         "-fps_mode", "passthrough",
-        "-c:a", AudioCodec, "-b:a", AudioBitrate,
+        "-c:a", AudioCodec, "-ac", "2", "-b:a", AudioBitrate,
         "-movflags", "+faststart",
         partialOutputPath
     };
@@ -100,7 +101,7 @@ public sealed class ProxyJobService : IProxyJobService, IDisposable
                 {
                     item.Set("skipped", "FFmpeg não encontrado: proxy não gerado.");
                 }
-                else if (File.Exists(ProxyFinalPath(job.RootPath, plan.MediaId, plan.Fingerprint)))
+                else if (IsValidExistingProxy(ProxyFinalPath(job.RootPath, plan.MediaId, plan.Fingerprint)))
                 {
                     item.Set("ready", "Proxy já existente.");
                 }
@@ -240,6 +241,79 @@ public sealed class ProxyJobService : IProxyJobService, IDisposable
         }
     }
 
+    private static bool IsValidExistingProxy(string path)
+    {
+        try
+        {
+            var info = new FileInfo(path);
+            if (!info.Exists || info.Length < 1024)
+            {
+                DeleteQuietly(path);
+                return false;
+            }
+            using var stream = File.OpenRead(path);
+            Span<byte> header = stackalloc byte[12];
+            int read = stream.Read(header);
+            if (read < 8 || header[4] != 0x66 || header[5] != 0x74 || header[6] != 0x79 || header[7] != 0x70)
+            {
+                stream.Dispose();
+                DeleteQuietly(path);
+                return false;
+            }
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+    private async Task<(bool IsValid, string Reason)> ValidateProxyFileAsync(string ffmpeg, string path, CancellationToken ct)
+    {
+        try
+        {
+            var info = new FileInfo(path);
+            if (!info.Exists || info.Length < 1024)
+                return (false, "Arquivo inexistente ou menor que 1 KB.");
+
+            using (var stream = File.OpenRead(path))
+            {
+                Span<byte> header = stackalloc byte[12];
+                int read = stream.Read(header);
+                if (read < 8 || header[4] != 0x66 || header[5] != 0x74 || header[6] != 0x79 || header[7] != 0x70)
+                    return (false, "Cabeçalho MP4 inválido (box ftyp ausente).");
+            }
+
+            var verifyRun = await _runner.RunAsync(
+                new ProcessRunRequest(ffmpeg, new[] { "-v", "error", "-i", path, "-vframes", "1", "-f", "null", "-" }, TimeSpan.FromSeconds(15)),
+                ct).ConfigureAwait(false);
+
+            if (verifyRun.ExitCode != 0)
+                return (false, $"FFmpeg não conseguiu decodificar frames do vídeo (código {verifyRun.ExitCode}).");
+
+            string? ffprobe = FfprobeLocator.Locate();
+            if (ffprobe != null)
+            {
+                var probeRun = await _runner.RunAsync(
+                    new ProcessRunRequest(ffprobe, new[] { "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_name,pix_fmt", "-show_entries", "format=format_name,duration", "-of", "json", path }, TimeSpan.FromSeconds(10)),
+                    ct).ConfigureAwait(false);
+
+                if (probeRun.ExitCode == 0 && !string.IsNullOrWhiteSpace(probeRun.StandardOutput))
+                {
+                    string stdout = probeRun.StandardOutput.ToLowerInvariant();
+                    if (!stdout.Contains("h264"))
+                        return (false, "Stream de vídeo não codificado em H.264.");
+                    if (!stdout.Contains("yuv420p"))
+                        return (false, "Formato de pixel incompatível (esperado yuv420p).");
+                }
+            }
+
+            return (true, "OK");
+        }
+        catch (Exception ex)
+        {
+            return (false, $"Exceção na validação: {ex.Message}");
+        }
+    }
     private async Task<(string State, string Message)> EncodeOneAsync(string ffmpeg, string rootPath, ItemState item, CancellationToken ct)
     {
         string finalPath = ProxyFinalPath(rootPath, item.MediaId, item.Fingerprint);
@@ -250,8 +324,9 @@ public sealed class ProxyJobService : IProxyJobService, IDisposable
 
         if (File.Exists(finalPath))
         {
-            if (new FileInfo(finalPath).Length > 0)
-                return ("ready", "Proxy já existente.");
+            var cachedValidation = await ValidateProxyFileAsync(ffmpeg, finalPath, ct).ConfigureAwait(false);
+            if (cachedValidation.IsValid)
+                return ("ready", "Proxy já existente e validado em cache.");
             DeleteQuietly(finalPath);
         }
 
@@ -300,10 +375,16 @@ public sealed class ProxyJobService : IProxyJobService, IDisposable
             return ("failed", "FFmpeg não gerou arquivo de proxy.");
         }
 
+        var validation = await ValidateProxyFileAsync(ffmpeg, partialPath, ct).ConfigureAwait(false);
+        if (!validation.IsValid)
+        {
+            DeleteQuietly(partialPath);
+            return ("failed", $"Proxy gerado é inválido ({validation.Reason}).");
+        }
         try
         {
-            File.Move(partialPath, finalPath, overwrite: false);
-            return ("ready", "Proxy gerado.");
+            File.Move(partialPath, finalPath, overwrite: true);
+            return ("ready", "Proxy gerado e validado.");
         }
         catch (IOException)
         {

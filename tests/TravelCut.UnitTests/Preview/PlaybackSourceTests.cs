@@ -125,7 +125,8 @@ public class PlaybackSourceTests
 
         Directory.CreateDirectory(h.ProxiesFolder);
         string proxyName = PreviewPaths.ProxyFileName(id, "fp-proxy");
-        File.WriteAllBytes(Path.Combine(h.ProxiesFolder, proxyName), new byte[] { 1, 2, 3 });
+        var mockMp4 = new byte[1024]; mockMp4[3] = 32; mockMp4[4] = 0x66; mockMp4[5] = 0x74; mockMp4[6] = 0x79; mockMp4[7] = 0x70;
+        File.WriteAllBytes(Path.Combine(h.ProxiesFolder, proxyName), mockMp4);
 
         var result = await h.UseCases.GetPlaybackSourceAsync(new PlaybackSourceRequest(h.Project.ProjectId, id));
 
