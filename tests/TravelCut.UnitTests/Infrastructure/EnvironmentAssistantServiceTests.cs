@@ -29,6 +29,8 @@ public class EnvironmentAssistantServiceTests : IDisposable
         _processRunner = new FakeProcessRunner();
         _modelDownloader = new FakeModelDownloader();
 
+        var tempCacheDir = Path.Combine(_tempDir, "whisper-cache");
+        Directory.CreateDirectory(tempCacheDir);
         _service = new EnvironmentAssistantService(
             _processRunner,
             _whisperService,
@@ -36,7 +38,8 @@ public class EnvironmentAssistantServiceTests : IDisposable
             _modelDownloader,
             NullLogger<EnvironmentAssistantService>.Instance,
             TimeProvider.System,
-            AutoApproveNativeInstallationAuthorizer.Instance
+            AutoApproveNativeInstallationAuthorizer.Instance,
+            tempCacheDir
         );
     }
 
@@ -156,6 +159,45 @@ public class EnvironmentAssistantServiceTests : IDisposable
 
         var canceled = _service.CancelModelDownload(jobId);
         Assert.True(canceled);
+    }
+
+    
+    [Fact]
+    public async Task DownloadModel_WritesOnlyToConfiguredCacheDirectory_AndDoesNotTouchRealUserCache()
+    {
+        var realCacheDir = ToolPathResolver.GetWhisperCacheDir();
+        var realModelFile = Path.Combine(realCacheDir, "large-v3.pt");
+        DateTime? realMtimeBefore = File.Exists(realModelFile) ? File.GetLastWriteTimeUtc(realModelFile) : null;
+        long? realLengthBefore = File.Exists(realModelFile) ? new FileInfo(realModelFile).Length : null;
+
+        var isolatedCacheDir = _service.WhisperCacheDirectory;
+        Assert.NotEqual(realCacheDir, isolatedCacheDir);
+
+        var req = new StartModelDownloadRequest("large-v3", Confirmed: true);
+        var jobId = await _service.StartDownloadModelAsync(req);
+
+        // Wait until completion
+        for (int i = 0; i < 50; i++)
+        {
+            var p = _service.GetModelDownloadProgress(jobId);
+            if (p != null && (p.IsCompleted || p.ErrorMessage != null)) break;
+            await Task.Delay(50);
+        }
+
+        var isolatedModelFile = Path.Combine(isolatedCacheDir, "large-v3.pt");
+        Assert.True(File.Exists(isolatedModelFile), "Isolated cache file should exist.");
+
+        if (realLengthBefore == null)
+        {
+            Assert.False(File.Exists(realModelFile), "Real cache file should not have been created.");
+        }
+        else
+        {
+            var realMtimeAfter = File.GetLastWriteTimeUtc(realModelFile);
+            var realLengthAfter = new FileInfo(realModelFile).Length;
+            Assert.Equal(realLengthBefore, realLengthAfter);
+            Assert.Equal(realMtimeBefore, realMtimeAfter);
+        }
     }
 
     private sealed class FakeProcessRunner : IProcessRunner

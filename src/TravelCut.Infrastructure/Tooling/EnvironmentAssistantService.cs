@@ -18,6 +18,7 @@ public sealed partial class EnvironmentAssistantService : IEnvironmentAssistantS
     private readonly IModelDownloader _modelDownloader;
     private readonly ILogger<EnvironmentAssistantService> _logger;
     private readonly TimeProvider _time;
+    private readonly string _whisperCacheDirectory;
     private readonly INativeInstallationAuthorizer _nativeAuthorizer;
 
     private readonly ConcurrentDictionary<Guid, ToolInstallJobContext> _installJobs = new();
@@ -32,7 +33,8 @@ public sealed partial class EnvironmentAssistantService : IEnvironmentAssistantS
         IModelDownloader modelDownloader,
         ILogger<EnvironmentAssistantService> logger,
         TimeProvider? time = null,
-        INativeInstallationAuthorizer? nativeAuthorizer = null)
+        INativeInstallationAuthorizer? nativeAuthorizer = null,
+        string? whisperCacheDirectory = null)
     {
         _runner = runner ?? throw new ArgumentNullException(nameof(runner));
         _whisperService = whisperService ?? throw new ArgumentNullException(nameof(whisperService));
@@ -41,7 +43,13 @@ public sealed partial class EnvironmentAssistantService : IEnvironmentAssistantS
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _nativeAuthorizer = nativeAuthorizer ?? DenyAllNativeInstallationAuthorizer.Instance;
         _time = time ?? TimeProvider.System;
+        _whisperCacheDirectory = string.IsNullOrWhiteSpace(whisperCacheDirectory)
+            ? ToolPathResolver.GetWhisperCacheDir()
+            : whisperCacheDirectory;
     }
+
+    public string WhisperCacheDirectory => _whisperCacheDirectory;
+    public string GetModelPathFor(string modelName = "large-v3") => Path.Combine(_whisperCacheDirectory, $"{modelName}.pt");
 
     public static string GetWhisperCacheDir()
     {
@@ -87,7 +95,7 @@ public sealed partial class EnvironmentAssistantService : IEnvironmentAssistantS
                 IsWindows: true,
                 TotalMemoryMb: 8192,
                 FreeDiskSpaceMb: 20480,
-                TargetCacheDirectory: GetWhisperCacheDir(),
+                TargetCacheDirectory: _whisperCacheDirectory,
                 HasWinget: wingetPath != null,
                 WingetPath: wingetPath
             )
@@ -308,7 +316,7 @@ public sealed partial class EnvironmentAssistantService : IEnvironmentAssistantS
         var actions = new List<string> { "refresh" };
         var probe = await _whisperService.ProbeEnvironmentAsync(ct).ConfigureAwait(false);
 
-        var modelPath = GetModelPath(probe.DefaultModel);
+        var modelPath = GetModelPathFor(probe.DefaultModel);
         var modelCached = File.Exists(modelPath);
 
         string state;
@@ -390,7 +398,7 @@ public sealed partial class EnvironmentAssistantService : IEnvironmentAssistantS
                 ["device"] = probe.Device ?? (probe.HasCuda == true ? "cuda" : "cpu"),
                 ["model"] = probe.DefaultModel,
                 ["modelCached"] = modelCached.ToString(),
-                ["cacheDir"] = GetWhisperCacheDir(),
+                ["cacheDir"] = _whisperCacheDirectory,
                 ["engine"] = probe.Engine ?? "openai-whisper"
             }
         );

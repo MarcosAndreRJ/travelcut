@@ -22,6 +22,8 @@ public class ModelDownloadProgressTests : IDisposable
         _tempDir = Path.Combine(Path.GetTempPath(), "tc-model-dl-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_tempDir);
 
+        var tempCacheDir = Path.Combine(_tempDir, "whisper-cache");
+        Directory.CreateDirectory(tempCacheDir);
         _service = new EnvironmentAssistantService(
             new NullProcessRunner(),
             new FakeWhisperService(),
@@ -29,7 +31,8 @@ public class ModelDownloadProgressTests : IDisposable
             _downloader,
             NullLogger<EnvironmentAssistantService>.Instance,
             TimeProvider.System,
-            AutoApproveNativeInstallationAuthorizer.Instance);
+            AutoApproveNativeInstallationAuthorizer.Instance,
+            tempCacheDir);
     }
 
     public void Dispose()

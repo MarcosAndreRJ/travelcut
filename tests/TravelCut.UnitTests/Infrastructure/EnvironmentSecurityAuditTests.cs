@@ -36,6 +36,8 @@ public sealed class EnvironmentSecurityAuditTests : IDisposable
         _modelDownloader = new FakeModelDownloader();
         _nativeAuthorizer = new FakeNativeInstallationAuthorizer();
 
+        var tempCacheDir = Path.Combine(_tempDir, "whisper-cache");
+        Directory.CreateDirectory(tempCacheDir);
         _assistant = new EnvironmentAssistantService(
             _processRunner,
             _whisperService,
@@ -43,7 +45,8 @@ public sealed class EnvironmentSecurityAuditTests : IDisposable
             _modelDownloader,
             NullLogger<EnvironmentAssistantService>.Instance,
             TimeProvider.System,
-            _nativeAuthorizer
+            _nativeAuthorizer,
+            tempCacheDir
         );
     }
 

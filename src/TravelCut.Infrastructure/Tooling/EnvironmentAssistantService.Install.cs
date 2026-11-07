@@ -533,7 +533,7 @@ public sealed partial class EnvironmentAssistantService
             throw new InvalidOperationException("Já existe um download de modelo em andamento.");
         }
 
-        var destDir = GetWhisperCacheDir();
+        var destDir = _whisperCacheDirectory;
         var dlReq = new NativeDownloadRequest(
             ModelName: modelName,
             DestinationDirectory: destDir,
@@ -883,7 +883,7 @@ public sealed partial class EnvironmentAssistantService
     private async Task ExecuteModelDownloadAsync(ModelDownloadJobContext ctx, CancellationToken ct)
     {
         var modelName = ctx.ModelName;
-        var destinationDir = GetWhisperCacheDir();
+        var destinationDir = _whisperCacheDirectory;
         if (!Directory.Exists(destinationDir))
         {
             Directory.CreateDirectory(destinationDir);
