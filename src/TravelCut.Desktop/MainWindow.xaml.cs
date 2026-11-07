@@ -68,6 +68,11 @@ public partial class MainWindow : Window
         core.WebMessageReceived += CoreWebView2_WebMessageReceived;
         core.NavigationStarting += CoreWebView2_NavigationStarting;
         core.NewWindowRequested += CoreWebView2_NewWindowRequested;
+        core.WebResourceResponseReceived += CoreWebView2_WebResourceResponseReceived;
+
+        // Filtro de segurança para o host de mídia: impede leitura arbitrária de arquivos do projeto fora de 1-Bruto e cache
+        core.AddWebResourceRequestedFilter("https://media.travelcut.studio/*", CoreWebView2WebResourceContext.All);
+        core.WebResourceRequested += CoreWebView2_MediaResourceRequested;
 
         // Captura erros e unhandled rejections do JavaScript no frontend e encaminha para o log nativo
         await core.AddScriptToExecuteOnDocumentCreatedAsync(@"
@@ -266,6 +271,83 @@ public partial class MainWindow : Window
     {
         e.Handled = true;
         _logger.LogInformation("Pedido de nova janela ignorado");
+    }
+
+    /// <summary>Logs de rede estruturados para o host virtual de mídia (diagnóstico de reprodução e Range/CORS).</summary>
+    private void CoreWebView2_WebResourceResponseReceived(object? sender, CoreWebView2WebResourceResponseReceivedEventArgs e)
+    {
+        try
+        {
+            string uri = e.Request.Uri;
+            if (!uri.StartsWith(PreviewPaths.MediaOrigin, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            string method = e.Request.Method;
+            string? range = null;
+            if (e.Request.Headers.Contains("Range"))
+            {
+                range = e.Request.Headers.GetHeader("Range");
+            }
+
+            int status = e.Response?.StatusCode ?? 0;
+            string reason = e.Response?.ReasonPhrase ?? string.Empty;
+            string? contentType = null;
+            string? contentLength = null;
+            string? contentRange = null;
+
+            if (e.Response?.Headers != null)
+            {
+                if (e.Response.Headers.Contains("Content-Type")) contentType = e.Response.Headers.GetHeader("Content-Type");
+                if (e.Response.Headers.Contains("Content-Length")) contentLength = e.Response.Headers.GetHeader("Content-Length");
+                if (e.Response.Headers.Contains("Content-Range")) contentRange = e.Response.Headers.GetHeader("Content-Range");
+            }
+
+            if (status >= 400 || status == 0)
+            {
+                _logger.LogWarning(
+                    "WebView2 Media HTTP Falha: Method={Method}, URI={Uri}, Status={Status} {Reason}, Range={Range}, ContentType={ContentType}",
+                    method, uri, status, reason, range ?? "(none)", contentType ?? "(none)");
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "WebView2 Media HTTP OK: Method={Method}, URI={Uri}, Status={Status} {Reason}, Range={Range}, ContentRange={ContentRange}, ContentType={ContentType}, ContentLength={ContentLength}",
+                    method, uri, status, reason, range ?? "(none)", contentRange ?? "(none)", contentType ?? "(none)", contentLength ?? "(none)");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Erro ao registrar telemetria de rede WebView2");
+        }
+    }
+
+    /// <summary>Filtro de segurança estrito: permite apenas mídias e pastas canônicas no host virtual de mídia.</summary>
+    private void CoreWebView2_MediaResourceRequested(object? sender, CoreWebView2WebResourceRequestedEventArgs e)
+    {
+        try
+        {
+            var uri = new Uri(e.Request.Uri);
+            string path = uri.AbsolutePath.TrimStart('/');
+            string ext = Path.GetExtension(path).ToLowerInvariant();
+            bool isAllowedExt = ext is ".mp4" or ".mov" or ".m4v" or ".mkv" or ".avi" or ".mts" or ".m2ts" or ".m4a" or ".mp3" or ".wav" or ".aac" or ".flac" or ".ogg" or ".jpg" or ".jpeg" or ".png" or ".webp";
+            bool isAllowedFolder = path.StartsWith("1-Bruto/", StringComparison.OrdinalIgnoreCase) || path.StartsWith("3-Trabalho/cache/", StringComparison.OrdinalIgnoreCase);
+
+            if (!isAllowedExt || !isAllowedFolder)
+            {
+                _logger.LogWarning("Requisição ao host de mídia bloqueada por política de segurança: {Uri}", e.Request.Uri);
+                var core = WebViewControl.CoreWebView2;
+                if (core != null)
+                {
+                    e.Response = core.Environment.CreateWebResourceResponse(null, 403, "Forbidden", "Content-Type: text/plain");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Erro no filtro de segurança do host de mídia");
+        }
     }
 
     private async void CoreWebView2_WebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)

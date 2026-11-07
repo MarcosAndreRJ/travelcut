@@ -288,7 +288,10 @@ public sealed class ProxyJobService : IProxyJobService, IDisposable
                 ct).ConfigureAwait(false);
 
             if (verifyRun.ExitCode != 0)
+            {
+                _logger.LogWarning("Validação FFmpeg falhou ao decodificar frame de {Path}: ExitCode={ExitCode}, Error={Error}", path, verifyRun.ExitCode, verifyRun.StandardError);
                 return (false, $"FFmpeg não conseguiu decodificar frames do vídeo (código {verifyRun.ExitCode}).");
+            }
 
             string? ffprobe = FfprobeLocator.Locate();
             if (ffprobe != null)
@@ -301,12 +304,19 @@ public sealed class ProxyJobService : IProxyJobService, IDisposable
                 {
                     string stdout = probeRun.StandardOutput.ToLowerInvariant();
                     if (!stdout.Contains("h264"))
+                    {
+                        _logger.LogWarning("Validação FFprobe reprovou stream de {Path}: codec não é h264 ({Stdout})", path, stdout);
                         return (false, "Stream de vídeo não codificado em H.264.");
+                    }
                     if (!stdout.Contains("yuv420p"))
+                    {
+                        _logger.LogWarning("Validação FFprobe reprovou stream de {Path}: pixel format não é yuv420p ({Stdout})", path, stdout);
                         return (false, "Formato de pixel incompatível (esperado yuv420p).");
+                    }
                 }
             }
 
+            _logger.LogInformation("Validação técnica de proxy aprovada com sucesso para {Path} (Length={Length} bytes)", path, info.Length);
             return (true, "OK");
         }
         catch (Exception ex)
@@ -336,6 +346,10 @@ public sealed class ProxyJobService : IProxyJobService, IDisposable
         DeleteQuietly(partialPath);
 
         ProcessRunResult run;
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        _logger.LogInformation("Iniciando FFmpeg para proxy: MediaId={MediaId}, Source={Source}, Partial={Partial}, Final={Final}",
+            item.MediaId, item.SourcePath, partialPath, finalPath);
+
         try
         {
             run = await _runner.RunAsync(
@@ -344,9 +358,15 @@ public sealed class ProxyJobService : IProxyJobService, IDisposable
         }
         catch (OperationCanceledException)
         {
+            sw.Stop();
+            _logger.LogWarning("Geração de proxy cancelada: MediaId={MediaId}, Elapsed={Elapsed}ms", item.MediaId, sw.ElapsedMilliseconds);
             DeleteQuietly(partialPath);
             throw;
         }
+
+        sw.Stop();
+        _logger.LogInformation("FFmpeg concluído: MediaId={MediaId}, Status={Status}, ExitCode={ExitCode}, Elapsed={Elapsed}ms",
+            item.MediaId, run.Status, run.ExitCode, sw.ElapsedMilliseconds);
 
         switch (run.Status)
         {

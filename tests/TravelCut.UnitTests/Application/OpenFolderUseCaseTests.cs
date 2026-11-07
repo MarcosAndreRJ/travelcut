@@ -122,6 +122,19 @@ public class OpenFolderUseCaseTests : IDisposable
     }
 
     [Fact]
+    public async Task LogsKeyword_OpensLogsDirectory()
+    {
+        var result = await NewUseCase().ExecuteAsync("__logs__");
+
+        Assert.True(result.Success);
+        Assert.False(result.Outcome!.SelectedFile);
+        Assert.Contains("TravelCutStudio", result.Outcome.FullPath);
+        Assert.Contains("logs", result.Outcome.FullPath);
+        var call = Assert.Single(_opener.Calls);
+        Assert.False(call.SelectFile);
+    }
+
+    [Fact]
     public async Task ProjectRootItself_IsAllowed()
     {
         var result = await NewUseCase().ExecuteAsync(_root);

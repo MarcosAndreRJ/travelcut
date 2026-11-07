@@ -36,6 +36,23 @@ public sealed class OpenFolderUseCase
         }
 
         string raw = requestedPath.Trim();
+        if (raw.Equals("__logs__", StringComparison.OrdinalIgnoreCase))
+        {
+            string logsDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TravelCutStudio", "logs");
+            try
+            {
+                Directory.CreateDirectory(logsDir);
+                _opener.OpenInExplorer(logsDir, selectFile: false);
+                _logger.LogInformation("system.openFolder abriu a pasta de logs: {Path}", logsDir);
+                return (true, new OpenFolderOutcome(logsDir, false), null, null);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Falha ao abrir pasta de logs: {Path}", logsDir);
+                return Fail("OPEN_FAILED", "Falha ao abrir o visualizador de arquivos do sistema.");
+            }
+        }
+
         if (raw.StartsWith(@"\\", StringComparison.Ordinal) || raw.StartsWith("//", StringComparison.Ordinal))
         {
             return Fail("INVALID_PATH", "Caminhos de rede (UNC) não são permitidos.");

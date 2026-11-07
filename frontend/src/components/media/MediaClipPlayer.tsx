@@ -12,6 +12,7 @@ import {
   type ClipSeekRequest
 } from './mediaClipModel';
 import { PlaybackNoticeOverlay, ProxyButton, type ProxyControl } from './PlaybackNoticeOverlay';
+import { usePlayerDiagnostics } from './usePlayerDiagnostics';
 
 interface MediaClipPlayerProps {
   projectId: string;
@@ -79,6 +80,7 @@ export const MediaClipPlayer: React.FC<MediaClipPlayerProps> = ({
     reload();
   }, [reload]);
   const proxy = useProxyGeneration(projectId, mediaId, reloadKeepingPosition);
+  const { diagnostic, copyDiagnostic, openLogsFolder } = usePlayerDiagnostics(videoRef, mediaId, readySource);
 
   const notify = useCallback((seconds: number, force = false) => {
     const last = lastNotifiedRef.current;
@@ -241,7 +243,16 @@ export const MediaClipPlayer: React.FC<MediaClipPlayerProps> = ({
   };
   const proxyStatusText = proxyIndicator(readySource, proxy.busy, playing, mediaError !== null);
   const hint = compatibilityHint(readySource, notice);
-  const overlay = <PlaybackNoticeOverlay notice={notice} proxy={proxyControl} onReload={reload} />;
+  const overlay = (
+    <PlaybackNoticeOverlay
+      notice={notice}
+      proxy={proxyControl}
+      onReload={reload}
+      diagnostic={diagnostic}
+      onCopyDiagnostic={copyDiagnostic}
+      onOpenLogsFolder={openLogsFolder}
+    />
+  );
 
   return (
     <section

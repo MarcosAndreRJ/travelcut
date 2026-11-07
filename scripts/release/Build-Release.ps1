@@ -90,7 +90,38 @@ if ($null -eq $VersionNode -or [string]::IsNullOrWhiteSpace($VersionNode.InnerTe
 }
 $Version = $VersionNode.InnerText.Trim()
 
-$PackageName = "TravelCutStudio-$Version-$Runtime"
+# ---------------------------------------------------------------------------
+# Identificação Git
+# ---------------------------------------------------------------------------
+$GitCommit = 'unknown'
+$GitShortSha = 'unknown'
+$GitBranch = 'unknown'
+$GitDirty = $false
+
+try {
+    $commitRaw = (& git rev-parse HEAD 2>$null)
+    if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($commitRaw)) {
+        $GitCommit = $commitRaw.Trim()
+    }
+    $shortRaw = (& git rev-parse --short=8 HEAD 2>$null)
+    if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($shortRaw)) {
+        $GitShortSha = $shortRaw.Trim()
+    }
+    $branchRaw = (& git branch --show-current 2>$null)
+    if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($branchRaw)) {
+        $GitBranch = $branchRaw.Trim()
+    }
+    $statusRaw = (& git status --porcelain 2>$null)
+    if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($statusRaw)) {
+        $GitDirty = $true
+    }
+}
+catch {
+    # Git ausente ou repositorio nao inicializado
+}
+
+$PackageName = "TravelCutStudio-$Version-g$GitShortSha-$Runtime"
+if ($GitDirty) { $PackageName = "$PackageName-dirty" }
 if (-not $SelfContained) { $PackageName = "$PackageName-fdd" }
 $StageDir = Join-Path $OutDir $PackageName
 $AppDir = Join-Path $StageDir 'app'
@@ -425,16 +456,26 @@ try {
 
     $manifest = [ordered]@{
         product        = 'TravelCut Studio'
+        productVersion = $Version
         version        = $Version
         package        = $PackageName
+        gitCommit      = $GitCommit
+        gitShortSha    = $GitShortSha
+        gitBranch      = $GitBranch
+        gitDirty       = $GitDirty
         buildUtc       = $StartedUtc.ToString('yyyy-MM-ddTHH:mm:ssZ')
         configuration  = $Configuration
+        runtimeIdentifier = $Runtime
         runtime        = $Runtime
         selfContained  = [bool]$SelfContained
         reproducible   = $isReproducible
         nonReproducibleReasons = $reasons.ToArray()
         targets        = [ordered]@{ app = 'net10.0-windows (WPF + WebView2)'; mcp = 'net10.0 (console stdio)' }
-        commit         = 'nao versionado em git'
+        commit         = $GitCommit
+        frontendVersion = $Version
+        dotnetVersion  = $DotnetVersion
+        testsExecuted  = if ($TestInfo -and $TestInfo.total) { $TestInfo.total } else { 0 }
+        testsPassed    = if ($TestInfo -and $TestInfo.passed) { $TestInfo.passed } else { 0 }
         toolchain      = [ordered]@{
             dotnetSdk = $DotnetVersion
             node      = $NodeVersion

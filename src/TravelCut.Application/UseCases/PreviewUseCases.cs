@@ -81,11 +81,18 @@ public sealed class PreviewUseCases
         string? proxyRelative = ProxyRelativePathIfReady(project.RootPath, media);
         if (proxyRelative != null)
         {
+            string proxyUrl = PreviewPaths.BuildMediaUrl(proxyRelative);
+            string fullProxyPath = Path.Combine(Path.GetFullPath(project.RootPath), proxyRelative.Replace('/', Path.DirectorySeparatorChar));
+            long proxyLength = File.Exists(fullProxyPath) ? new FileInfo(fullProxyPath).Length : 0;
+            _logger.LogInformation(
+                "Fonte de reprodução resolvida: PROXY. ProjectId={ProjectId}, MediaId={MediaId}, URL={Url}, Path={Path}, Size={Size} bytes, Mime={Mime}, Codec={Codec}",
+                request.ProjectId, request.MediaId, proxyUrl, fullProxyPath, proxyLength, "video/mp4", "h264");
+
             // Codec/contêiner do proxy vêm da configuração do encoder (libx264 + aac em mp4), não de ffprobe.
             return PreviewResult<PlaybackSourceDto>.Success(new PlaybackSourceDto(
                 request.MediaId,
                 PreviewPaths.PlaybackStatusProxy,
-                PreviewPaths.BuildMediaUrl(proxyRelative),
+                proxyUrl,
                 "video/mp4",
                 "h264",
                 true,
@@ -95,22 +102,34 @@ public sealed class PreviewUseCases
 
         if (!PreviewPaths.TryResolveInsideRoot(project.RootPath, media.RelativePath, out string fullPath))
         {
+            _logger.LogWarning(
+                "Fonte de reprodução INDISPONÍVEL (caminho inseguro). ProjectId={ProjectId}, MediaId={MediaId}, RelativePath={Path}",
+                request.ProjectId, request.MediaId, media.RelativePath);
             return PreviewResult<PlaybackSourceDto>.Success(Unavailable(request.MediaId, codec, proxyStatus, PreviewPaths.ReasonUnsafePath, mime));
         }
 
         if (!File.Exists(fullPath))
         {
+            _logger.LogWarning(
+                "Fonte de reprodução INDISPONÍVEL (arquivo inexistente). ProjectId={ProjectId}, MediaId={MediaId}, FullPath={Path}",
+                request.ProjectId, request.MediaId, fullPath);
             return PreviewResult<PlaybackSourceDto>.Success(Unavailable(request.MediaId, codec, proxyStatus, PreviewPaths.ReasonFileNotFound, mime));
         }
 
         string url = PreviewPaths.BuildMediaUrl((media.RelativePath ?? string.Empty).Trim().Replace('\\', '/'));
+        long originalLength = new FileInfo(fullPath).Length;
+        bool? playable = PreviewPaths.ClassifyPlayable(codec, extension);
+        _logger.LogInformation(
+            "Fonte de reprodução resolvida: ORIGINAL. ProjectId={ProjectId}, MediaId={MediaId}, URL={Url}, Path={Path}, Size={Size} bytes, Mime={Mime}, Codec={Codec}, Playable={Playable}, ProxyStatus={ProxyStatus}",
+            request.ProjectId, request.MediaId, url, fullPath, originalLength, mime, codec, playable, proxyStatus);
+
         return PreviewResult<PlaybackSourceDto>.Success(new PlaybackSourceDto(
             request.MediaId,
             PreviewPaths.PlaybackStatusOriginal,
             url,
             mime,
             codec,
-            PreviewPaths.ClassifyPlayable(codec, extension),
+            playable,
             proxyStatus,
             null));
     }

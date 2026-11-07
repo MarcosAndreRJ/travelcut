@@ -21,6 +21,10 @@ public sealed class TravelCutFileLoggerProvider : ILoggerProvider
     public const string FileExtension = ".log";
     public const int QueueCapacity = 10_000;
 
+    public static string SessionId { get; } = Guid.NewGuid().ToString("N")[..8];
+    public static string DefaultLogsDirectory =>
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TravelCutStudio", "logs");
+
     private readonly string _directory;
     private readonly LogLevel _minimumLevel;
     private readonly string _header;
@@ -151,8 +155,9 @@ public sealed class TravelCutFileLoggerProvider : ILoggerProvider
     private string FormatLine(LogLine line)
     {
         var sb = new StringBuilder(256);
-        sb.Append(line.Timestamp.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture));
-        sb.Append(" [").Append(LevelName(line.Level)).Append("] ");
+        sb.Append(line.Timestamp.ToString("yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture));
+        sb.Append(" [").Append(SessionId).Append("] ");
+        sb.Append("[").Append(LevelName(line.Level)).Append("] ");
         sb.Append(line.Category).Append(": ");
         sb.Append(line.Message);
         if (!string.IsNullOrEmpty(line.Exception))

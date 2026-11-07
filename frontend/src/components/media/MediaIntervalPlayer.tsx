@@ -13,6 +13,7 @@ import {
 import { ipc } from '../../services/ipcBridge';
 import { compatibilityHint, proxyIndicator, resolveClipNotice } from './mediaClipModel';
 import { PlaybackNoticeOverlay, ProxyButton, type ProxyControl } from './PlaybackNoticeOverlay';
+import { usePlayerDiagnostics } from './usePlayerDiagnostics';
 
 const DEFAULT_CONTEXT_SECONDS = 2;
 const KEYBOARD_STEP_SECONDS = 1;
@@ -52,6 +53,7 @@ export const MediaIntervalPlayer: React.FC<MediaIntervalPlayerProps> = ({
     reload();
   }, [reload]);
   const proxy = useProxyGeneration(projectId, mediaId, reloadKeepingPosition);
+  const { diagnostic, copyDiagnostic, openLogsFolder } = usePlayerDiagnostics(videoRef, mediaId, readySource);
   const lastNotifiedRef = useRef<number>(Number.NaN);
   const onTimeUpdateRef = useRef(onTimeUpdate);
   onTimeUpdateRef.current = onTimeUpdate;
@@ -260,7 +262,16 @@ export const MediaIntervalPlayer: React.FC<MediaIntervalPlayerProps> = ({
   };
   const proxyStatusText = proxyIndicator(readySource, proxy.busy, playing, mediaError !== null);
   const hint = compatibilityHint(readySource, notice);
-  const overlay = <PlaybackNoticeOverlay notice={notice} proxy={proxyControl} onReload={reload} />;
+  const overlay = (
+    <PlaybackNoticeOverlay
+      notice={notice}
+      proxy={proxyControl}
+      onReload={reload}
+      diagnostic={diagnostic}
+      onCopyDiagnostic={copyDiagnostic}
+      onOpenLogsFolder={openLogsFolder}
+    />
+  );
 
   // Proxy já em geração (job anterior) e nada tocável: reconsulta a fonte até ficar pronto.
   const waitingForProxy = readySource?.proxyStatus === 'generating' && !proxy.busy && showOverlay;
