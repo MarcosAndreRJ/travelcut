@@ -51,10 +51,13 @@ export function resolveClipNotice(input: {
     };
   }
   if (hasMediaError) {
+    const isProxy = source?.status === 'proxy';
     return {
       kind: 'media_error',
-      message: `Não foi possível reproduzir: ${mediaElementErrorText(mediaErrorCode ?? null)}.`,
-      offerProxy: canOfferProxy(source) && source.status === 'original'
+      message: isProxy
+        ? `O proxy gerado não pôde ser reproduzido: ${mediaElementErrorText(mediaErrorCode ?? null)}. Você pode tentar regenerá-lo.`
+        : `Não foi possível reproduzir: ${mediaElementErrorText(mediaErrorCode ?? null)}.`,
+      offerProxy: canOfferProxy(source)
     };
   }
   if (noVideoTrack) {
@@ -79,10 +82,19 @@ export function compatibilityHint(source: PlaybackSourceDto | null, notice: Clip
 }
 
 /** Texto do estado do proxy; null quando não há nada a informar. */
-export function proxyIndicator(source: PlaybackSourceDto | null, proxyBusy: boolean): string | null {
+export function proxyIndicator(
+  source: PlaybackSourceDto | null,
+  proxyBusy: boolean,
+  isPlaying?: boolean,
+  hasMediaError?: boolean
+): string | null {
   if (proxyBusy || source?.proxyStatus === 'generating') return 'Gerando proxy…';
   if (!source) return null;
-  if (source.status === 'proxy') return 'Reproduzindo proxy (arquivo original intacto)';
+  if (source.status === 'proxy') {
+    if (hasMediaError) return 'Falha no proxy';
+    if (isPlaying) return 'Reproduzindo proxy (arquivo original intacto)';
+    return 'Proxy pronto';
+  }
   if (source.proxyStatus === 'ready') return 'Proxy disponível';
   if (source.proxyStatus === 'failed') return 'A última geração de proxy falhou';
   return null;

@@ -88,7 +88,8 @@ describe('MediaClipPlayer', () => {
 
     hooks.proxy = { ...hooks.proxy, busy: false };
     hooks.state = ready({ status: 'proxy', proxyStatus: 'ready' });
-    expect(render()).toContain('Reproduzindo proxy');
+    // F13.5: antes de iniciar a reprodução, indica proxy pronto; ao reproduzir, indica reproduzindo
+    expect(render()).toContain('Proxy pronto');
   });
 });
 
@@ -110,9 +111,9 @@ describe('resolveClipNotice', () => {
     expect(notice).toMatchObject({ kind: 'no_video_track', offerProxy: true });
   });
 
-  it('o proxy falhando não oferece gerar proxy de novo em loop', () => {
+  it('o proxy falhando oferece regenerar proxy', () => {
     const notice = resolveClipNotice({ ...base, state: ready({ status: 'proxy', proxyStatus: 'ready' }), hasMediaError: true, mediaErrorCode: 3 });
-    expect(notice).toMatchObject({ kind: 'media_error', offerProxy: false });
+    expect(notice).toMatchObject({ kind: 'media_error', offerProxy: true });
   });
 });
 

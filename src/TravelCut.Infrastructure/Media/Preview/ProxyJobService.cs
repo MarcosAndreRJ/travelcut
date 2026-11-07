@@ -249,7 +249,11 @@ public sealed class ProxyJobService : IProxyJobService, IDisposable
             return ("failed", "Origem do proxy indisponível.");
 
         if (File.Exists(finalPath))
-            return ("ready", "Proxy já existente.");
+        {
+            if (new FileInfo(finalPath).Length > 0)
+                return ("ready", "Proxy já existente.");
+            DeleteQuietly(finalPath);
+        }
 
         Directory.CreateDirectory(Path.GetDirectoryName(finalPath)!);
 

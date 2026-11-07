@@ -239,7 +239,7 @@ export const MediaClipPlayer: React.FC<MediaClipPlayerProps> = ({
     onStart: proxy.start,
     message: proxy.message
   };
-  const proxyStatusText = proxyIndicator(readySource, proxy.busy);
+  const proxyStatusText = proxyIndicator(readySource, proxy.busy, playing, mediaError !== null);
   const hint = compatibilityHint(readySource, notice);
   const overlay = <PlaybackNoticeOverlay notice={notice} proxy={proxyControl} onReload={reload} />;
 

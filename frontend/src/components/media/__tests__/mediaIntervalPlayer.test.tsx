@@ -74,7 +74,8 @@ describe('MediaIntervalPlayer (revisão)', () => {
     hooks.proxy = { ...hooks.proxy, busy: false };
     hooks.state = ready({ status: 'proxy', proxyStatus: 'ready', codec: 'h264', likelyPlayable: true });
     const html = render();
-    expect(html).toContain('Reproduzindo proxy');
+    // F13.5: antes de tocar, indica proxy pronto
+    expect(html).toContain('Proxy pronto');
     expect(html).not.toContain('Gerar proxy compatível');
   });
 
@@ -103,9 +104,10 @@ describe('diagnóstico compartilhado', () => {
     expect(compatibilityHint(source(), notice)).toBeNull();
   });
 
-  it('erro do elemento com o original oferece proxy; com o proxy não', () => {
+  it('erro do elemento oferece proxy tanto para original quanto para regeneração de proxy corrompido', () => {
+    // F13.5: original com erro oferece proxy; proxy com erro oferece regeneracao
     expect(resolveClipNotice({ ...base, state: ready(), hasMediaError: true, mediaErrorCode: 4 })).toMatchObject({ offerProxy: true });
-    expect(resolveClipNotice({ ...base, state: ready({ status: 'proxy' }), hasMediaError: true, mediaErrorCode: 3 })).toMatchObject({ offerProxy: false });
+    expect(resolveClipNotice({ ...base, state: ready({ status: 'proxy' }), hasMediaError: true, mediaErrorCode: 3 })).toMatchObject({ offerProxy: true });
   });
 
   it('sem FFmpeg não há proxy em nenhum aviso', () => {
