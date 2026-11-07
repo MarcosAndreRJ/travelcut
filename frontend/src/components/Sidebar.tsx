@@ -80,11 +80,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
   }[] = [
     { id: 'overview', label: 'Painel Inicial', screenNumber: '01', icon: Home },
     { id: 'library', label: 'Biblioteca & Transcrição', screenNumber: '02', icon: FolderOpen },
-    { id: 'timeline', label: 'Planejamento Timeline', screenNumber: '03', icon: Film },
-    { id: 'review', label: 'Revisão de Cortes', screenNumber: '04', icon: Scissors },
-    { id: 'settings', label: 'Configurações & Motores', screenNumber: '05', icon: Settings },
-    { id: 'narrative', label: 'Visão Geral da Montagem', screenNumber: '06', icon: Compass },
-    { id: 'export', label: 'Enviar ao DaVinci', icon: Send },
+    { id: 'review', label: 'Revisão de Cortes & Efeitos', screenNumber: '03', icon: Scissors },
+    { id: 'timeline', label: 'Planejamento da Timeline', screenNumber: '04', icon: Film },
+    { id: 'narrative', label: 'Visão Geral da Montagem', screenNumber: '05', icon: Compass },
+    { id: 'export', label: 'Enviar ao DaVinci', screenNumber: '06', icon: Send },
+    { id: 'settings', label: 'Configurações & Motores', screenNumber: '07', icon: Settings },
     { id: 'environment', label: 'Verificação do Ambiente', icon: ShieldCheck },
   ];
 

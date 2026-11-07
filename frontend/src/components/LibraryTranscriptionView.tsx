@@ -46,6 +46,8 @@ interface LibraryTranscriptionViewProps {
   onLibraryChanged?: () => void;
   /** Chamado quando a fila do pipeline termina (ex.: para recarregar sugestões). */
   onAnalysisFinished?: () => void;
+  /** Navega para a Tela 03 (Revisão de Cortes & Efeitos). */
+  onNavigateToReview?: (suggestionId?: string) => void;
 }
 
 export const LibraryTranscriptionView: React.FC<LibraryTranscriptionViewProps> = ({
@@ -53,7 +55,8 @@ export const LibraryTranscriptionView: React.FC<LibraryTranscriptionViewProps> =
   entryMode = 'auto',
   entryKey,
   onLibraryChanged,
-  onAnalysisFinished
+  onAnalysisFinished,
+  onNavigateToReview
 }) => {
   const [activeTab, setActiveTab] = useState<'clips' | 'chronology'>('clips');
   const [viewMode, setViewMode] = useState<'clips' | 'import'>('clips');
@@ -61,6 +64,13 @@ export const LibraryTranscriptionView: React.FC<LibraryTranscriptionViewProps> =
   const [assets, setAssets] = useState<MediaAssetDto[]>([]);
   const [selectedAsset, setSelectedAsset] = useState<MediaAssetDto | null>(null);
   const [selectedForAnalysis, setSelectedForAnalysis] = useState<Set<string>>(new Set());
+
+  // Pré-cortes manuais na biblioteca (F14.1 Checkpoint C)
+  const [manualIn, setManualIn] = useState<number | null>(null);
+  const [manualOut, setManualOut] = useState<number | null>(null);
+  const [isSubmittingCut, setIsSubmittingCut] = useState(false);
+  const [cutSuccessSuggestionId, setCutSuccessSuggestionId] = useState<string | null>(null);
+  const [cutError, setCutError] = useState<string | null>(null);
 
   const toggleSelectForAnalysis = (mediaId: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
@@ -104,6 +114,66 @@ export const LibraryTranscriptionView: React.FC<LibraryTranscriptionViewProps> =
   const [focusedTime, setFocusedTime] = useState<number | null>(null);
   const [seekRequest, setSeekRequest] = useState<ClipSeekRequest | null>(null);
   const [forceReprocess, setForceReprocess] = useState(false);
+
+  // Limpa seleção manual ao trocar de clipe
+  useEffect(() => {
+    setManualIn(null);
+    setManualOut(null);
+    setCutSuccessSuggestionId(null);
+    setCutError(null);
+  }, [selectedAsset?.mediaId]);
+
+  // Atalhos de teclado para marcar In (I), Out (O) e Limpar (Esc)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) return;
+      if (e.key === 'i' || e.key === 'I') {
+        e.preventDefault();
+        if (focusedTime !== null) {
+          setManualIn(focusedTime);
+          if (manualOut !== null && manualOut <= focusedTime) setManualOut(null);
+        }
+      } else if (e.key === 'o' || e.key === 'O') {
+        e.preventDefault();
+        if (focusedTime !== null) {
+          setManualOut(focusedTime);
+          if (manualIn !== null && manualIn >= focusedTime) setManualIn(0);
+        }
+      } else if (e.key === 'Escape') {
+        setManualIn(null);
+        setManualOut(null);
+        setCutError(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [focusedTime, manualIn, manualOut]);
+
+  const handleCreateManualCut = async () => {
+    if (!project?.projectId || !selectedAsset || manualIn === null || manualOut === null) return;
+    const start = Math.min(manualIn, manualOut);
+    const end = Math.max(manualIn, manualOut);
+    if (end - start < 0.05) {
+      setCutError('O trecho selecionado deve ter ao menos 0,05s.');
+      return;
+    }
+    setIsSubmittingCut(true);
+    setCutError(null);
+    try {
+      const res = await ipc.createManualSuggestion({
+        projectId: project.projectId,
+        mediaId: selectedAsset.mediaId,
+        startSeconds: start,
+        endSeconds: end,
+        rationale: `Pré-corte manual marcado na Biblioteca (${start.toFixed(2)}s – ${end.toFixed(2)}s)`
+      });
+      setCutSuccessSuggestionId(res.suggestion.suggestionId);
+    } catch (err) {
+      setCutError(err instanceof Error ? err.message : 'Falha ao registrar pré-corte manual.');
+    } finally {
+      setIsSubmittingCut(false);
+    }
+  };
 
   // Sem projeto não há dados: nenhuma chamada ao host é feita e a view mostra o estado vazio.
   const projectId = project?.projectId ?? null;
@@ -675,8 +745,101 @@ export const LibraryTranscriptionView: React.FC<LibraryTranscriptionViewProps> =
                   silences={analysis?.silenceStatus === 'completed' ? analysis.silences : []}
                   hesitations={analysis?.hesitations ?? []}
                   selectedSec={focusedTime}
+                  selectionRange={
+                    manualIn !== null && manualOut !== null
+                      ? { start: Math.min(manualIn, manualOut), end: Math.max(manualIn, manualOut) }
+                      : null
+                  }
                   onSeek={requestSeek}
                 />
+
+                {/* Barra de Pré-corte Manual (F14.1 Checkpoint C) */}
+                <div className="flex flex-wrap items-center justify-between gap-2 p-2 rounded-xl bg-[#070d18] border border-slate-800 text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-cyan-400">Pré-corte:</span>
+                    <button
+                      type="button"
+                      onClick={() => focusedTime !== null && setManualIn(focusedTime)}
+                      title="Marca o início do trecho no ponto atual da agulha (atalho: I)"
+                      className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-mono font-medium border border-slate-700 flex items-center gap-1"
+                    >
+                      In: {manualIn !== null ? formatDuration(manualIn) : '--:--'} <kbd className="text-[9px] bg-slate-900 px-1 rounded text-slate-400">I</kbd>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => focusedTime !== null && setManualOut(focusedTime)}
+                      title="Marca o fim do trecho no ponto atual da agulha (atalho: O)"
+                      className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-mono font-medium border border-slate-700 flex items-center gap-1"
+                    >
+                      Out: {manualOut !== null ? formatDuration(manualOut) : '--:--'} <kbd className="text-[9px] bg-slate-900 px-1 rounded text-slate-400">O</kbd>
+                    </button>
+
+                    {manualIn !== null && manualOut !== null && (
+                      <span className="text-[11px] font-mono text-cyan-300">
+                        Δ {formatDuration(Math.abs(manualOut - manualIn))}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    {manualIn !== null && (
+                      <button
+                        type="button"
+                        onClick={() => requestSeek(Math.min(manualIn, manualOut ?? manualIn))}
+                        title="Reproduzir o início da seleção"
+                        className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px]"
+                      >
+                        Tocar trecho
+                      </button>
+                    )}
+
+                    {(manualIn !== null || manualOut !== null) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setManualIn(null);
+                          setManualOut(null);
+                          setCutError(null);
+                        }}
+                        title="Limpar seleção manual (atalho: Esc)"
+                        className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 text-[11px]"
+                      >
+                        Limpar <kbd className="text-[9px] bg-slate-900 px-1 rounded text-slate-400">Esc</kbd>
+                      </button>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={handleCreateManualCut}
+                      disabled={isSubmittingCut || manualIn === null || manualOut === null || Math.abs(manualOut - manualIn) < 0.05}
+                      title="Cria uma sugestão de remoção editorial para aprovação na tela de Revisão"
+                      className="px-2.5 py-1 rounded bg-rose-600/90 hover:bg-rose-500 disabled:opacity-40 text-white text-[11px] font-semibold transition-all shadow-sm flex items-center gap-1"
+                    >
+                      {isSubmittingCut ? 'Gravando…' : 'Sugerir remoção deste trecho'}
+                    </button>
+                  </div>
+                </div>
+
+                {cutSuccessSuggestionId && (
+                  <div className="flex items-center justify-between gap-2 p-2 rounded-xl bg-emerald-950/60 border border-emerald-600/50 text-emerald-200 text-xs">
+                    <span>Pré-corte manual registrado como sugestão pendente!</span>
+                    {onNavigateToReview && (
+                      <button
+                        type="button"
+                        onClick={() => onNavigateToReview(cutSuccessSuggestionId)}
+                        className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs flex items-center gap-1 transition-all"
+                      >
+                        Abrir sugestão na Revisão de Cortes (T03) →
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {cutError && (
+                  <div className="p-2 rounded-xl bg-rose-950/60 border border-rose-600/50 text-rose-200 text-xs">
+                    {cutError}
+                  </div>
+                )}
 
                 <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono">
                   <span>

@@ -1,6 +1,6 @@
 import type { EditSuggestion, TranscriptWordDto } from '../../types/ipc';
 
-// Funções puras da Tela 04 (Revisão de cortes). Sem React e sem IPC.
+// Funções puras da Tela 03 (Revisão de Cortes & Efeitos). Sem React e sem IPC.
 // Regra de negócio fica no host: aqui só há filtros de visualização, janelas de apresentação
 // e validação local do editor de intervalo (o host continua validando e responde INVALID_INTERVAL).
 
@@ -15,7 +15,7 @@ export const TENTH_STEP_SECONDS = 0.1;
 
 export type ReviewStatusFilter = 'pending' | 'approved' | 'rejected' | 'deferred' | 'all';
 export type ReviewConfidenceFilter = 'all' | 'low' | 'medium' | 'high';
-export type ReviewDecisionAction = 'approve' | 'reject' | 'defer';
+export type ReviewDecisionAction = 'approve' | 'reject' | 'defer' | 'reopen';
 
 export interface ReviewFilters {
   status: ReviewStatusFilter;

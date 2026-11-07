@@ -18,6 +18,12 @@ interface BeforeAfterCompareProps {
   /** Tempo atual da mídia (segundos da fonte), vindo do player. */
   currentSeconds: number | null;
   onTimeUpdate: (sourceSeconds: number) => void;
+  zoomTransform?: {
+    scale: number;
+    offsetX: number;
+    offsetY: number;
+    showSafeArea?: boolean;
+  } | null;
 }
 
 const MODE_OPTIONS: { value: CompareMode; label: string; hint: string }[] = [
@@ -34,7 +40,8 @@ export const BeforeAfterCompare: React.FC<BeforeAfterCompareProps> = ({
   onModeChange,
   seekTarget,
   currentSeconds,
-  onTimeUpdate
+  onTimeUpdate,
+  zoomTransform = null
 }) => {
   const windowSeconds = playerWindowOf(interval);
   // Altura limitada para vídeo, controles, intervalo e decisões caberem juntos; o usuário pode expandir.
@@ -91,6 +98,7 @@ export const BeforeAfterCompare: React.FC<BeforeAfterCompareProps> = ({
         mode={mode}
         seekToSeconds={seekTarget}
         onTimeUpdate={onTimeUpdate}
+        zoomTransform={zoomTransform}
         videoAreaClassName={expanded ? 'h-[65vh]' : 'h-[22vh] min-h-32 max-h-72'}
       />
 

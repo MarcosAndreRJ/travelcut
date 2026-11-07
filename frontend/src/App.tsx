@@ -443,6 +443,10 @@ export const App: React.FC = () => {
                 entryKey={libraryEntry.key}
                 onLibraryChanged={refreshProject}
                 onAnalysisFinished={handleAnalysisFinished}
+                onNavigateToReview={(sugId) => {
+                  setCurrentTab('review');
+                  void reloadSuggestions();
+                }}
               />
             )}
 
@@ -465,6 +469,7 @@ export const App: React.FC = () => {
                 onModify={handleModify}
                 onUndo={handleUndoDecision}
                 onRedo={handleRedoDecision}
+                onNavigateToTimeline={() => setCurrentTab('timeline')}
               />
             )}
 

@@ -256,7 +256,8 @@ public static class EditPlanner
                         w.Cuts.Add(new AppliedCutItem(s.SuggestionId, a, b, kind, OriginApproved));
                     }
                     else if (status == SuggestionStatus.Proposed && profile.AutoApplyTrivialCuts
-                             && kind == AutoCutKind && !s.NeedsHumanReview && s.ConfidenceBand == "high")
+                             && kind == AutoCutKind && !s.NeedsHumanReview && s.ConfidenceBand == "high"
+                             && !input.Decisions.Any(d => d.SuggestionId == s.SuggestionId))
                     {
                         w.Cuts.Add(new AppliedCutItem(s.SuggestionId, a, b, kind, OriginAuto));
                     }

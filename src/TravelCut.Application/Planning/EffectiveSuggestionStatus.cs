@@ -41,13 +41,14 @@ public static class EffectiveSuggestionStatus
     public const string ActionReject = "reject";
     public const string ActionDefer = "defer";
     public const string ActionModify = "modify";
+    public const string ActionReopen = "reopen";
     public const string ActionUndo = "undo";
 
-    /// <summary>Ações de decisão do usuário aceitas em decision.submit (inclui modify).</summary>
-    public static readonly IReadOnlyList<string> SubmitActions = [ActionApprove, ActionReject, ActionDefer, ActionModify];
+    /// <summary>Ações de decisão do usuário aceitas em decision.submit (inclui modify e reopen).</summary>
+    public static readonly IReadOnlyList<string> SubmitActions = [ActionApprove, ActionReject, ActionDefer, ActionModify, ActionReopen];
 
     /// <summary>Ações aceitas em suggestions.batchDecide: modify NÃO é permitido em lote.</summary>
-    public static readonly IReadOnlyList<string> BatchActions = [ActionApprove, ActionReject, ActionDefer];
+    public static readonly IReadOnlyList<string> BatchActions = [ActionApprove, ActionReject, ActionDefer, ActionReopen];
 
     /// <summary>Verdadeiro para approve/reject/defer (valores exatos, sem variações).</summary>
     public static bool IsUserAction(string? action) =>
@@ -62,7 +63,7 @@ public static class EffectiveSuggestionStatus
         "approve" or "approved" or "modify" or "modified" => SuggestionStatus.Approved,
         "reject" or "rejected" => SuggestionStatus.Rejected,
         "defer" or "deferred" => SuggestionStatus.Deferred,
-        "undo" => SuggestionStatus.Proposed,
+        "undo" or "reopen" or "reopened" => SuggestionStatus.Proposed,
         _ => null,
     };
 

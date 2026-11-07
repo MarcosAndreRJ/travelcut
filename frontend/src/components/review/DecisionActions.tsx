@@ -1,5 +1,5 @@
 import React from 'react';
-import { CheckCircle2, Clock, Pencil, Redo2, Undo2, XCircle } from 'lucide-react';
+import { CheckCircle2, Clock, Pencil, Redo2, RotateCcw, Undo2, XCircle } from 'lucide-react';
 import type { EditSuggestion } from '../../types/ipc';
 
 interface DecisionActionsProps {
@@ -9,6 +9,7 @@ interface DecisionActionsProps {
   onApprove: () => void;
   onReject: () => void;
   onDefer: () => void;
+  onReopen: () => void;
   onToggleModify: () => void;
   onUndo: () => void;
   onRedo: () => void;
@@ -30,6 +31,7 @@ export const DecisionActions: React.FC<DecisionActionsProps> = ({
   onApprove,
   onReject,
   onDefer,
+  onReopen,
   onToggleModify,
   onUndo,
   onRedo
@@ -71,6 +73,16 @@ export const DecisionActions: React.FC<DecisionActionsProps> = ({
       >
         <Clock className="w-3.5 h-3.5" aria-hidden="true" />
         Adiar<Kbd>D</Kbd>
+      </button>
+      <button
+        type="button"
+        onClick={onReopen}
+        disabled={busy || suggestion.status === 'Proposed'}
+        title="Reabrir para revisão: torna o candidato novamente Pendente no histórico"
+        className={`${base} ${neutral}`}
+      >
+        <RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />
+        Reabrir<Kbd>B</Kbd>
       </button>
       <button
         type="button"

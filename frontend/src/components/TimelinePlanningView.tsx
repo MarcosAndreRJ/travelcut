@@ -24,7 +24,7 @@ interface TimelinePlanningViewProps {
 }
 
 /**
- * Tela 03 — Planejamento de timeline (F06). Planejamento e revisão apenas: não é o NLE, não há
+ * Tela 04 — Planejamento da Timeline (F06). Planejamento e revisão apenas: não é o NLE, não há
  * player real e nada é enviado ao DaVinci. Todos os valores vêm de plan.get/plan.list.
  */
 export const TimelinePlanningView: React.FC<TimelinePlanningViewProps> = ({ project, onNavigateToExport }) => {

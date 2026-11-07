@@ -41,6 +41,8 @@ export interface ReviewDecisionsViewProps {
   onModify: (suggestionId: string, startSeconds: number, endSeconds: number) => Promise<boolean>;
   onUndo: (suggestionId: string) => Promise<boolean>;
   onRedo: (suggestionId: string) => Promise<boolean>;
+  /** Navega para a Tela 04 (Planejamento da Timeline) após a revisão. */
+  onNavigateToTimeline?: () => void;
 }
 
 const fileNameOf = (path: string): string => path.split(/[\\/]/).filter(Boolean).pop() ?? path;
@@ -79,7 +81,8 @@ export const ReviewDecisionsView: React.FC<ReviewDecisionsViewProps> = ({
   onBatchDecide,
   onModify,
   onUndo,
-  onRedo
+  onRedo,
+  onNavigateToTimeline
 }) => {
   const [filters, setFilters] = useState<ReviewFilters>(DEFAULT_REVIEW_FILTERS);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -254,6 +257,9 @@ export const ReviewDecisionsView: React.FC<ReviewDecisionsViewProps> = ({
         case 'd':
           decide('defer');
           break;
+        case 'b':
+          decide('reopen');
+          break;
         case 'm':
           setModifyOpen((open) => !open);
           break;
@@ -374,6 +380,7 @@ export const ReviewDecisionsView: React.FC<ReviewDecisionsViewProps> = ({
             onApprove={() => decide('approve')}
             onReject={() => decide('reject')}
             onDefer={() => decide('defer')}
+            onReopen={() => decide('reopen')}
             onUndo={undo}
             onRedo={redo}
           />
@@ -412,20 +419,33 @@ export const ReviewDecisionsView: React.FC<ReviewDecisionsViewProps> = ({
           </span>
         </div>
 
-        <button
-          type="button"
-          onClick={requestSilenceBatch}
-          disabled={busy || silenceIds.length === 0 || !projectId}
-          title={
-            silenceIds.length === 0
-              ? 'Nenhum silêncio com confiança alta, pendente e sem revisão humana'
-              : 'Abre a confirmação para aprovar silêncios de confiança alta (heurística não calibrada; pausas de ritmo ou humor não entram)'
-          }
-          className="px-3.5 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-amber-950 transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-white"
-        >
-          <CheckCheck className="w-4 h-4" aria-hidden="true" />
-          <span>Aprovar silêncios confiáveis ({silenceIds.length})</span>
-        </button>
+        <div className="flex items-center gap-2">
+          {onNavigateToTimeline && (
+            <button
+              type="button"
+              onClick={onNavigateToTimeline}
+              className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-cyan-300 hover:text-white border border-slate-700 hover:border-cyan-500/50 text-xs font-semibold flex items-center gap-1.5 transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-400"
+              title="Avançar para o Planejamento da Timeline (T04) com as decisões tomadas"
+            >
+              <span>Avançar para Timeline (T04)</span>
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={requestSilenceBatch}
+            disabled={busy || silenceIds.length === 0 || !projectId}
+            title={
+              silenceIds.length === 0
+                ? 'Nenhum silêncio com confiança alta, pendente e sem revisão humana'
+                : 'Abre a confirmação para aprovar silêncios de confiança alta (heurística não calibrada; pausas de ritmo ou humor não entram)'
+            }
+            className="px-3.5 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-amber-950 transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-white"
+          >
+            <CheckCheck className="w-4 h-4" aria-hidden="true" />
+            <span>Aprovar silêncios confiáveis ({silenceIds.length})</span>
+          </button>
+        </div>
       </div>
 
       {/* Contadores reais */}

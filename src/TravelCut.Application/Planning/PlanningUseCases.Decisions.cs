@@ -56,7 +56,7 @@ public sealed partial class PlanningUseCases
     {
         var action = NormalizeAction(request.Action, allowModify: true);
         if (action is null)
-            return PlanOutcome<DecisionResultDto>.Fail(InvalidActionCode, "Ação inválida: use approve, reject, defer ou modify.");
+            return PlanOutcome<DecisionResultDto>.Fail(InvalidActionCode, "Ação inválida: use approve, reject, defer, reopen ou modify.");
 
         var textError = ValidateTextFields(request.Reviewer, request.Notes);
         if (textError is not null) return textError;
@@ -366,5 +366,75 @@ public sealed partial class PlanningUseCases
                 "Intervalo ajustado fora da duração da mídia.");
 
         return PlanOutcome<ModifiedInterval>.Ok(new ModifiedInterval(startMs, endMs));
+    }
+
+    /// <summary>
+    /// Cria uma sugestão manual de corte (F14.1 Checkpoint C) originada pelo usuário na Biblioteca.
+    /// Valida limites da mídia, evita duplicatas equivalentes e registra com estado inicial Proposed.
+    /// </summary>
+    public async Task<PlanOutcome<EditSuggestionDto>> CreateManualSuggestionAsync(CreateManualSuggestionRequest request, CancellationToken ct = default)
+    {
+        if (request.ProjectId == Guid.Empty)
+            return PlanOutcome<EditSuggestionDto>.Fail("INVALID_PROJECT", "ID de projeto inválido.");
+        if (request.MediaId == Guid.Empty)
+            return PlanOutcome<EditSuggestionDto>.Fail("INVALID_MEDIA", "ID de mídia inválido.");
+
+        var media = await _media.GetByIdAsync(request.MediaId, ct);
+        if (media == null || media.ProjectId != request.ProjectId)
+            return PlanOutcome<EditSuggestionDto>.Fail("MEDIA_NOT_FOUND", "Mídia não encontrada no projeto.");
+
+        long durationUs = media.Metadata != null && media.Metadata.DurationSeconds > 0
+            ? (long)(media.Metadata.DurationSeconds * 1_000_000d)
+            : (media.Metadata?.DurationTicks ?? 0) * 10;
+
+        var interval = ValidateModifiedInterval(media, request.StartSeconds, request.EndSeconds);
+        if (!interval.Success)
+            return PlanOutcome<EditSuggestionDto>.Fail(interval.ErrorCode!, interval.ErrorMessage!);
+
+        long startMs = interval.Value!.StartMs;
+        long endMs = interval.Value.EndMs;
+
+        // Evita duplicatas equivalentes (mesma mídia e mesmo intervalo aproximado dentro de 100ms)
+        var existing = await _suggestionsAndDecisions.ListSuggestionsByProjectAsync(request.ProjectId, ct);
+        var duplicate = existing.FirstOrDefault(s => s.MediaId == request.MediaId
+            && Math.Abs(s.SourceInterval.StartTicks - startMs) <= 100
+            && Math.Abs(s.SourceInterval.EndTicks - endMs) <= 100);
+
+        if (duplicate != null)
+        {
+            var existingHistory = await _suggestionsAndDecisions.ListDecisionsBySuggestionAsync(duplicate.SuggestionId, ct);
+            var existingEffective = EffectiveSuggestionStatus.ResolveDetailed([duplicate], existingHistory)[duplicate.SuggestionId];
+            return PlanOutcome<EditSuggestionDto>.Ok(SuggestionEffectiveMapper.ToDto(duplicate, existingEffective));
+        }
+
+        var suggestion = new EditSuggestion
+        {
+            SuggestionId = Guid.NewGuid(),
+            MediaId = request.MediaId,
+            SourceInterval = new TravelCut.Domain.ValueObjects.TimeRange(startMs, endMs),
+            Kind = SuggestionKind.Silence,
+            SuggestedAction = "cut",
+            Rationale = string.IsNullOrWhiteSpace(request.Rationale) ? "Pré-corte manual criado na Biblioteca" : request.Rationale.Trim(),
+            EvidenceRefs = "manual",
+            ConfidenceBand = "high",
+            NeedsHumanReview = true,
+            Status = SuggestionStatus.Proposed,
+            Author = "user",
+            CreatedAtUtc = _clock.GetUtcNow().UtcDateTime
+        };
+
+        await _suggestionsAndDecisions.SaveSuggestionsBatchAsync([suggestion], ct);
+
+        var effective = new EffectiveSuggestion(
+            suggestion.SuggestionId,
+            SuggestionStatus.Proposed,
+            startMs,
+            endMs,
+            Adjusted: false,
+            CanUndo: false,
+            CanRedo: false
+        );
+
+        return PlanOutcome<EditSuggestionDto>.Ok(SuggestionEffectiveMapper.ToDto(suggestion, effective));
     }
 }

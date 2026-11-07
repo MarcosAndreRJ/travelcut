@@ -125,15 +125,17 @@ interface ClipTimelineStripProps {
   silences: VadSilenceSegmentDto[];
   hesitations: HesitationCandidateDto[];
   selectedSec: number | null;
+  selectionRange?: { start: number; end: number } | null;
   onSeek: (sec: number) => void;
 }
 
-/** Linha do tempo do clipe com marcadores reais de silêncio (âmbar) e hesitação (rosa). */
+/** Linha do tempo do clipe com marcadores reais de silêncio (âmbar) e hesitação (rosa) e seleção visual. */
 export const ClipTimelineStrip: React.FC<ClipTimelineStripProps> = ({
   durationSeconds,
   silences,
   hesitations,
   selectedSec,
+  selectionRange,
   onSeek
 }) => {
   if (!(durationSeconds > 0)) {
@@ -159,6 +161,17 @@ export const ClipTimelineStrip: React.FC<ClipTimelineStripProps> = ({
       onClick={handleStripClick}
       className="relative h-8 w-full rounded-lg border border-slate-800 bg-[#0a1222] overflow-hidden cursor-pointer"
     >
+      {/* Faixa de pré-corte selecionada manualmente */}
+      {selectionRange && selectionRange.end > selectionRange.start && (
+        <div
+          data-testid="manual-selection-range"
+          style={{
+            left: pct(selectionRange.start),
+            width: `${Math.max(0.5, ((selectionRange.end - selectionRange.start) / durationSeconds) * 100)}%`
+          }}
+          className="absolute top-0 bottom-0 bg-cyan-500/30 border-x-2 border-cyan-400 pointer-events-none z-10"
+        />
+      )}
       {silences.map((s, idx) => (
         <button
           key={`s-${idx}`}

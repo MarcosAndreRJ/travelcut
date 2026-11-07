@@ -14,6 +14,7 @@ import { ipc } from '../../services/ipcBridge';
 import { compatibilityHint, proxyIndicator, resolveClipNotice } from './mediaClipModel';
 import { PlaybackNoticeOverlay, ProxyButton, type ProxyControl } from './PlaybackNoticeOverlay';
 import { usePlayerDiagnostics } from './usePlayerDiagnostics';
+import { useReviewPlaybackRate, REVIEW_PLAYBACK_RATES } from '../../services/reviewPlaybackSpeed';
 
 const DEFAULT_CONTEXT_SECONDS = 2;
 const KEYBOARD_STEP_SECONDS = 1;
@@ -37,7 +38,8 @@ export const MediaIntervalPlayer: React.FC<MediaIntervalPlayerProps> = ({
   onTimeUpdate,
   seekToSeconds = null,
   className = '',
-  videoAreaClassName = 'aspect-video'
+  videoAreaClassName = 'aspect-video',
+  zoomTransform = null
 }) => {
   const { state, reload } = usePlaybackSource(projectId, mediaId);
   const readySource = state.kind === 'ready' ? state.source : null;
@@ -54,6 +56,7 @@ export const MediaIntervalPlayer: React.FC<MediaIntervalPlayerProps> = ({
   }, [reload]);
   const proxy = useProxyGeneration(projectId, mediaId, reloadKeepingPosition);
   const { diagnostic, copyDiagnostic, openLogsFolder } = usePlayerDiagnostics(videoRef, mediaId, readySource);
+  const [reviewRate, setReviewRate] = useReviewPlaybackRate();
   const lastNotifiedRef = useRef<number>(Number.NaN);
   const onTimeUpdateRef = useRef(onTimeUpdate);
   onTimeUpdateRef.current = onTimeUpdate;
@@ -107,11 +110,16 @@ export const MediaIntervalPlayer: React.FC<MediaIntervalPlayerProps> = ({
     };
   }, []);
 
-  // Velocidade aplicada ao elemento quando muda.
+  // Velocidade aplicada ao elemento quando muda (combina taxa do clipe com velocidade de revisão e preserva tom).
   useEffect(() => {
     const v = videoRef.current;
-    if (v) v.playbackRate = rate;
-  }, [rate]);
+    if (v) {
+      v.playbackRate = rate * reviewRate;
+      v.preservesPitch = true;
+      (v as unknown as { mozPreservesPitch?: boolean }).mozPreservesPitch = true;
+      (v as unknown as { webkitPreservesPitch?: boolean }).webkitPreservesPitch = true;
+    }
+  }, [rate, reviewRate]);
 
   // Novo intervalo ou contexto: pausa e volta para o início da janela (sem reproduzir sozinho).
   // A duração não é dependência: ao chegar os metadados este efeito não deve pausar nem sobrescrever o seek inicial.
@@ -334,8 +342,27 @@ export const MediaIntervalPlayer: React.FC<MediaIntervalPlayerProps> = ({
           onPause={() => setPlaying(false)}
           onEnded={() => setPlaying(false)}
           onError={handleVideoError}
+          style={{
+            transform:
+              zoomTransform && zoomTransform.scale > 1.0
+                ? `scale(${zoomTransform.scale}) translate(${zoomTransform.offsetX}%, ${zoomTransform.offsetY}%)`
+                : undefined,
+            transformOrigin: 'center center',
+            transition: 'transform 0.15s ease-out'
+          }}
           className={`absolute inset-0 w-full h-full object-contain ${showOverlay ? 'opacity-0' : 'opacity-100'}`}
         />
+        {/* Guias visuais de Safe Area (F14.1 Checkpoint E) */}
+        {zoomTransform?.showSafeArea && (
+          <>
+            <div className="absolute inset-[5%] border border-dashed border-amber-400/50 pointer-events-none z-10 flex items-start justify-end p-1 text-[8px] font-mono text-amber-400/80">
+              Action Safe 90%
+            </div>
+            <div className="absolute inset-[10%] border border-dashed border-cyan-400/50 pointer-events-none z-10 flex items-start justify-end p-1 text-[8px] font-mono text-cyan-400/80">
+              Title Safe 80%
+            </div>
+          </>
+        )}
         {showOverlay && overlay}
       </div>
 
@@ -369,6 +396,26 @@ export const MediaIntervalPlayer: React.FC<MediaIntervalPlayerProps> = ({
         >
           {playing ? <Pause className="w-4 h-4" aria-hidden="true" /> : <Play className="w-4 h-4 fill-white" aria-hidden="true" />}
         </button>
+
+        {/* Velocidade de revisão compartilhada */}
+        <div className="flex items-center gap-0.5 bg-slate-900 border border-slate-700/80 rounded-lg p-0.5 text-[10px]" title="Velocidade de reprodução para revisão (não afeta o corte nem a timeline)">
+          {REVIEW_PLAYBACK_RATES.map((r) => (
+            <button
+              key={r}
+              type="button"
+              onClick={() => setReviewRate(r)}
+              disabled={!playable || mediaError !== null}
+              className={`px-1.5 py-0.5 rounded font-mono font-medium transition-colors ${
+                reviewRate === r
+                  ? 'bg-cyan-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800 disabled:opacity-40'
+              }`}
+            >
+              {r}×
+            </button>
+          ))}
+        </div>
+
         <input
           type="range"
           aria-label="Posição na fonte dentro da janela"

@@ -24,4 +24,11 @@ export interface MediaIntervalPlayerProps {
   className?: string;
   /** Altura da área de vídeo (padrão: aspect-video na largura toda). */
   videoAreaClassName?: string;
+  /** Enquadramento / zoom editorial ao vivo (F14.1 Checkpoint E). */
+  zoomTransform?: {
+    scale: number;
+    offsetX: number;
+    offsetY: number;
+    showSafeArea?: boolean;
+  } | null;
 }

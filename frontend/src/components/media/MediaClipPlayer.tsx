@@ -13,6 +13,7 @@ import {
 } from './mediaClipModel';
 import { PlaybackNoticeOverlay, ProxyButton, type ProxyControl } from './PlaybackNoticeOverlay';
 import { usePlayerDiagnostics } from './usePlayerDiagnostics';
+import { useReviewPlaybackRate, REVIEW_PLAYBACK_RATES } from '../../services/reviewPlaybackSpeed';
 
 interface MediaClipPlayerProps {
   projectId: string;
@@ -81,6 +82,19 @@ export const MediaClipPlayer: React.FC<MediaClipPlayerProps> = ({
   }, [reload]);
   const proxy = useProxyGeneration(projectId, mediaId, reloadKeepingPosition);
   const { diagnostic, copyDiagnostic, openLogsFolder } = usePlayerDiagnostics(videoRef, mediaId, readySource);
+  const [reviewRate, setReviewRate] = useReviewPlaybackRate();
+
+  // Aplica velocidade de revisão e preserva o tom do áudio (pitch)
+  useEffect(() => {
+    const v = videoRef.current;
+    if (v) {
+      v.playbackRate = reviewRate;
+      // Preservar pitch no padrão HTML5
+      v.preservesPitch = true;
+      (v as unknown as { mozPreservesPitch?: boolean }).mozPreservesPitch = true;
+      (v as unknown as { webkitPreservesPitch?: boolean }).webkitPreservesPitch = true;
+    }
+  }, [reviewRate, url]);
 
   const notify = useCallback((seconds: number, force = false) => {
     const last = lastNotifiedRef.current;
@@ -143,6 +157,10 @@ export const MediaClipPlayer: React.FC<MediaClipPlayerProps> = ({
   const handleLoadedMetadata = () => {
     const v = videoRef.current;
     if (!v) return;
+    v.playbackRate = reviewRate;
+    v.preservesPitch = true;
+    (v as unknown as { mozPreservesPitch?: boolean }).mozPreservesPitch = true;
+    (v as unknown as { webkitPreservesPitch?: boolean }).webkitPreservesPitch = true;
     v.volume = sessionAudio.volume;
     v.muted = sessionAudio.muted;
     setDuration(Number.isFinite(v.duration) && v.duration > 0 ? v.duration : null);
@@ -335,6 +353,25 @@ export const MediaClipPlayer: React.FC<MediaClipPlayerProps> = ({
           disabled={!canControl}
           className="w-16 shrink-0 h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-400 disabled:opacity-40"
         />
+
+        {/* Velocidade de revisão compartilhada */}
+        <div className="flex items-center gap-0.5 bg-slate-900 border border-slate-700/80 rounded-lg p-0.5 text-[10px]" title="Velocidade de reprodução para revisão (não afeta o arquivo nem a timeline)">
+          {REVIEW_PLAYBACK_RATES.map((rate) => (
+            <button
+              key={rate}
+              type="button"
+              onClick={() => setReviewRate(rate)}
+              disabled={!canControl}
+              className={`px-1.5 py-0.5 rounded font-mono font-medium transition-colors ${
+                reviewRate === rate
+                  ? 'bg-cyan-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800 disabled:opacity-40'
+              }`}
+            >
+              {rate}×
+            </button>
+          ))}
+        </div>
         <button
           type="button"
           onClick={toggleFullscreen}

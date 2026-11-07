@@ -264,6 +264,23 @@ public class IpcDispatcher
                     return IpcResponse.Success(request.RequestId, new { suggestions = dtos });
                 }
 
+                case "suggestion.createManual":
+                {
+                    var req = DeserializePayload<CreateManualSuggestionRequest>(request.Payload);
+                    if (req == null)
+                    {
+                        return IpcResponse.Fail(request.RequestId, "INVALID_PAYLOAD", "Dados de pré-corte manual inválidos.");
+                    }
+
+                    var outcome = await _planning.CreateManualSuggestionAsync(req, ct);
+                    if (!outcome.Success)
+                    {
+                        return IpcResponse.Fail(request.RequestId, outcome.ErrorCode, outcome.ErrorMessage);
+                    }
+
+                    return IpcResponse.Success(request.RequestId, new { suggestion = outcome.Value });
+                }
+
                 case "decision.submit":
                 {
                     var req = DeserializePayload<SubmitDecisionRequest>(request.Payload);

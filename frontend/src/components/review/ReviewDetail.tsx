@@ -12,6 +12,7 @@ import { BeforeAfterCompare, type CompareMode } from './BeforeAfterCompare';
 import { DecisionActions } from './DecisionActions';
 import { ModifyEditor } from './ModifyEditor';
 import { TranscriptContext } from './TranscriptContext';
+import { EditorialZoomControls, DEFAULT_ZOOM_CONFIG, type EditorialZoomConfig } from './EditorialZoomControls';
 import {
   effectiveInterval,
   isAdjusted,
@@ -44,6 +45,7 @@ interface ReviewDetailProps {
   onApprove: () => void;
   onReject: () => void;
   onDefer: () => void;
+  onReopen: () => void;
   onUndo: () => void;
   onRedo: () => void;
 }
@@ -76,6 +78,7 @@ export const ReviewDetail: React.FC<ReviewDetailProps> = ({
   onApprove,
   onReject,
   onDefer,
+  onReopen,
   onUndo,
   onRedo
 }) => {
@@ -86,6 +89,7 @@ export const ReviewDetail: React.FC<ReviewDetailProps> = ({
   const effectiveDuration = eff.end - eff.start;
   const delta = effectiveDuration - originalDuration;
   const approved = s.status === 'Approved';
+  const [zoomConfig, setZoomConfig] = useState<EditorialZoomConfig>(DEFAULT_ZOOM_CONFIG);
 
   return (
     <div className="flex-1 min-w-0 min-h-0 flex flex-col">
@@ -143,6 +147,14 @@ export const ReviewDetail: React.FC<ReviewDetailProps> = ({
           seekTarget={seekTarget}
           currentSeconds={currentSeconds}
           onTimeUpdate={onTimeUpdate}
+          zoomTransform={zoomConfig}
+        />
+
+        {/* Controles de enquadramento / zoom editorial ao vivo (F14.1 Checkpoint E) */}
+        <EditorialZoomControls
+          value={zoomConfig}
+          onChange={setZoomConfig}
+          disabled={busy}
         />
 
         {/* Intervalos e resumo da decisão */}
@@ -196,6 +208,7 @@ export const ReviewDetail: React.FC<ReviewDetailProps> = ({
           onApprove={onApprove}
           onReject={onReject}
           onDefer={onDefer}
+          onReopen={onReopen}
           onToggleModify={onToggleModify}
           onUndo={onUndo}
           onRedo={onRedo}

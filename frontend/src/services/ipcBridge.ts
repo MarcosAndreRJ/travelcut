@@ -2372,6 +2372,17 @@ class IpcBridgeService {
     return res?.decisions ?? [];
   }
 
+  /** Cria pré-corte manual com intervalo marcado pelo usuário na Biblioteca (F14.1). */
+  public async createManualSuggestion(params: {
+    projectId: string;
+    mediaId: string;
+    startSeconds: number;
+    endSeconds: number;
+    rationale?: string;
+  }): Promise<{ suggestion: EditSuggestion }> {
+    return this.send<{ suggestion: EditSuggestion }>('suggestion.createManual', params, { timeoutMs: DECISION_IPC_TIMEOUT_MS });
+  }
+
   // ==========================================================================
   // Assistente de Ambiente & Instalações Assistidas (F12)
   // ==========================================================================

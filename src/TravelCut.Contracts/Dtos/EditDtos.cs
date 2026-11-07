@@ -50,6 +50,14 @@ public record BatchDecideRequest(
     [property: JsonPropertyName("notes")] string? Notes
 );
 
+public record CreateManualSuggestionRequest(
+    [property: JsonPropertyName("projectId")] Guid ProjectId,
+    [property: JsonPropertyName("mediaId")] Guid MediaId,
+    [property: JsonPropertyName("startSeconds")] double StartSeconds,
+    [property: JsonPropertyName("endSeconds")] double EndSeconds,
+    [property: JsonPropertyName("rationale")] string? Rationale = null
+);
+
 public record EditDecisionDto(
     [property: JsonPropertyName("decisionId")] Guid DecisionId,
     [property: JsonPropertyName("suggestionId")] Guid SuggestionId,

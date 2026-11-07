@@ -30,6 +30,7 @@ import {
   sourceSecondsForFrame,
   transitionAfter
 } from './programPlayback';
+import { useReviewPlaybackRate, REVIEW_PLAYBACK_RATES } from '../../services/reviewPlaybackSpeed';
 import { ipc } from '../../services/ipcBridge';
 import { getPlaybackSource, previewErrorMessage } from '../../services/previewApi';
 import { isPlayableSource } from '../media/usePlaybackSource';
@@ -126,8 +127,9 @@ export const PlanPreviewPlayer: React.FC<PlanPreviewPlayerProps> = ({ plan, sele
   useEffect(() => clearLoadTimer, []);
 
   // Valores lidos por callbacks e pelo laço de reprodução. Atualizados a cada render.
-  const latest = useRef({ clips, spf, sources, projectId, clipError, onSeekFrame });
-  latest.current = { clips, spf, sources, projectId, clipError, onSeekFrame };
+  const [reviewRate, setReviewRate] = useReviewPlaybackRate();
+  const latest = useRef({ clips, spf, sources, projectId, clipError, onSeekFrame, reviewRate });
+  latest.current = { clips, spf, sources, projectId, clipError, onSeekFrame, reviewRate };
 
   const activeEntry = activeKey ? sources[activeKey] : undefined;
   const activeEntryTag =
@@ -190,7 +192,10 @@ export const PlanPreviewPlayer: React.FC<PlanPreviewPlayerProps> = ({ plan, sele
       return;
     }
     const target = sourceSecondsForFrame(clip, frame, state.spf);
-    video.playbackRate = clipSpeedRatio(clip);
+    video.playbackRate = clipSpeedRatio(clip) * state.reviewRate;
+    video.preservesPitch = true;
+    (video as unknown as { mozPreservesPitch?: boolean }).mozPreservesPitch = true;
+    (video as unknown as { webkitPreservesPitch?: boolean }).webkitPreservesPitch = true;
     if (loadedRef.current?.url === url) {
       loadedRef.current = { clipId: clip.clipId, url };
       if (video.readyState >= 1) {
@@ -302,7 +307,7 @@ export const PlanPreviewPlayer: React.FC<PlanPreviewPlayerProps> = ({ plan, sele
           return;
         }
         const base = gapFloatRef.current !== null && Math.floor(gapFloatRef.current) === frame ? gapFloatRef.current : frame;
-        const advanced = Math.min(next.timelineStartFrame, base + dt / state.spf);
+        const advanced = Math.min(next.timelineStartFrame, base + (dt * state.reviewRate) / state.spf);
         gapFloatRef.current = advanced;
         const whole = Math.floor(advanced);
         if (whole !== frame) emit(whole);
@@ -641,6 +646,24 @@ export const PlanPreviewPlayer: React.FC<PlanPreviewPlayerProps> = ({ plan, sele
             >
               <RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />
             </button>
+
+            {/* Velocidade de revisão compartilhada */}
+            <div className="flex items-center gap-0.5 bg-slate-900 border border-slate-700/80 rounded-lg p-0.5 text-[10px] ml-1" title="Velocidade de reprodução para revisão da timeline (não altera a velocidade editorial dos clipes)">
+              {REVIEW_PLAYBACK_RATES.map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  onClick={() => setReviewRate(r)}
+                  className={`px-1.5 py-0.5 rounded font-mono font-medium transition-colors ${
+                    reviewRate === r
+                      ? 'bg-cyan-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                  }`}
+                >
+                  {r}×
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className="flex items-center gap-1 font-mono text-[11px] text-slate-400">
