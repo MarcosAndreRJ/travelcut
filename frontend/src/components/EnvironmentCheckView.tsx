@@ -33,6 +33,8 @@ import {
 import { InstallPlanModal } from './environment/InstallPlanModal';
 import { ModelDownloadModal } from './environment/ModelDownloadModal';
 import { ActiveJobBanner } from './environment/ActiveJobBanner';
+import { useModelDownload } from './environment/ModelDownloadBanner';
+import { isModelDownloadActive, modelDownloadTracker } from '../services/modelDownloadTracker';
 import { ToolActionPanel } from './environment/ToolActionPanel';
 
 interface EnvironmentCheckViewProps {
@@ -98,22 +100,16 @@ export const EnvironmentCheckView: React.FC<EnvironmentCheckViewProps> = ({
   // Modal de Download do Modelo Whisper (large-v3)
   const [isModelDownloadModalOpen, setIsModelDownloadModalOpen] = useState(false);
 
-  // Job de Download de Modelo Ativo
-  const [activeModelJob, setActiveModelJob] = useState<{
-    jobId: string;
-    progress: ToolInstallProgressDto;
-    isCanceling: boolean;
-  } | null>(null);
+  // Download do modelo: estado da sessão (tracker global); a faixa de progresso fica no App.
+  const modelDownload = useModelDownload();
 
-  // Timers de polling para jobs ativos
+  // Timer de polling da instalação ativa
   const installPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const modelPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Limpa timers ao desmontar
   useEffect(() => {
     return () => {
       if (installPollRef.current) clearInterval(installPollRef.current);
-      if (modelPollRef.current) clearInterval(modelPollRef.current);
     };
   }, []);
 
@@ -366,72 +362,15 @@ export const EnvironmentCheckView: React.FC<EnvironmentCheckViewProps> = ({
 
   // --- Fluxo de Download do Modelo Whisper ---
 
-  const handleConfirmModelDownload = async (modelName: string) => {
+  const handleConfirmModelDownload = (modelName: string) => {
     setIsModelDownloadModalOpen(false);
-
-    try {
-      const { jobId } = await ipc.startModelDownload({
-        modelName,
-        confirmed: true
-      });
-
-      const initialProgress: ToolInstallProgressDto = {
-        jobId,
-        toolKey: 'whisper',
-        stage: 'Iniciando download',
-        progressPercent: 0,
-        currentMessage: 'Conectando ao repositório do modelo...',
-        outputLogs: [],
-        canCancel: true,
-        isCompleted: false,
-        isSuccess: false,
-        isFailed: false,
-        isCanceled: false
-      };
-
-      setActiveModelJob({
-        jobId,
-        progress: initialProgress,
-        isCanceling: false
-      });
-
-      if (modelPollRef.current) clearInterval(modelPollRef.current);
-      modelPollRef.current = setInterval(async () => {
-        try {
-          const prog = await ipc.getModelDownloadProgress(initialProgress.jobId);
-          if (prog) {
-            setActiveModelJob(current => (current ? { ...current, progress: prog } : null));
-            if (prog.isCompleted) {
-              if (modelPollRef.current) {
-                clearInterval(modelPollRef.current);
-                modelPollRef.current = null;
-              }
-              if (prog.isSuccess) {
-                void handleRefresh();
-              }
-            }
-          }
-        } catch (_) {}
-      }, 800);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setAssistantError(`Falha ao iniciar download do modelo: ${msg}`);
-    }
+    void modelDownloadTracker.start(modelName);
   };
 
-  const handleCancelModelDownload = async () => {
-    if (!activeModelJob || activeModelJob.isCanceling) return;
-
-    // Distingue solicitação de cancelamento de cancelamento concluído
-    setActiveModelJob((prev) => (prev ? { ...prev, isCanceling: true } : null));
-
-    try {
-      await ipc.cancelModelDownload(activeModelJob.jobId);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setAssistantError(`Falha ao cancelar download do modelo: ${msg}`);
-    }
-  };
+  // Conclusão do download com esta tela aberta: reconsulta o diagnóstico.
+  const refreshRef = useRef(handleRefresh);
+  refreshRef.current = handleRefresh;
+  useEffect(() => modelDownloadTracker.onSuccess(() => void refreshRef.current()), []);
 
   // Linhas de integrações para a visualização
   const rows = buildIntegrationRows({
@@ -517,20 +456,6 @@ export const EnvironmentCheckView: React.FC<EnvironmentCheckViewProps> = ({
           onDismiss={
             activeInstallJob.progress.isCompleted
               ? () => setActiveInstallJob(null)
-              : undefined
-          }
-        />
-      )}
-
-      {activeModelJob && (
-        <ActiveJobBanner
-          title="Download do Modelo Whisper (large-v3)"
-          progress={activeModelJob.progress}
-          isCanceling={activeModelJob.isCanceling}
-          onCancel={handleCancelModelDownload}
-          onDismiss={
-            activeModelJob.progress.isCompleted
-              ? () => setActiveModelJob(null)
               : undefined
           }
         />
@@ -666,7 +591,7 @@ export const EnvironmentCheckView: React.FC<EnvironmentCheckViewProps> = ({
                           toolName={row.name}
                           isReady={row.tone === 'emerald'}
                           canInstall={row.tone !== 'emerald'}
-                          canDownloadModel={toolKey === 'whisper'}
+                          canDownloadModel={toolKey === 'whisper' && !isModelDownloadActive(modelDownload.phase)}
                           onLocate={handleLocateTool}
                           onConfigurePath={handleConfigurePath}
                           onOpenInstallPlan={handleOpenInstallPlan}

@@ -17,6 +17,12 @@ interface ActiveJobBannerProps {
   isCanceling: boolean;
   onCancel: () => void;
   onDismiss?: () => void;
+  /** Telemetria já formatada (bytes, velocidade, tempo restante). */
+  metrics?: string[];
+  /** Aviso não terminal (ex.: cancelamento recusado pelo host). */
+  notice?: string | null;
+  /** Complemento mostrado na conclusão com sucesso. */
+  successDetail?: string;
 }
 
 export const ActiveJobBanner: React.FC<ActiveJobBannerProps> = ({
@@ -24,7 +30,10 @@ export const ActiveJobBanner: React.FC<ActiveJobBannerProps> = ({
   progress,
   isCanceling,
   onCancel,
-  onDismiss
+  onDismiss,
+  metrics = [],
+  notice = null,
+  successDetail
 }) => {
   const [showLogs, setShowLogs] = useState(false);
 
@@ -33,6 +42,9 @@ export const ActiveJobBanner: React.FC<ActiveJobBannerProps> = ({
   const isCanceled = progress.isCanceled;
   const isCompleted = progress.isCompleted;
   const isRunning = !isCompleted;
+  // Sem percentual real a barra é indeterminada: nada de avançar por tempo decorrido.
+  const percent = typeof progress.progressPercent === 'number' ? progress.progressPercent : null;
+  const isIndeterminate = isRunning && percent === null;
 
   // Distingue cancelamento solicitado de concluído
   const getStatusText = () => {
@@ -46,7 +58,8 @@ export const ActiveJobBanner: React.FC<ActiveJobBannerProps> = ({
       return `Falha na operação: ${progress.errorMessage || 'Erro não especificado'}`;
     }
     if (isSuccess) {
-      return 'Operação concluída com sucesso!';
+      const detail = progress.currentMessage || 'Operação concluída com sucesso!';
+      return successDetail ? `${detail} ${successDetail}` : detail;
     }
     return progress.currentMessage || 'Processando etapa...';
   };
@@ -128,9 +141,16 @@ export const ActiveJobBanner: React.FC<ActiveJobBannerProps> = ({
       <div className="space-y-1.5">
         <div className="flex justify-between text-xs text-slate-400 font-medium">
           <span>{progress.stage}</span>
-          <span>{progress.progressPercent}%</span>
+          {percent !== null ? <span>{percent}%</span> : isIndeterminate ? <span>em andamento</span> : null}
         </div>
-        <div className="w-full h-2 rounded-full bg-slate-900 overflow-hidden border border-slate-800">
+        <div
+          role="progressbar"
+          aria-label={title}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={percent ?? undefined}
+          className="w-full h-2 rounded-full bg-slate-900 overflow-hidden border border-slate-800"
+        >
           <div
             className={`h-full transition-all duration-300 rounded-full ${
               isFailed
@@ -140,10 +160,14 @@ export const ActiveJobBanner: React.FC<ActiveJobBannerProps> = ({
                 : isSuccess
                 ? 'bg-emerald-500'
                 : 'bg-gradient-to-r from-cyan-500 to-blue-500'
-            }`}
-            style={{ width: `${Math.max(2, Math.min(100, typeof progress.progressPercent === "number" ? progress.progressPercent : 0))}%` }}
+            } ${isIndeterminate ? 'animate-pulse' : ''}`}
+            style={{ width: isIndeterminate ? '100%' : `${Math.max(2, Math.min(100, percent ?? 0))}%` }}
           />
         </div>
+        {metrics.length > 0 && (
+          <p className="text-xs text-slate-300 font-mono">{metrics.join(' · ')}</p>
+        )}
+        {notice && <p className="text-xs text-amber-300">{notice}</p>}
       </div>
 
       {/* Output Logs Accordion */}

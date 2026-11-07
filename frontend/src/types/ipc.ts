@@ -683,6 +683,9 @@ export interface ToolInstallProgressDto {
   errorMessage?: string | null;
   startedAtUtc?: string | null;
   finishedAtUtc?: string | null;
+  /** Telemetria real do download de modelo; ausente/null quando o host não conhece o valor. */
+  bytesDownloaded?: number | null;
+  totalBytes?: number | null;
 }
 
 export interface StartToolInstallRequest {

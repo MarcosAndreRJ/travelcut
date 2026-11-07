@@ -20,6 +20,7 @@ import { SettingsIntegrationsView } from './components/SettingsIntegrationsView'
 import { MontageOverviewView } from './components/MontageOverviewView';
 import { ResolveHubView } from './components/ResolveHubView';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { ModelDownloadBanner } from './components/environment/ModelDownloadBanner';
 import { ipc } from './services/ipcBridge';
 import { ProjectSummary, EditSuggestion, EditorCapabilities, DecisionResultDto } from './types/ipc';
 import {
@@ -375,6 +376,9 @@ export const App: React.FC = () => {
           }}
           onCloseProject={handleCloseProject}
         />
+
+        {/* Download do modelo: visível em qualquer tela */}
+        <ModelDownloadBanner />
 
         {/* Dynamic View Router */}
         <main className="flex-1 flex overflow-hidden">

@@ -100,7 +100,12 @@ public sealed record ToolInstallProgressDto(
     [property: JsonPropertyName("isCompleted")] bool IsCompleted,
     [property: JsonPropertyName("isSuccess")] bool IsSuccess,
     [property: JsonPropertyName("isFailed")] bool IsFailed,
-    [property: JsonPropertyName("errorMessage")] string? ErrorMessage
+    [property: JsonPropertyName("errorMessage")] string? ErrorMessage,
+    // Telemetria real do download de modelo; null quando o host não conhece o valor (nunca estimar).
+    [property: JsonPropertyName("bytesDownloaded")] long? BytesDownloaded = null,
+    [property: JsonPropertyName("totalBytes")] long? TotalBytes = null,
+    // Cancelamento pedido pelo usuário: terminal, mas não é falha (IsFailed fica false).
+    [property: JsonPropertyName("isCanceled")] bool IsCanceled = false
 );
 
 public sealed record StartModelDownloadRequest(

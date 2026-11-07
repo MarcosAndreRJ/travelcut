@@ -478,6 +478,13 @@ Validação: Build-Release.ps1 executado em 201s. Testes C# Release (UnitTests 1
 Observação: Estado do produto = PACOTE 2 PRONTO PARA RETESTE NO HOST. Falha bloqueante de tela preta corrigida e coberta por testes.
 Próximo: Usuário transfere dist/TravelCutStudio-0.10.0-host-test.2-win-x64.zip para o host Windows, valida hash SHA-256 e executa reteste de abertura/criação de projetos e roteiro de homologação F11.
 
+[2026-11-07 01:29 -03:00] F13.2-ETAPA1 | orchestrator (Opus 5.5) | TESTADO
+Ação: Download do modelo. Causa-raiz: environment.startDownloadModel usava timeout IPC de 10 s, mas o host só responde depois da confirmação nativa; além de 10 s no diálogo a UI perdia o jobId e o download seguia invisível. Job e polling viviam só em EnvironmentCheckView. Corrigido: NATIVE_CONFIRMATION_IPC_TIMEOUT_MS (10 min) em startDownloadModel e startInstall; ModelDownloadTracker da sessão + faixa global ModelDownloadBanner no App (fases confirming/running/canceling/success/failed/canceled/lost, polling sem sobreposição, falha temporária de IPC não encerra job); ToolInstallProgressDto com bytesDownloaded/totalBytes/isCanceled (aditivo); cancelamento não é mais IsFailed; SynchronousProgress no lugar de Progress<T> (relato tardio no thread pool podia rebaixar 100% para 99%); estágio 'Verificando SHA-256' (fim da transferência e modelo existente, este sem percentual); ActiveJobBanner sem 'null%', barra indeterminada e telemetria; modal com .pt, URL oficial e sem int8/GGML/Safetensors/HuggingFace.
+Arquivos: src/TravelCut.Contracts/Dtos/EnvironmentAssistantDtos.cs, src/TravelCut.Infrastructure/Tooling/EnvironmentAssistantService.Install.cs, tests/TravelCut.UnitTests/Infrastructure/ModelDownloadProgressTests.cs, frontend/src/{services/{modelDownloadTracker.ts,ipcBridge.ts,__tests__/modelDownloadTracker.test.ts},components/{environment/{ModelDownloadBanner.tsx,ActiveJobBanner.tsx,ModelDownloadModal.tsx,__tests__/modelDownloadBanner.test.tsx},EnvironmentCheckView.tsx},types/ipc.ts,App.tsx}
+Validação: tsc 0 erros; vitest 64/64 (tracker + environment); dotnet test filtrado 39/39. Nenhum download real executado.
+Observação: job de instalação de ferramentas continua local à tela (fora do escopo). Sem retomada após fechar o app (backend guarda jobs em memória).
+Próximo: Etapa 2.
+
 ## Modelo de entrada (copiar preenchendo com dados reais)
 
 ```text

@@ -69,17 +69,17 @@ export const ModelDownloadModal: React.FC<ModelDownloadModalProps> = ({
                 <HardDrive className="w-3.5 h-3.5 text-cyan-400" />
                 <span>Tamanho em disco</span>
               </div>
-              <div className="text-sm font-bold text-white">~3.1 GB</div>
-              <div className="text-[11px] text-slate-500">Formato GGML / Safetensors</div>
+              <div className="text-sm font-bold text-white">~2,9 GB</div>
+              <div className="text-[11px] text-slate-500">Checkpoint PyTorch (.pt)</div>
             </div>
 
             <div className="p-3 rounded-xl bg-[#090f1d] border border-slate-800 space-y-1">
               <div className="flex items-center gap-1.5 text-slate-400">
                 <Cpu className="w-3.5 h-3.5 text-cyan-400" />
-                <span>Execução recomendada</span>
+                <span>Execução</span>
               </div>
-              <div className="text-sm font-bold text-white">CUDA GPU ou CPU (int8)</div>
-              <div className="text-[11px] text-slate-500">6 GB+ VRAM recomendado</div>
+              <div className="text-sm font-bold text-white">GPU CUDA ou CPU</div>
+              <div className="text-[11px] text-slate-500">Na CPU a transcrição é bem mais lenta</div>
             </div>
           </div>
 
@@ -89,7 +89,7 @@ export const ModelDownloadModal: React.FC<ModelDownloadModalProps> = ({
             <div>
               <span className="font-bold">Aviso de consumo de rede:</span>
               <p className="text-amber-200/80 mt-0.5">
-                O arquivo será baixado dos repositórios oficiais HuggingFace diretamente para o cache do TravelCut no host Windows.
+                O arquivo será baixado da URL oficial do OpenAI Whisper (openaipublic.azureedge.net) para a pasta de cache do Whisper neste computador e validado por SHA-256.
               </p>
             </div>
           </div>
@@ -103,7 +103,7 @@ export const ModelDownloadModal: React.FC<ModelDownloadModalProps> = ({
               className="w-4 h-4 mt-0.5 rounded border-slate-700 text-cyan-500 focus:ring-cyan-500/30 shrink-0"
             />
             <span className="text-slate-300">
-              Estou ciente do download de ~3.1 GB e confirmo o início da transferência para a pasta de cache do host.
+              Estou ciente do download de ~2,9 GB e confirmo o início da transferência para a pasta de cache do Whisper.
             </span>
           </label>
         </div>

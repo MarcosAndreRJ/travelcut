@@ -74,6 +74,9 @@ public sealed partial class EnvironmentAssistantService
         public bool IsCompleted { get; set; }
         public bool IsSuccess { get; set; }
         public bool IsFailed { get; set; }
+        public bool IsCanceled { get; set; }
+        public long? BytesDownloaded { get; set; }
+        public long? TotalBytes { get; set; }
         public string? ErrorMessage { get; set; }
         public object Lock { get; } = new();
 
@@ -107,10 +110,90 @@ public sealed partial class EnvironmentAssistantService
                     IsCompleted: IsCompleted,
                     IsSuccess: IsSuccess,
                     IsFailed: IsFailed,
-                    ErrorMessage: ErrorMessage
+                    ErrorMessage: ErrorMessage,
+                    BytesDownloaded: BytesDownloaded,
+                    TotalBytes: TotalBytes,
+                    IsCanceled: IsCanceled
                 );
             }
         }
+
+        /// <summary>Atualização vinda do downloader. Depois do estado terminal é ignorada (não rebaixa 100% para 99%).</summary>
+        public void ApplyDownloadProgress(DownloadProgressUpdate update)
+        {
+            lock (Lock)
+            {
+                if (IsCompleted) return;
+
+                BytesDownloaded = update.BytesRead;
+                TotalBytes = update.TotalBytes;
+                ProgressPercent = update.Percent.HasValue ? (int)Math.Clamp(update.Percent.Value, 0, 99) : null;
+
+                var mbRead = update.BytesRead / (1024.0 * 1024.0);
+                if (update.TotalBytes is long total && total > 0)
+                {
+                    if (update.BytesRead >= total)
+                    {
+                        // O SHA-256 é confirmado ao fim da transferência, antes de mover o arquivo para o destino.
+                        Stage = "Verificando SHA-256";
+                        CurrentMessage = $"Transferência concluída ({mbRead:F1} MB). Confirmando o hash SHA-256 oficial...";
+                        return;
+                    }
+                    CurrentMessage = $"Baixando {ModelName}: {mbRead:F1} MB de {total / (1024.0 * 1024.0):F1} MB ({ProgressPercent}%)...";
+                }
+                else
+                {
+                    CurrentMessage = $"Baixando {ModelName}: {mbRead:F1} MB (tamanho total não informado pelo servidor)...";
+                }
+            }
+        }
+
+        public void CompleteSuccess(string message)
+        {
+            lock (Lock)
+            {
+                Stage = "Concluído";
+                ProgressPercent = 100;
+                CurrentMessage = message;
+                CanCancel = false;
+                IsSuccess = true;
+                IsCompleted = true;
+            }
+        }
+
+        public void CompleteCanceled()
+        {
+            lock (Lock)
+            {
+                Stage = "Cancelado";
+                CurrentMessage = "Download cancelado pelo usuário.";
+                CanCancel = false;
+                IsCanceled = true;
+                IsCompleted = true;
+            }
+        }
+
+        public void CompleteFailed(string errorMessage)
+        {
+            lock (Lock)
+            {
+                Stage = "Erro";
+                ErrorMessage = errorMessage;
+                CurrentMessage = $"Falha no download: {errorMessage}";
+                CanCancel = false;
+                IsFailed = true;
+                IsCompleted = true;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Entrega o progresso de forma síncrona. Progress&lt;T&gt; enfileira no thread pool e uma atualização
+    /// atrasada poderia sobrescrever o estado "Concluído".
+    /// </summary>
+    private sealed class SynchronousProgress<T>(Action<T> handler) : IProgress<T>
+    {
+        public void Report(T value) => handler(value);
     }
 
     public async Task<EnvironmentInstallPlanDto> GetInstallPlanAsync(string toolKey, CancellationToken ct = default)
@@ -485,21 +568,14 @@ public sealed partial class EnvironmentAssistantService
             }
             catch (OperationCanceledException)
             {
-                ctx.Stage = "Cancelado";
-                ctx.CurrentMessage = "Download cancelado pelo usuário.";
-                ctx.IsCompleted = true;
-                ctx.IsFailed = true;
                 ctx.AddLog("Operação cancelada.");
+                ctx.CompleteCanceled();
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Falha no download do modelo {ModelName}.", modelName);
-                ctx.Stage = "Erro";
-                ctx.ErrorMessage = ex.Message;
-                ctx.CurrentMessage = $"Falha no download: {ex.Message}";
-                ctx.IsCompleted = true;
-                ctx.IsFailed = true;
                 ctx.AddLog($"Exceção: {ex}");
+                ctx.CompleteFailed(ex.Message);
             }
         });
 
@@ -827,43 +903,37 @@ public sealed partial class EnvironmentAssistantService
         if (File.Exists(destinationFile))
         {
             ctx.AddLog("Verificando integridade de modelo já existente em disco...");
+            lock (ctx.Lock)
+            {
+                // Hash de ~3 GB sem percentual real nem cancelamento: a UI mostra estágio indeterminado.
+                ctx.Stage = "Verificando SHA-256";
+                ctx.ProgressPercent = null;
+                ctx.CanCancel = false;
+                ctx.CurrentMessage = $"Verificando o modelo {modelName} já presente em disco (SHA-256)...";
+            }
             if (ToolPathResolver.VerifyFileSha256(destinationFile, expectedSha256))
             {
-                ctx.Stage = "Concluído";
-                ctx.ProgressPercent = 100;
-                ctx.CurrentMessage = $"Modelo {modelName} já está instalado e íntegro com hash SHA-256 verificado!";
-                ctx.IsCompleted = true;
-                ctx.IsSuccess = true;
                 ctx.AddLog("Modelo pré-existente íntegro. Download dispensado.");
+                ctx.CompleteSuccess($"Modelo {modelName} já está instalado e íntegro com hash SHA-256 verificado!");
                 return;
             }
             ctx.AddLog("Arquivo existente está corrompido ou incompleto. Iniciando novo download seguro...");
         }
 
-        ctx.Stage = "Baixando Modelo";
-        ctx.ProgressPercent = 0;
-        ctx.CurrentMessage = $"Baixando modelo {modelName} (~2.88 GB)...";
+        lock (ctx.Lock)
+        {
+            ctx.Stage = "Baixando Modelo";
+            ctx.ProgressPercent = null;
+            ctx.CanCancel = true;
+            ctx.CurrentMessage = $"Conectando para baixar o modelo {modelName}...";
+        }
         ctx.AddLog($"Iniciando download seguro de {url} para {destinationFile}...");
 
-        var progress = new Progress<DownloadProgressUpdate>(update =>
-        {
-            if (update.Percent.HasValue)
-            {
-                ctx.ProgressPercent = (int)Math.Clamp(update.Percent.Value, 0, 99);
-            }
-
-            var mbRead = update.BytesRead / (1024.0 * 1024.0);
-            var mbTotal = update.TotalBytes.HasValue ? update.TotalBytes.Value / (1024.0 * 1024.0) : 2880.0;
-            ctx.CurrentMessage = $"Baixando {modelName}: {mbRead:F1} MB de {mbTotal:F1} MB ({ctx.ProgressPercent}%)...";
-        });
+        var progress = new SynchronousProgress<DownloadProgressUpdate>(ctx.ApplyDownloadProgress);
 
         await _modelDownloader.DownloadFileAsync(url, destinationFile, expectedSha256, progress, ct).ConfigureAwait(false);
 
-        ctx.Stage = "Concluído";
-        ctx.ProgressPercent = 100;
-        ctx.CurrentMessage = $"Modelo {modelName} baixado e validado com sucesso com hash SHA-256 oficial ({expectedSha256.Substring(0, 12)}...)!";
-        ctx.IsCompleted = true;
-        ctx.IsSuccess = true;
         ctx.AddLog("Download finalizado e verificado com sucesso.");
+        ctx.CompleteSuccess($"Modelo {modelName} baixado e validado com sucesso com hash SHA-256 oficial ({expectedSha256.Substring(0, 12)}...)!");
     }
 }

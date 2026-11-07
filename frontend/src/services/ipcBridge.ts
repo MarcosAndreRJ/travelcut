@@ -79,6 +79,11 @@ const DECISION_IPC_TIMEOUT_MS = PLAN_IPC_TIMEOUT_MS;
  * Após o limite o host pode ainda estar processando: a UI deve dizer isso, não tratar como falha certa.
  */
 export const PROJECT_IPC_TIMEOUT_MS = 120000;
+/**
+ * environment.startInstall/startDownloadModel só respondem depois da confirmação nativa do host.
+ * Com o timeout padrão, um usuário lendo o diálogo por mais de 10 s perdia o jobId e o job seguia sem acompanhamento.
+ */
+export const NATIVE_CONFIRMATION_IPC_TIMEOUT_MS = 600000;
 /** Código estável de IpcError quando a resposta do host não chega no prazo. */
 export const IPC_TIMEOUT_CODE = 'IPC_TIMEOUT';
 const MOCK_IMPORT_DURATION_MS = 4000;
@@ -1286,7 +1291,10 @@ class IpcBridgeService {
           toolKey: 'whisper',
           stage: job?.canceled ? 'Cancelado' : percent >= 100 ? 'Concluído' : 'Baixando modelo large-v3...',
           progressPercent: percent,
-          currentMessage: job?.canceled ? 'Download cancelado.' : percent >= 100 ? 'Download e verificação SHA-256 concluídos com sucesso!' : `Transferindo ${Math.round((percent / 100) * 2880)} MB de 2880 MB...`,
+          bytesDownloaded: Math.round((percent / 100) * 3094792307),
+          totalBytes: 3094792307,
+          isCanceled: !!job?.canceled,
+          currentMessage: job?.canceled ? 'Download cancelado.' : percent >= 100 ? 'DEMO: download e verificação SHA-256 simulados.' : `DEMO: transferindo ${Math.round((percent / 100) * 2880)} MB de 2880 MB...`,
           outputLogs: [
             'Conectando ao Azure Blob Storage...',
             'Verificando espaço em disco: 120 GB livres (necessário: 3.5 GB)...',
@@ -2366,7 +2374,7 @@ class IpcBridgeService {
   }
 
   public async startToolInstall(request: StartToolInstallRequest): Promise<{ jobId: string }> {
-    return this.send<{ jobId: string }>('environment.startInstall', request);
+    return this.send<{ jobId: string }>('environment.startInstall', request, { timeoutMs: NATIVE_CONFIRMATION_IPC_TIMEOUT_MS });
   }
 
   public async getToolInstallProgress(jobId: string): Promise<ToolInstallProgressDto | null> {
@@ -2378,7 +2386,7 @@ class IpcBridgeService {
   }
 
   public async startModelDownload(request: StartModelDownloadRequest): Promise<{ jobId: string }> {
-    return this.send<{ jobId: string }>('environment.startDownloadModel', request);
+    return this.send<{ jobId: string }>('environment.startDownloadModel', request, { timeoutMs: NATIVE_CONFIRMATION_IPC_TIMEOUT_MS });
   }
 
   public async getModelDownloadProgress(jobId: string): Promise<ToolInstallProgressDto | null> {
