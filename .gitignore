@@ -1,6 +1,9 @@
 # Artefatos de build e pacote de teste (gerados por scripts/release/Build-Release.ps1)
 dist/
 
+# Claude local config e hooks
+.claude/
+
 # Saidas de build .NET e Node (nao versionar)
 bin/
 obj/
