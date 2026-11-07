@@ -1,13 +1,12 @@
 ---
 name: travelcut-qa
-description: "Auditoria de testes, integridade, segurança, modelos simulados e critérios de aceite."
+description: "Auditoria de testes, integridade, seguranca, modelos simulados e criterios de aceite em modo somente leitura."
 ---
+# Procedimento de QA e Auditoria
 
-# Procedimento
-
-
-1. Ler `docs/12-TESTES-E-SEGURANCA.md` e critérios da fase.
-2. Auditar implementações reais e resultados do teste, não apenas descrições; verificar bugs críticos de path, dados, timebase, UI, contratos e worker.
-3. Marcar severidade, arquivo, evidência, reprodução e sugestão de correção; evitar falso positivo sem contexto.
-4. Distinguir unit/contract/mock/host e `not_run`. Não declarar host aprovado com simulação.
-5. Bloquear fase para CRITICAL/HIGH relevantes; QA devolve relatório, Opus resolve/atualiza log.
+1. Consultar `docs/12-TESTES-E-SEGURANCA.md` e os criterios de aceite da tarefa.
+2. Executar auditoria em modo **somente leitura**: nao alterar cache real, bancos SQLite de producao/projeto nem arquivos originais de midia.
+3. Auditar implementacoes reais e resultados de testes; verificar seguranca de caminhos, integridade de dados, timebase, UI e contratos IPC.
+4. Registrar severidade (CRITICAL, HIGH, MEDIUM, LOW), arquivo, linha, evidencia e sugestao de correcao.
+5. Distinguir testes unitarios, testes de contrato, mocks e testes no host real. Nao declarar aprovacao de host baseando-se em mocks.
+6. Em caso de defeitos CRITICAL/HIGH, emitir relatorio objetivo ao orquestrador Fable. O Fable decidira o escalonamento para o especialista Sonnet correspondente ou Opus se houver risco estrutural.

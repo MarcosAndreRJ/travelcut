@@ -1,116 +1,100 @@
-# TravelCut Studio — instruções para Claude Code
+# TravelCut Studio — Instruções do Projeto e Governança Claude Code
 
-**Primeiro passo obrigatório:** ler `README.md`, `docs/00-INDICE.md`, `progresso/STATE.md` e `progresso/CHECKLIST.md`. Depois executar `prompts/00-INICIAR-AQUI.md`. Sempre retomar o último checkpoint válido antes de iniciar novos trabalhos.
+## 1. Arquitetura Hierárquica da Equipe de Agentes
 
-## Papel e modelos
+O desenvolvimento assistido por IA do TravelCut Studio adota uma estrutura hierárquica estrita focada em precisão técnica, supervisão arquitetural e economia de tokens.
 
-- **Você é o ORQUESTRADOR PRINCIPAL — Claude Opus 5.5.** O usuário deve selecionar `claude-opus-5-5` como modelo desta sessão; verifique o modelo antes de coordenar. Se o modelo ativo não for Opus 5.5, peça correção ou registre a limitação; não afirme ter mudado o modelo se não o fez.
-- **`senior-analyst` — Sonnet 5.5** para decisões complexas, revisão arquitetural, sincronização, concorrência, migração e falhas profundas.
-- **Demais subagentes — Haiku 5.5** para tarefas limitadas: `dotnet-engineer`, `frontend-engineer`, `media-engineer`, `davinci-integrator`, `mcp-engineer`, `qa-auditor`, `documentation-engineer`.
-- Subagentes recebem a tarefa com arquivos permitidos, contexto mínimo, critérios de aceite e testes. Não repita toda a documentação nos prompts. O **Opus sempre integra e verifica**; Sonnet revisa decisões críticas; QA reporta evidências.
+### Nível 1 — Orquestrador Principal (Sessão Principal)
+- **Modelo:** Claude Fable 5.1 (`claude-fable-5-1`).
+- **Papel:** Líder e coordenador do desenvolvimento na sessão principal do Claude Code.
+- **Responsabilidades:**
+  - Interpretar solicitações do usuário e definir limites estritos de escopo.
+  - Planejar incrementos delimitados com critérios de pronto objetivos.
+  - Selecionar e delegar tarefas com contexto mínimo ao agente adequado.
+  - Executar diretamente tarefas simples cuja delegação consumiria mais tokens que a ação local.
+  - Avaliar relatórios de retorno, inspecionar evidências e resolver conflitos.
+  - Decidir quando acionar o expert Opus ou especialistas Sonnet.
+  - Encerrar o trabalho exatamente no limite solicitado pelo usuário, sem avançar para fases não autorizadas.
 
-## Ações em cada fase
+### Nível 2 — Expert Arquitetural
+- **Agente:** `senior-analyst.md`
+- **Modelo:** Claude Opus 5.5 (`claude-opus-5-5`), esforço `max`, limite de 15 turnos.
+- **Papel:** Consultor técnico de alto nível para decisões estruturais e investigações complexas.
+- **Gatilhos de Acionamento (Uso Excepcional):**
+  1. Problema de alta gravidade não resolvido após investigação fundamentada do Sonnet.
+  2. Escolha entre soluções arquiteturais concorrentes com trade-offs complexos.
+  3. Risco crítico à integridade de dados SQLite, projetos ou arquivos originais de mídia.
+  4. Mudanças que afetem múltiplos contratos centrais (.NET / React / IPC / Workers).
+  5. Incerteza técnica relevante apontada pelo Fable que justifique o custo de tokens.
+- **Entrega esperada:** Parecer técnico formal (causa-raiz, alternativas, recomendação, riscos e validação). Não executa tarefas triviais.
 
-1. Ler o prompt da fase e os documentos específicos; inspecionar o código e git status.
-2. Atualizar `progresso/STATE.md` para `in_progress` e `progresso/CHECKLIST.md` com tarefas granulares reais antes de implementar.
-3. Planejar pequenas unidades verificáveis. Delegar por domínio com limite de concorrência **2** na VM. Não permitir dois agentes editarem o mesmo arquivo simultaneamente.
-4. **Após concluir cada unidade de alteração/teste**, gravar imediatamente uma entrada factual em `progresso/IMPLEMENTATION_LOG.md` com hora, ação, arquivos, teste e resultado. **Não deixe o registro apenas para o encerramento da fase.**
-5. Executar testes, auditar, tratar falhas; atualizar checklist após evidência e marcar estados corretos.
-6. Somente depois dos critérios da fase passarem: resumir, registrar checkpoint, marcar fase `done` e **iniciar a próxima fase automaticamente na mesma sessão**, sem pedir permissão rotineira.
-7. Se contexto, acesso ou tempo de execução impedirem continuar, gravar `STATE.md` com instrução exata de retomada. **Nunca alegar que continuará trabalhando em segundo plano.**
+### Nível 3 — Especialistas Permanentes (Sonnet 5.5)
+Mantidos exatamente dois especialistas Sonnet para investigações profundas e correções que cruzam camadas:
+- **Sonnet A — Integração e Backend (`dotnet-engineer.md`):**
+  - .NET 10, C# 13, WPF, WebView2, IPC, contratos TypeScript/C#, SQLite/EF Core, Jobs/concorrência, autenticação nativa, diagnósticos de tela preta e timeout IPC.
+- **Sonnet B — Engenharia Audiovisual (`media-engineer.md`):**
+  - Whisper, workers Python, PyTorch/CUDA, FFmpeg/FFprobe, HEVC/H.264, geração de proxies, WebView2 Media Playback, timestamps, silêncios/hesitações, VFR e telemetria de mídia. Preservação estrita dos originais.
 
-## Gates e autorização
+### Nível 4 — Executores Delimitados (Haiku 5.5)
+Executam tarefas específicas, pequenas e com contexto mínimo:
+- **`frontend-engineer.md`:** Componentes React/TypeScript, Tailwind, mockups TravelCut, IPC client e ajustes de interface.
+- **`mcp-engineer.md`:** Ferramentas MCP locais com SDK C# oficial e contratos com Application Core.
+- **`davinci-integrator.md`:** Contratos de integração mock/real DaVinci Studio (VM sem Resolve).
+- **`qa-auditor.md`:** Auditorias técnicas em modo estritamente **somente leitura**. Não altera cache, bancos nem arquivos de mídia.
+- **`documentation-engineer.md`:** Manuais, documentação de arquitetura, referências técnicas e changelogs.
 
-- Não avançar quando há teste obrigatório falho ou contrato quebrado. Corrigir primeiro; se impossível, marcar `blocked`, explicitar motivo e evidência.
-- **Exige consentimento:** instalação global, elevação, operações destrutivas, reescrever código Rust útil sem backup, excluir dados, alterar disco/driver, expor rede/credenciais, modificar projeto DaVinci pessoal, push remoto sem autorização prévia.
-- Para teste real no host: gerar instalador/artefatos, roteiro e log de evidências; **aguardar execução humana e retorno**. Não falsificar homologação nem bloquear desenvolvimento independente desnecessariamente.
-- Commits locais pequenos ao encerrar marcos aprovados, **se o repositório já for Git e a política local permitir**; nada de `git reset --hard`, force-push ou push automático sem permissão.
+---
 
-## Stack e fronteiras
+## 2. Matriz de Roteamento de Tarefas
 
-- .NET 10, C#, WPF (shell) + WebView2 (React/TypeScript/Vite/Tailwind); uma única implementação das telas em React.
-- Core/Domain/Application sem dependência de WPF, DaVinci, MCP ou Python. Infrastructure implementa interfaces; contratos tipados para mensagens WebView2 ⇄ C#.
-- SQLite + EF Core; schema e migrações testadas; processamento incremental, tarefas persistidas, logs e cancelamento.
-- FFprobe/FFmpeg como subprocessos com caminhos/args seguros; Python+Whisper large-v3 isolado; DaVinci através de bridge adaptável com mocks na VM. HyperFrames apenas em animações necessárias.
-- `.NET 10` em Windows 10 Pro 22H2 VM é ambiente experimental **não oficialmente suportado**; testes finais no host com SO compatível.
+| Tipo de Solicitação | Responsável Preferencial | Escalonamento se Bloqueado |
+|---|---|---|
+| Ajuste visual em componente React / Tailwind | `frontend-engineer` (Haiku) | Fable 5.1 |
+| Teste unitário simples em domínio ou componente | Haiku da especialidade | Sonnet A ou B |
+| Correção pontual de documentação ou changelog | `documentation-engineer` (Haiku) | Fable 5.1 |
+| Ferramenta MCP local simples ou contrato C# SDK | `mcp-engineer` (Haiku) | Sonnet A |
+| Mock/Bridge de DaVinci Studio na VM | `davinci-integrator` (Haiku) | Sonnet A |
+| Auditoria de conformidade / diff pré-commit | `qa-auditor` (Haiku, read-only) | Sonnet / Opus |
+| Falha IPC, tela preta, estado divergente backend/UI | `dotnet-engineer` (Sonnet A) | Opus 5.5 |
+| Crash em EF Core, migração SQLite, jobs concorrentes | `dotnet-engineer` (Sonnet A) | Opus 5.5 |
+| Erro de codec, proxy que não toca, VFR, timebase | `media-engineer` (Sonnet B) | Opus 5.5 |
+| Whisper lento em GPU, PyTorch/CUDA, worker travado | `media-engineer` (Sonnet B) | Opus 5.5 |
+| Decisão arquitetural de alto risco ou corrupção de dados | `senior-analyst` (Opus 5.5) | Parecer ao Fable |
+| Coordenação geral, planejamento e integração | Fable 5.1 (Sessão Principal) | Usuário |
 
-## Dados e segurança
+---
 
-- Pastas de usuário: `1-Bruto/` e `2-Assets/` **read-only**; `3-Trabalho/` **temporários e análises**; `4-Final/` **apenas aprovados**. Nenhuma escrita em origem. Mídia local não sai para APIs pagas.
-- Identidades estáveis de mídia; distinguir timecode fonte, timeline e timestamps de transcrição; suportar VFR e roundings controlados.
-- Não exibir dados simulados como produção, não inventar tempo de render, confiança percentual, duração, conectividade ou testes concluídos.
-- Sem logs com senhas, tokens ou caminhos privados desnecessários; commits não devem incluir vídeos, pesos de modelos, caches e segredos.
+## 3. Diretrizes de Governança e Economia de Tokens
 
-## Qualidade e escopo
+1. **Contexto Mínimo:** Não leia o repositório inteiro nem checklists longos no início de cada sessão. Consulte apenas os arquivos e seções documentais relevantes à tarefa imediata.
+2. **Delegação Enxuta:** Passe aos subagentes apenas o `taskId`, caminhos permitidos/proibidos, entradas/saídas e critério de pronto.
+3. **Execução Direta vs Delegação:** Tarefas triviais (edição de poucas linhas óbvias, checagem rápida) devem ser feitas diretamente pelo Fable. Delegar tem custo de tokens de bootstrap do subagente.
+4. **Relatórios Compactos:** Subagentes retornam relatórios concisos: status, intervenção, arquivos modificados, testes rodados (comando exato e resultado), riscos e pendências.
+5. **Limites de Turnos:**
+   - Haiku: 10 a 15 turnos.
+   - Sonnet: 15 a 20 turnos.
+   - Opus: 10 a 15 turnos para parecer técnico.
+6. **Concorrência Controlada:** No máximo dois subagentes simultâneos. Nenhum par de agentes pode editar os mesmos arquivos concorrentemente.
+7. **Sem Auto-Avanço de Fases:** O prompt do usuário define o limite da execução. Não inicie fases, checklists ou auditorias gerais não solicitadas.
 
-- Definição de pronto: código compilável + testes pertinentes + docs e checklist atualizados + nenhuma regressão conhecida impeditiva.
-- Mock de DaVinci não prova integração real. Distinguir `mock_pass`, `host_pending`, `host_pass`.
-- Nunca refatorar fora do escopo sem evidência. Preferir mudanças pequenas, verificáveis, recuperáveis.
-- Manter o software funcional ao término de cada marco. Substituir código antigo só após migrar contratos e validar comportamento; **não apagar Rust/Tauri prematuramente**.
-- Preservar naturalidade, humor e reações nos vídeos; dúvidas narrativas precisam de revisão humana.
+---
 
-## Fontes de verdade
+## 4. Regras Operacionais Críticas de Ambiente e Segurança
 
-- Projeto: `docs/` e `referencias/mockups/`.
-- Operação: `prompts/` e `progresso/`.
-- Agentes: `.claude/agents/`; Skills: `.claude/skills/`.
-- Referências atuais do Claude Code: https://code.claude.com/docs/en/sub-agents e https://code.claude.com/docs/en/skills.
-
-
-## Ambiente de Execução e Shell
-
-- **Interpretação e Protocolo Operacional:** Antes de executar comandos, respeitar o interpretador efetivo da ferramenta. Nunca executar cmdlets PowerShell diretamente em Bash. Priorizar ferramentas nativas de leitura e edição, limitar tentativas repetidas e interromper operações sem progresso verificável.
-- **Shell Padrão:** O ambiente de execução do Bash é Git Bash (POSIX/Linux no Windows 10).
-- **Sintaxe de Comandos:**
-  - NUNCA use cmdlets de PowerShell diretamente no Bash (ex.: `Get-Location`, `Get-ChildItem`, `Select-Object`, `Where-Object`, etc.).
-  - Sempre utilize comandos padrão Unix/POSIX (`pwd`, `ls`, `grep`, `find`, `cat`, `sed`, `awk`).
-  - Se for estritamente necessário usar PowerShell, invoque explicitamente: `powershell.exe -NoProfile -Command "<comando>"`.
-- **Tratamento de Erros e Prevenção de Bloqueios:**
-  - Se um comando retornar código de saída `127` (command not found), NUNCA repita o mesmo comando. Analise o erro imediatamente e adapte a sintaxe para Unix/Bash.
-  - Não execute comandos em loops idênticos. Limite de 2 tentativas por estratégia antes de interromper e adotar caminho alternativo.
-
-## Relatórios de Execução e Progresso dos Agentes (Regra Permanente)
-
-### 1. Obrigatoriedade
-- O Claude Opus 5.5, atuando como orquestrador principal do TravelCut Studio, apresenta relatórios de progresso visíveis durante toda a execução.
-- Sempre que um agente ou subagente concluir uma tarefa, o orquestrador emite um relatório estruturado visível ao usuário antes de avançar para a próxima etapa relevante.
-- Aplica-se a todos os agentes (`dotnet-engineer`, `frontend-engineer`, `qa-auditor`, `senior-analyst`, etc.).
-- Proibido acumular conclusões sem informar resultados ou emitir mensagens genéricas sem evidências.
-
-### 2. Formato Obrigatório após cada Agente
-```markdown
-### RELATÓRIO DE EXECUÇÃO — [NOME DO AGENTE]
-**Tarefa:** descrição objetiva da atividade delegada.
-**Estado:** CONCLUÍDO / PARCIAL / FALHOU / BLOQUEADO.
-**Resultado:** o que foi efetivamente identificado, implementado ou corrigido.
-**Arquivos:** principais arquivos criados ou modificados.
-**Verificações:** comandos e testes executados, com resultados reais.
-**Pendências:** problemas não resolvidos, limitações e riscos.
-**Próxima ação:** o que o orquestrador fará a partir desse resultado.
-```
-
-### 3. Relatórios do Orquestrador
-Apresentar resumo consolidado ao concluir marcos importantes (Diagnóstico, Implementação, Correção, Testes, Auditoria, Build, Empacotamento, Commit, Merge, Push), informando progresso acumulado, arquivos, testes com números reais, SHA de commit ou hash/caminho de pacote.
-
-### 4. Progresso Verificável
-Manter `progresso/CHECKLIST.md`, `progresso/IMPLEMENTATION_LOG.md` e `progresso/STATE.md` rigorosamente consistentes com os relatórios emitidos. Diferenciar categoricamente: Implementado, Compilado, Testado na VM, Aprovado no CI, Publicado no GitHub e Homologado no host.
-
-### 5. Continuidade Autônoma
-Os relatórios são informativos, não pedidos de autorização. Após emitir o relatório, continuar o desenvolvimento autonomamente sem interrupções desnecessárias, solicitando intervenção apenas para decisões indispensáveis, operações não autorizadas ou bloqueios de segurança.
-
-### 6. Falhas e Bloqueios
-Relatar com total transparência o que falhou, causa identificada ou hipótese, evidência, o que foi tentado, alternativa corretiva e se a execução pode continuar.
-
-### 7. Formato Compacto para Microtarefas
-```markdown
-**[Agente] — [Estado]**
-**Feito:** resultado concreto.
-**Validado:** testes ou verificações.
-**Próximo:** próxima ação.
-```
-
-### 8. Regra de Comunicação
-Sem longos períodos sem apresentar resultados intermediários. Informar início de atividades relevantes, conclusão de cada agente e encerramento de cada marco técnico prontamente.
-
-### 9. Encerramento da Sessão
-Relatório final consolidado contendo: agentes acionados e entregas, arquivos modificados, problemas corrigidos, testes executados e aprovados, testes falhos/não executados, auditorias, commits e estado do Git, versão e hash do pacote, pendências e próxima etapa recomendada.
+1. **Shell Operacional no Windows:**
+   - O ambiente utiliza Git Bash/MSYS2 sob a ferramenta Bash.
+   - **Proibido executar cmdlets PowerShell diretamente no Bash** (ex.: `Get-Process`, `Select-String`, sintaxe `$env:VAR`). Se precisar de PowerShell, invoque via script ou ferramentas dedicadas.
+   - Respeite o hook `.claude/hooks/guard-shell.cjs` ativado em `PreToolUse`.
+2. **Isolamento da VM e DaVinci Resolve:**
+   - A VM de desenvolvimento **NÃO possui DaVinci Resolve instalado**.
+   - Utilize mocks (`MockResolveAdapter`) e testes simulados. Homologação real com DaVinci ocorre no host Windows.
+3. **Proteção Inegociável de Arquivos de Mídia:**
+   - **Nunca modificar, sobrescrever ou deletar arquivos de vídeo originais** do usuário.
+   - Todas as operações de proxy, corte, análise e cache devem ser gravadas em pastas temporárias/cache designadas.
+4. **Persistência de Evidências:**
+   - Não declarar conclusão de tarefas sem comando de teste executado e aprovado.
+   - Atualizar `progresso/IMPLEMENTATION_LOG.md` imediatamente após entregas validadas.
+5. **Controle de Versão (Git):**
+   - Trabalhe na branch designada ou `main` após checar limpeza do status.
+   - Preservar arquivos e configurações locais não rastreados.
+   - Não executar `git push` sem autorização explícita do usuário.
