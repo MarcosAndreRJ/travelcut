@@ -60,6 +60,29 @@ export const LibraryTranscriptionView: React.FC<LibraryTranscriptionViewProps> =
   const autoResolveRef = useRef(false);
   const [assets, setAssets] = useState<MediaAssetDto[]>([]);
   const [selectedAsset, setSelectedAsset] = useState<MediaAssetDto | null>(null);
+  const [selectedForAnalysis, setSelectedForAnalysis] = useState<Set<string>>(new Set());
+
+  const toggleSelectForAnalysis = (mediaId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setSelectedForAnalysis((prev) => {
+      const next = new Set(prev);
+      if (next.has(mediaId)) next.delete(mediaId);
+      else next.add(mediaId);
+      return next;
+    });
+  };
+
+  const selectAllVisible = () => {
+    setSelectedForAnalysis((prev) => {
+      const next = new Set(prev);
+      filteredAssets.forEach((a) => next.add(a.mediaId));
+      return next;
+    });
+  };
+
+  const deselectAll = () => {
+    setSelectedForAnalysis(new Set());
+  };
   const [selectedDetails, setSelectedDetails] = useState<MediaDetailsDto | null>(null);
   const [chronology, setChronology] = useState<ChronologyReportDto | null>(null);
 
@@ -479,6 +502,44 @@ export const LibraryTranscriptionView: React.FC<LibraryTranscriptionViewProps> =
                   />
                 </div>
               </div>
+              {/* Barra de seleção múltipla para análise */}
+              <div className="px-3 py-2 bg-[#08101e] border-b border-slate-800 flex items-center justify-between text-xs shrink-0 select-none">
+                <label className="flex items-center gap-2 cursor-pointer text-slate-300">
+                  <input
+                    type="checkbox"
+                    checked={filteredAssets.length > 0 && filteredAssets.every((a) => selectedForAnalysis.has(a.mediaId))}
+                    onChange={(e) => (e.target.checked ? selectAllVisible() : deselectAll())}
+                    className="w-3.5 h-3.5 rounded border-slate-700 bg-slate-900 text-cyan-500 focus:ring-cyan-500 cursor-pointer accent-cyan-500"
+                  />
+                  <span className="font-medium text-[11px]">
+                    {selectedForAnalysis.size === 0
+                      ? "Nenhum vídeo marcado"
+                      : `${selectedForAnalysis.size} de ${assets.length} marcado${selectedForAnalysis.size > 1 ? "s" : ""}`}
+                  </span>
+                </label>
+                {selectedForAnalysis.size > 0 && (
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={deselectAll}
+                      className="text-[10px] text-slate-400 hover:text-white underline cursor-pointer"
+                    >
+                      Desmarcar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void pipeline.startAnalysis({ mediaIds: Array.from(selectedForAnalysis), force: forceReprocess });
+                      }}
+                      disabled={pipeline.running || pipeline.isStarting}
+                      className="px-2 py-1 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-[10px] font-semibold flex items-center gap-1 shadow-sm transition disabled:opacity-50 cursor-pointer"
+                      title={`Analisar apenas os ${selectedForAnalysis.size} vídeos selecionados`}
+                    >
+                      Analisar ({selectedForAnalysis.size})
+                    </button>
+                  </div>
+                )}
+              </div>
 
               <div className="flex-1 overflow-y-auto p-3 space-y-2">
                 {assets.length === 0 && (
@@ -496,11 +557,13 @@ export const LibraryTranscriptionView: React.FC<LibraryTranscriptionViewProps> =
                   return (
                     <div
                       key={asset.mediaId}
-                      onClick={() => setSelectedAsset(asset)}
+                      onClick={(e) => { if (e.ctrlKey || e.metaKey) { toggleSelectForAnalysis(asset.mediaId, e); } else { setSelectedAsset(asset); } }}
                       className={`p-3 rounded-2xl cursor-pointer transition-all border ${
                         isSelected
                           ? 'bg-[#0d1d36] border-cyan-500 shadow-md shadow-cyan-950'
-                          : 'bg-[#0a1222] border-slate-800/80 hover:border-slate-700'
+                          : isBatchSelected
+                            ? 'bg-[#0b172a] border-cyan-500/60 ring-1 ring-cyan-500/40'
+                            : 'bg-[#0a1222] border-slate-800/80 hover:border-slate-700'
                       }`}
                     >
                       <div className="flex gap-3">
@@ -516,8 +579,18 @@ export const LibraryTranscriptionView: React.FC<LibraryTranscriptionViewProps> =
                         </div>
 
                         <div className="flex-1 min-w-0">
-                          <div className="text-xs font-bold text-white truncate" title={fileName}>
-                            {fileName}
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              aria-label={`Marcar ${fileName} para análise`}
+                              checked={isBatchSelected}
+                              onChange={() => toggleSelectForAnalysis(asset.mediaId)}
+                              onClick={(e) => e.stopPropagation()}
+                              className="w-3.5 h-3.5 rounded border-slate-700 bg-slate-900 text-cyan-500 focus:ring-cyan-500 cursor-pointer accent-cyan-500 shrink-0"
+                            />
+                            <div className="text-xs font-bold text-white truncate flex-1" title={fileName}>
+                              {fileName}
+                            </div>
                           </div>
                           <div className="text-[10px] text-slate-400 mt-1 flex items-center gap-2 min-w-0">
                             <span>{asset.width > 0 ? `${asset.width}x${asset.height}` : asset.codec}</span>
@@ -672,6 +745,11 @@ export const LibraryTranscriptionView: React.FC<LibraryTranscriptionViewProps> =
             isMock={ipc.isMock}
             force={forceReprocess}
             onForceChange={setForceReprocess}
+            selectedCount={selectedForAnalysis.size}
+            totalMediaCount={assets.length}
+            onStartSelected={() => {
+              void pipeline.startAnalysis({ mediaIds: Array.from(selectedForAnalysis), force: forceReprocess });
+            }}
             onStart={() => {
               void pipeline.startAnalysis({ mediaIds: null, force: forceReprocess });
             }}

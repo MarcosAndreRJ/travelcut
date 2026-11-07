@@ -23,6 +23,9 @@ interface PipelineQueuePanelProps {
   force: boolean;
   onForceChange: (value: boolean) => void;
   onStart: () => void;
+  onStartSelected?: () => void;
+  selectedCount?: number;
+  totalMediaCount?: number;
   onCancel: () => void;
   onRetry: () => void;
 }
@@ -90,6 +93,9 @@ export const PipelineQueuePanel: React.FC<PipelineQueuePanelProps> = ({
   force,
   onForceChange,
   onStart,
+  onStartSelected,
+  selectedCount,
+  totalMediaCount,
   onCancel,
   onRetry
 }) => {
@@ -131,6 +137,17 @@ export const PipelineQueuePanel: React.FC<PipelineQueuePanelProps> = ({
               <Square className="w-3 h-3" /> {isCanceling ? 'Cancelando…' : 'Cancelar'}
             </button>
           )}
+          {selectedCount !== undefined && selectedCount > 0 && onStartSelected ? (
+            <button
+              type="button"
+              onClick={onStartSelected}
+              disabled={!canStart}
+              title={"Iniciar análise dos " + selectedCount + " vídeos selecionados"}
+              className="px-3 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-cyan-950 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Play className="w-3 h-3 fill-white" /> {isStarting ? 'Iniciando…' : 'Analisar selecionados (' + selectedCount + ')'}
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={onStart}
@@ -140,11 +157,15 @@ export const PipelineQueuePanel: React.FC<PipelineQueuePanelProps> = ({
                 ? 'Importe mídias antes de iniciar a análise'
                 : active
                   ? 'Já existe uma análise em andamento'
-                  : undefined
+                  : 'Analisar todos os vídeos do projeto'
             }
-            className="px-3 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-cyan-950 disabled:opacity-50 disabled:cursor-not-allowed"
+            className={"px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-md disabled:opacity-50 disabled:cursor-not-allowed " + (
+              selectedCount !== undefined && selectedCount > 0
+                ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
+                : 'bg-cyan-600 hover:bg-cyan-500 text-white shadow-cyan-950'
+            )}
           >
-            <Play className="w-3 h-3 fill-white" /> {isStarting ? 'Iniciando…' : 'Iniciar análise'}
+            <Play className="w-3 h-3 fill-current" /> {isStarting ? 'Iniciando…' : 'Analisar todos' + (totalMediaCount ? ' (' + totalMediaCount + ')' : '')}
           </button>
         </div>
       </header>
