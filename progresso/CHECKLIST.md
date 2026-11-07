@@ -118,6 +118,11 @@
   - [x] Etapa 3 — Status: `integrationStatusStore` autoritativo (Sidebar, Painel, Configurações, Verificação), ordem de respostas garantida, leitura válida preservada e marcada como desatualizada, retry automático, reconsulta forçada no host.
   - [ ] Host — roteiro "F13.2" em `progresso/HOST_TESTS.md`.
 
+- [x] F13.3 — Player de vídeo e diagnóstico do Whisper (2026-11-07 07:48 -03:00). Testado na VM; não publicado no GitHub; não homologado no host.
+  - [x] F13.3-A — MediaClipPlayer na Biblioteca (play/pausa, barra, volume, mudo, tempo, tela cheia, sem autoplay), aviso de codec/HEVC com proxy, faixa/transcrição/marcadores sincronizados sem laço.
+  - [x] F13.3-B — Execução do worker auditável: valores reais enviados ao processo, stdout/stderr ao vivo com limite, `pipeline.diagnostics` explícito, script PowerShell 5.1 reproduzível.
+  - [ ] Host — roteiro "F13.3" em `progresso/HOST_TESTS.md`.
+
 ## Regras de atualização
 
 Antes de começar uma fase, desdobrar o item em microtarefas com paths/testes; marcar `[x]` apenas após evidência objetiva e entrada correspondente em `IMPLEMENTATION_LOG.md`. Não transformar `host_pending` em `host_pass` sem resultado do host.

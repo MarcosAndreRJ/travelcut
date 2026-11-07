@@ -319,6 +319,30 @@ public class PipelineJobManagerTests : IDisposable
     }
 
     [Fact]
+    public async Task Diagnostics_ListWhisperExecutionsOfLatestJob_WithLogs()
+    {
+        var whisper = new FakeWhisperService { Outcome = CompletedTranscription() };
+        var h = NewHarness(whisper, new FakeSilenceService { FfmpegAvailable = false });
+        var project = h.CreateProject();
+        var media = h.AddMedia(project, "1-Bruto/clip.mp4");
+
+        Assert.Empty(h.Manager.GetDiagnostics(project.ProjectId).Executions);
+
+        var jobId = await h.Manager.StartAsync(Start(project.ProjectId, stages: new List<string> { "transcription" }));
+        await h.WaitForFinishAsync(project.ProjectId);
+        var diagnostics = h.Manager.GetDiagnostics(project.ProjectId);
+
+        Assert.Equal(jobId, diagnostics.JobId);
+        var execution = Assert.Single(diagnostics.Executions);
+        Assert.Equal(media.MediaId, execution.MediaId);
+        Assert.Equal("fake-python", execution.PythonExecutable);
+        Assert.Equal("completed", execution.ProcessState);
+        Assert.NotNull(execution.FinishedAtUtc);
+        Assert.Contains(execution.LogLines, l => l.Text == "aviso de teste");
+        Assert.Contains("fake-python", execution.DiagnosticScript);
+    }
+
+    [Fact]
     public async Task IdleProject_HasNoActivity()
     {
         var h = NewHarness();

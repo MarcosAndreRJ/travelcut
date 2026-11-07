@@ -52,20 +52,27 @@ public sealed class FakeWhisperService : IWhisperTranscriptionService
         string model = "large-v3",
         string language = "pt",
         CancellationToken ct = default,
-        IProgress<TranscriptionProgressUpdate>? progress = null)
+        IProgress<TranscriptionProgressUpdate>? progress = null,
+        IWhisperExecutionObserver? execution = null)
     {
         Interlocked.Increment(ref _transcribeCalls);
         if (!Available)
         {
             return new TranscriptionOutcome("unavailable", null, "Python/Whisper indisponível (teste).", null, null);
         }
+        execution?.OnStarted(new WhisperExecutionInfo("req-fake", "fake-python", new[] { "fake_worker.py" }, "fake_worker.py",
+            "C:\\App", new Dictionary<string, string> { ["PYTHONUTF8"] = "1" }, "{\"command\":\"transcribe\"}\n{\"command\":\"exit\"}\n",
+            mediaPath, model, language, "cpu"));
+        execution?.OnLog("stderr", "aviso de teste");
         foreach (var update in ProgressScript) progress?.Report(update);
         ProgressDelivered?.TrySetResult(true);
         if (WaitForCancellation)
         {
             await Task.Delay(Timeout.Infinite, ct);
         }
-        return Outcome ?? new TranscriptionOutcome("failed", null, "Sem resultado configurado no fake.", null, null);
+        var result = Outcome ?? new TranscriptionOutcome("failed", null, "Sem resultado configurado no fake.", null, null);
+        execution?.OnFinished(new WhisperExecutionResult(result.Status == "completed" ? "completed" : "failed", 0, result.Reason));
+        return result;
     }
 }
 

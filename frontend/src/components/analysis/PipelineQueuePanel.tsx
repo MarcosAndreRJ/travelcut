@@ -9,8 +9,10 @@ import {
   stageStateTone
 } from './analysisFormat';
 import { PipelineActivitySummary } from './PipelineActivitySummary';
+import { PipelineTechnicalDetails } from './PipelineTechnicalDetails';
 
 interface PipelineQueuePanelProps {
+  projectId?: string | null;
   status: PipelineStatusDto | null;
   statusError: string | null;
   actionError: string | null;
@@ -77,6 +79,7 @@ const StageRow: React.FC<{ index: number; stage: PipelineStageStatusDto }> = ({ 
 };
 
 export const PipelineQueuePanel: React.FC<PipelineQueuePanelProps> = ({
+  projectId = null,
   status,
   statusError,
   actionError,
@@ -166,6 +169,7 @@ export const PipelineQueuePanel: React.FC<PipelineQueuePanelProps> = ({
       {!status && !statusError && <p role="status" className="text-[11px] text-slate-400">Carregando fila…</p>}
 
       <PipelineActivitySummary status={status} isCanceling={isCanceling} hostUnreachable={!!statusError} />
+      {projectId && status?.jobId && <PipelineTechnicalDetails projectId={projectId} status={status} />}
 
       {status && status.stages.length === 0 && (
         <p className="text-[11px] text-slate-500">O host não informou etapas de processamento.</p>

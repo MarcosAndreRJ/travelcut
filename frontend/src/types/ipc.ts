@@ -595,6 +595,37 @@ export interface PipelineStatusDto {
   activity?: PipelineActivityDto | null;
 }
 
+/** Diagnóstico do worker Whisper (pipeline.diagnostics): caminhos locais, só por ação explícita do usuário. */
+export interface PipelineDiagnosticsDto {
+  jobId: string | null;
+  executions: WhisperExecutionDto[];
+}
+
+export interface WhisperExecutionDto {
+  jobId: string;
+  mediaId: string;
+  requestId: string;
+  mediaPath: string;
+  startedAtUtc: string | null;
+  finishedAtUtc: string | null;
+  pythonExecutable: string;
+  arguments: string[];
+  workerScript: string;
+  workingDirectory: string;
+  environmentVariables: Record<string, string>;
+  standardInput: string;
+  model: string;
+  language: string;
+  device: string | null;
+  processState: 'running' | 'completed' | 'failed' | 'canceled' | 'timed_out' | 'not_started' | string;
+  exitCode: number | null;
+  canceled: boolean;
+  error: string | null;
+  logLines: { atUtc: string; stream: 'stdout' | 'stderr' | string; text: string }[];
+  droppedLogLines: number;
+  diagnosticScript: string;
+}
+
 /** processedItems/totalItems contam mídias; aqui fica o que acontece dentro da mídia em análise. */
 export interface PipelineActivityDto {
   currentStage: string | null;

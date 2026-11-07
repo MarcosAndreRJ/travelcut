@@ -9,5 +9,7 @@ public interface IPipelineJobManager
     Task<PipelineStatusDto> GetStatusAsync(Guid projectId, CancellationToken ct = default);
     bool Cancel(Guid jobId);
     Task<AnalysisEnvironmentDto> GetEnvironmentAsync(CancellationToken ct = default, bool forceRefresh = false);
+    /// <summary>Execuções do worker no job mais recente do projeto (caminhos locais: só por pedido explícito).</summary>
+    PipelineDiagnosticsDto GetDiagnostics(Guid projectId) => new(null, new List<WhisperExecutionDto>());
     Task<MediaAnalysisDto?> GetMediaAnalysisAsync(Guid projectId, Guid mediaId, CancellationToken ct = default);
 }

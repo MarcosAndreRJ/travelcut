@@ -133,6 +133,46 @@ public record PipelineActivityDto(
     [property: JsonPropertyName("mediaTotal")] int MediaTotal
 );
 
+/// <summary>
+/// Diagnóstico técnico do worker Whisper (pipeline.diagnostics). Contém caminhos locais: só é pedido por ação explícita
+/// do usuário e não sai pelo MCP. Logs sem conteúdo da transcrição e limitados às últimas linhas.
+/// </summary>
+public record PipelineDiagnosticsDto(
+    [property: JsonPropertyName("jobId")] Guid? JobId,
+    [property: JsonPropertyName("executions")] List<WhisperExecutionDto> Executions
+);
+
+public record WhisperExecutionDto(
+    [property: JsonPropertyName("jobId")] Guid JobId,
+    [property: JsonPropertyName("mediaId")] Guid MediaId,
+    [property: JsonPropertyName("requestId")] string RequestId,
+    [property: JsonPropertyName("mediaPath")] string MediaPath,
+    [property: JsonPropertyName("startedAtUtc")] DateTime? StartedAtUtc,
+    [property: JsonPropertyName("finishedAtUtc")] DateTime? FinishedAtUtc,
+    [property: JsonPropertyName("pythonExecutable")] string PythonExecutable,
+    [property: JsonPropertyName("arguments")] List<string> Arguments,
+    [property: JsonPropertyName("workerScript")] string WorkerScript,
+    [property: JsonPropertyName("workingDirectory")] string WorkingDirectory,
+    [property: JsonPropertyName("environmentVariables")] Dictionary<string, string> EnvironmentVariables,
+    [property: JsonPropertyName("standardInput")] string StandardInput,
+    [property: JsonPropertyName("model")] string Model,
+    [property: JsonPropertyName("language")] string Language,
+    [property: JsonPropertyName("device")] string? Device,
+    [property: JsonPropertyName("processState")] string ProcessState, // running | completed | failed | canceled | timed_out | not_started
+    [property: JsonPropertyName("exitCode")] int? ExitCode,
+    [property: JsonPropertyName("canceled")] bool Canceled,
+    [property: JsonPropertyName("error")] string? Error,
+    [property: JsonPropertyName("logLines")] List<WhisperLogLineDto> LogLines,
+    [property: JsonPropertyName("droppedLogLines")] int DroppedLogLines,
+    [property: JsonPropertyName("diagnosticScript")] string DiagnosticScript
+);
+
+public record WhisperLogLineDto(
+    [property: JsonPropertyName("atUtc")] DateTime AtUtc,
+    [property: JsonPropertyName("stream")] string Stream,
+    [property: JsonPropertyName("text")] string Text
+);
+
 public record CancelPipelineResponse(
     [property: JsonPropertyName("canceled")] bool Canceled
 );

@@ -86,7 +86,8 @@ public class WhisperTranscriptionService : IWhisperTranscriptionService
         string model = DefaultModel,
         string language = "pt",
         CancellationToken ct = default,
-        IProgress<TranscriptionProgressUpdate>? progress = null)
+        IProgress<TranscriptionProgressUpdate>? progress = null,
+        IWhisperExecutionObserver? execution = null)
     {
         var requestedModel = string.IsNullOrWhiteSpace(model) ? DefaultModel : model.Trim();
         var requestedLanguage = string.IsNullOrWhiteSpace(language) ? "pt" : language.Trim();
@@ -128,21 +129,96 @@ public class WhisperTranscriptionService : IWhisperTranscriptionService
                 }
             }) + "\n" + ExitLine;
 
-            var run = await _runner.RunAsync(
-                new ProcessRunRequest(
-                    env.Python.FileName,
-                    BuildArgs(env.Python, env.WorkerScript),
-                    _options.TranscribeTimeout ?? DefaultTranscribeTimeout,
-                    command,
-                    PythonEnvironment,
-                    StandardOutputLine: progress is null ? null : line => ReportWorkerEvent(line, reqId, progress)),
-                ct).ConfigureAwait(false);
+            var args = BuildArgs(env.Python, env.WorkerScript);
+            var fullMediaPath = Path.GetFullPath(mediaPath);
+            // Exatamente o que vai ao IProcessRunner; o ProcessRunner herda o diretório do app quando WorkingDirectory é null.
+            execution?.OnStarted(new WhisperExecutionInfo(
+                RequestId: reqId,
+                PythonExecutable: env.Python.FileName,
+                Arguments: args,
+                WorkerScript: env.WorkerScript,
+                WorkingDirectory: Environment.CurrentDirectory,
+                EnvironmentVariables: PythonEnvironment,
+                StandardInput: command,
+                MediaPath: fullMediaPath,
+                Model: requestedModel,
+                Language: requestedLanguage,
+                Device: env.Probe.Device));
 
-            return MapTranscribeRun(run, reqId, mediaId, requestedModel, requestedLanguage);
+            try
+            {
+                var run = await _runner.RunAsync(
+                    new ProcessRunRequest(
+                        env.Python.FileName,
+                        args,
+                        _options.TranscribeTimeout ?? DefaultTranscribeTimeout,
+                        command,
+                        PythonEnvironment,
+                        StandardOutputLine: progress is null && execution is null ? null : line =>
+                        {
+                            if (progress is not null) ReportWorkerEvent(line, reqId, progress);
+                            if (execution is not null && SummarizeStdoutLine(line, reqId) is { } summary) execution.OnLog("stdout", summary);
+                        },
+                        StandardErrorLine: execution is null ? null : line => execution.OnLog("stderr", line)),
+                    ct).ConfigureAwait(false);
+
+                var outcome = MapTranscribeRun(run, reqId, mediaId, requestedModel, requestedLanguage);
+                execution?.OnFinished(new WhisperExecutionResult(ProcessStateOf(run.Status, outcome.Status), run.ExitCode, outcome.Reason));
+                return outcome;
+            }
+            catch (OperationCanceledException)
+            {
+                execution?.OnFinished(new WhisperExecutionResult("canceled", null, "Transcrição cancelada."));
+                throw;
+            }
         }
         catch (OperationCanceledException)
         {
             return Canceled(requestedModel);
+        }
+    }
+
+    /// <summary>Sucesso só com resposta válida do worker; processo encerrado sem ela é falha.</summary>
+    private static string ProcessStateOf(ProcessRunStatus status, string outcomeStatus) => status switch
+    {
+        ProcessRunStatus.TimedOut => "timed_out",
+        ProcessRunStatus.Canceled => "canceled",
+        ProcessRunStatus.NotStarted => "not_started",
+        _ => outcomeStatus == "completed" ? "completed" : "failed"
+    };
+
+    /// <summary>
+    /// Linha de stdout para o log técnico. O protocolo vira um resumo; a resposta final nunca é copiada
+    /// (traz o texto transcrito). Heartbeat e percentual repetido não entram, para o log limitado guardar sinal útil.
+    /// </summary>
+    private static string? SummarizeStdoutLine(string rawLine, string requestId)
+    {
+        var line = rawLine.Trim();
+        if (line.Length == 0) return null;
+        if (line[0] != '{') return line;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(line);
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object || GetString(root, "protocol") != TranscriptValidator.ExpectedProtocol)
+            {
+                return line;
+            }
+            if (GetString(root, "requestId") != requestId) return "mensagem do protocolo de outra requisição (ignorada)";
+            if (root.TryGetProperty("ok", out _))
+            {
+                return GetBool(root, "ok")
+                    ? "resposta final ok=true (conteúdo da transcrição omitido do log)"
+                    : $"resposta final ok=false, código {GetErrorCode(root)}";
+            }
+            return GetString(root, "event") == "progress" && GetString(root, "stage") is { } stage
+                ? $"evento: etapa {stage}"
+                : null;
+        }
+        catch (JsonException)
+        {
+            return line;
         }
     }
 

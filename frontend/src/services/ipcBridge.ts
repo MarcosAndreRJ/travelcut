@@ -23,6 +23,7 @@ import {
   MediaAnalysisDto,
   PipelineStageStatusDto,
   PipelineStatusDto,
+  PipelineDiagnosticsDto,
   PipelineStage,
   PipelineMediaStatusDto,
   StageState,
@@ -855,6 +856,10 @@ class IpcBridgeService {
 
       case 'pipeline.status':
         return this.mockPipelineStatus(payload?.projectId);
+
+      case 'pipeline.diagnostics':
+        // DEMO: não há processo do worker no navegador.
+        return { jobId: this.mockPipeline?.jobId ?? null, executions: [] };
 
       case 'pipeline.cancel': {
         const job = this.mockPipeline;
@@ -2211,6 +2216,11 @@ class IpcBridgeService {
 
   public async getPipelineStatus(projectId: string): Promise<PipelineStatusDto> {
     return this.send<PipelineStatusDto>('pipeline.status', { projectId });
+  }
+
+  /** Diagnóstico técnico do worker (contém caminhos locais): chamar só após ação explícita do usuário. */
+  public async getPipelineDiagnostics(projectId: string): Promise<PipelineDiagnosticsDto> {
+    return this.send<PipelineDiagnosticsDto>('pipeline.diagnostics', { projectId });
   }
 
   public async cancelPipeline(jobId: string): Promise<{ canceled: boolean }> {

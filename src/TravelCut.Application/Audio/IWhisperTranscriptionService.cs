@@ -39,6 +39,7 @@ public interface IWhisperTranscriptionService
         string model = "large-v3",
         string language = "pt",
         CancellationToken ct = default,
-        IProgress<TranscriptionProgressUpdate>? progress = null
+        IProgress<TranscriptionProgressUpdate>? progress = null,
+        IWhisperExecutionObserver? execution = null
     );
 }

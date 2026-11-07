@@ -75,7 +75,9 @@ public sealed class ProcessRunner : IProcessRunner
         var stdoutTask = request.StandardOutputLine is { } onLine
             ? ReadLinesAsync(process.StandardOutput, onLine)
             : process.StandardOutput.ReadToEndAsync();
-        var stderrTask = process.StandardError.ReadToEndAsync();
+        var stderrTask = request.StandardErrorLine is { } onErrorLine
+            ? ReadLinesAsync(process.StandardError, onErrorLine)
+            : process.StandardError.ReadToEndAsync();
 
         try
         {

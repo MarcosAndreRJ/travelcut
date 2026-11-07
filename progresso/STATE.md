@@ -1,7 +1,8 @@
 # Estado operacional — ponto de retomada
 
-- **Status:** `waiting_for_host` — F13.2 (observabilidade) concluída na VM em 2026-11-07 01:44 -03:00; commits locais em `main`, sem push e sem novo pacote.
-- **Fase atual:** `F13.2 — Observabilidade e consistência de status`. Próximo passo humano: roteiro "F13.2" de `progresso/HOST_TESTS.md` num pacote gerado a partir desta `main`.
+- **Status:** `waiting_for_host` — F13.3 (player e diagnóstico do Whisper) concluída na VM em 2026-11-07 07:48 -03:00; commits locais em `main`, sem push e sem novo pacote.
+- **Fase atual:** `F13.3 — Player de vídeo e diagnóstico do Whisper`. Próximo passo humano: roteiros "F13.2" e "F13.3" de `progresso/HOST_TESTS.md` num pacote gerado a partir desta `main`.
+- **Última evidência F13.3:** `dotnet test -c Release` UnitTests 1138/1138 e Mcp.Tests 107/107; `npm test` 281/281; `tsc` 0; script de diagnóstico executado de verdade no Windows PowerShell 5.1 contra worker falso (pasta com espaço e acento); player testado no navegador com vídeos sintéticos. NÃO executados: Python real, HEVC real, proxy real, app WPF.
 - **Última evidência F13.2:** `dotnet build -c Release` 0 erros; `dotnet test -c Release` UnitTests 1125/1125 e Mcp.Tests 107/107 (3 rodadas); `npm test` 258/258; `tsc --noEmit` 0; `npm run build` OK. NÃO executados: `workers/tests/test_whisper_worker.py` (VM sem Python), app WPF, download real, transcrição real.
 - **Histórico anterior (F11) abaixo:** mantido como registro; as linhas seguintes descrevem o estado do pacote `0.10.0-host-test.2`.
 - **Status em F11:** `waiting_for_host` — F11.4 corrigida na VM, merge concluído na branch `main` e pacote `0.10.0-host-test.2` gerado com sucesso para reteste humano no host Windows.

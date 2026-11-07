@@ -192,6 +192,16 @@ public class PipelineJobManager : IPipelineJobManager
         return job.Snapshot(environment);
     }
 
+    public PipelineDiagnosticsDto GetDiagnostics(Guid projectId)
+    {
+        lock (_registry)
+        {
+            return _latestByProject.TryGetValue(projectId, out var jobId) && _jobs.TryGetValue(jobId, out var job)
+                ? job.DiagnosticsSnapshot()
+                : new PipelineDiagnosticsDto(null, new List<WhisperExecutionDto>());
+        }
+    }
+
     public bool Cancel(Guid jobId)
     {
         lock (_registry)
@@ -414,7 +424,8 @@ public class PipelineJobManager : IPipelineJobManager
         if (outcome == null)
         {
             outcome = await _whisper.TranscribeAsync(media.AbsolutePath!, media.MediaId, WhisperModel, job.Language, ct,
-                new SynchronousProgress<TranscriptionProgressUpdate>(job.ReportTranscriptionProgress));
+                new SynchronousProgress<TranscriptionProgressUpdate>(job.ReportTranscriptionProgress),
+                job.BeginWhisperExecution(media));
             if (outcome.Status == "completed" && outcome.Transcript != null)
             {
                 await cache.WriteArtifactTextAsync(job.ProjectRoot, CacheCategory, key, Serialize(outcome), ct);

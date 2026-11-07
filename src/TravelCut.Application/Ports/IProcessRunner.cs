@@ -20,7 +20,9 @@ public sealed record ProcessRunRequest(
     IReadOnlyDictionary<string, string>? EnvironmentVariables = null,
     string? WorkingDirectory = null,
     // Chamado a cada linha de stdout enquanto o processo roda; StandardOutput continua completo no resultado.
-    Action<string>? StandardOutputLine = null
+    Action<string>? StandardOutputLine = null,
+    // Idem para stderr (logs do worker), sem alterar StandardError do resultado.
+    Action<string>? StandardErrorLine = null
 );
 
 public sealed record ProcessRunResult(

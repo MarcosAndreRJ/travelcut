@@ -98,6 +98,8 @@ public sealed class PipelineJobRun
     public DateTime? StartedAtUtc { get; private set; }
     public DateTime? FinishedAtUtc { get; private set; }
     public string? CurrentMediaRelativePath { get; private set; }
+    private const int MaxWhisperExecutions = 50;
+    private readonly List<WhisperExecutionRecord> _whisperExecutions = new();
     public string? CurrentStage { get; private set; }
     public string? CurrentDetail { get; private set; }
     public double? CurrentPercent { get; private set; }
@@ -147,6 +149,28 @@ public sealed class PipelineJobRun
             CurrentMediaRelativePath = relativePath;
             LastActivityAtUtc = DateTime.UtcNow;
         }
+    }
+
+    /// <summary>Novo registro auditável para a execução do worker desta mídia (mantém só as últimas).</summary>
+    public WhisperExecutionRecord BeginWhisperExecution(PipelineMediaWork media)
+    {
+        var record = new WhisperExecutionRecord(JobId, media.MediaId);
+        lock (Sync)
+        {
+            _whisperExecutions.Add(record);
+            if (_whisperExecutions.Count > MaxWhisperExecutions) _whisperExecutions.RemoveAt(0);
+        }
+        return record;
+    }
+
+    public PipelineDiagnosticsDto DiagnosticsSnapshot()
+    {
+        List<WhisperExecutionRecord> records;
+        lock (Sync)
+        {
+            records = _whisperExecutions.ToList();
+        }
+        return new PipelineDiagnosticsDto(JobId, records.Select(r => r.ToDto()).OfType<WhisperExecutionDto>().ToList());
     }
 
     /// <summary>Telemetria do worker durante a etapa atual. Depois do fim do job é ignorada.</summary>

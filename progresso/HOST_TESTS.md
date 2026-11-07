@@ -118,6 +118,17 @@ Não baixe o modelo de novo nem transcreva vídeo longo só para este roteiro; u
 - [ ] Concluir: transcrição e resultados do clipe selecionado aparecem sem recarregar a tela.
 - [ ] Instalar/configurar uma ferramenta e confirmar que Sidebar e Verificação mudam juntas sem reiniciar o app.
 
+## Roteiro F13.3 (player e diagnóstico do Whisper) — `HOST_PENDENTE`
+
+- [ ] Biblioteca: selecionar um clipe H.264 → player carrega sem tocar sozinho; reproduzir, pausar, arrastar a barra, volume, silenciar, tela cheia (anotar se a tela cheia ocupa a janela ou o monitor).
+- [ ] Trocar de clipe durante a reprodução: o anterior para e o novo carrega pausado.
+- [ ] Clipe HEVC (celular): anotar se toca direto, se aparece "não decodificou a imagem" (só áudio) ou erro de codec; em ambos, "Gerar proxy compatível" → proxy em `3-Trabalho/cache/proxies`, player recarrega na mesma posição; SHA-256 do original igual antes/depois.
+- [ ] Clicar na faixa temporal, numa palavra da transcrição e num silêncio/hesitação: o vídeo vai ao instante; sem saltos repetidos.
+- [ ] Com uma análise em andamento, o player continua funcionando.
+- [ ] Fila de Processamento → "Detalhes técnicos da execução": conferir Python, worker, argumentos, diretório, ambiente, mídia, modelo, idioma, dispositivo, estado, código de saída e logs (stderr do Whisper).
+- [ ] "Copiar comando de diagnóstico (PowerShell)": colar no Windows PowerShell 5.1 com um clipe curto; conferir stdout, stderr, código de saída e o arquivo salvo em `%TEMP%\travelcut-whisper-diagnostico-*.log`. Caminhos com espaço/acentos devem funcionar.
+- [ ] Cancelar uma análise: "Cancelado" nos detalhes e processo Python encerrado.
+
 ## Evidências e erros
 
 Preencher para cada teste: status (`PASS/FAIL/NOT_RUN`), versão, passos, resultado real, arquivo log/captura, erro e ticket regressão. Não anexar credenciais. Após o usuário retornar as evidências, Opus atualiza checklist/status.

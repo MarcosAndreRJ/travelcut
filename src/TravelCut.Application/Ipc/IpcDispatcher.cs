@@ -377,6 +377,16 @@ public class IpcDispatcher
                     }
                 }
 
+                case "pipeline.diagnostics":
+                {
+                    var req = DeserializePayload<ProjectRequest>(request.Payload);
+                    if (req == null || req.ProjectId == Guid.Empty)
+                    {
+                        return IpcResponse.Fail(request.RequestId, "INVALID_PROJECT_ID", "ID de projeto inválido.");
+                    }
+                    return IpcResponse.Success(request.RequestId, _pipelineJobs.GetDiagnostics(req.ProjectId));
+                }
+
                 case "pipeline.status":
                 {
                     var req = DeserializePayload<ProjectRequest>(request.Payload);

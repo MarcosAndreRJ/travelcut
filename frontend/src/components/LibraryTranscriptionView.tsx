@@ -662,6 +662,7 @@ export const LibraryTranscriptionView: React.FC<LibraryTranscriptionViewProps> =
           </div>
 
           <PipelineQueuePanel
+            projectId={projectId}
             status={pipeline.status}
             statusError={pipeline.statusError}
             actionError={pipeline.actionError}
