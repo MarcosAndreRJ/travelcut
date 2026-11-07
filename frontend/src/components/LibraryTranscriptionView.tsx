@@ -2,10 +2,8 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   FolderOpen,
   Search,
-  Play,
   Clock,
   Video,
-  Maximize2,
   Calendar,
   Camera,
   AlertTriangle,
@@ -29,8 +27,10 @@ import { PipelineQueuePanel } from './analysis/PipelineQueuePanel';
 import { ClipAnalysisPanel } from './analysis/ClipAnalysisPanel';
 import { ClipTimelineStrip } from './analysis/SignalsPanel';
 import { usePipeline } from './analysis/usePipeline';
+import { MediaClipPlayer } from './media/MediaClipPlayer';
+import { isAudioAsset, isImageAsset, type ClipSeekRequest } from './media/mediaClipModel';
 import { activitySummaryLine, pipelineActivityView } from './analysis/pipelineActivity';
-import { errorMessage, formatClock, formatDuration } from './analysis/analysisFormat';
+import { errorMessage, formatDuration } from './analysis/analysisFormat';
 
 /**
  * Modo de entrada da view: 'auto' abre 'import' se a biblioteca estiver vazia, senão 'clips'.
@@ -77,7 +77,9 @@ export const LibraryTranscriptionView: React.FC<LibraryTranscriptionViewProps> =
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [analysisRefreshKey, setAnalysisRefreshKey] = useState(0);
   const [analysisRetryKey, setAnalysisRetryKey] = useState(0);
+  // Tempo atual: vem do vídeo. Pedidos de busca são separados, para não formar laço vídeo ↔ tela.
   const [focusedTime, setFocusedTime] = useState<number | null>(null);
+  const [seekRequest, setSeekRequest] = useState<ClipSeekRequest | null>(null);
   const [forceReprocess, setForceReprocess] = useState(false);
 
   // Sem projeto não há dados: nenhuma chamada ao host é feita e a view mostra o estado vazio.
@@ -193,6 +195,7 @@ export const LibraryTranscriptionView: React.FC<LibraryTranscriptionViewProps> =
     setAnalysis(null);
     setAnalysisError(null);
     setFocusedTime(null);
+    setSeekRequest(null);
     if (!projectId || !selectedMediaId) {
       setIsLoadingAnalysis(false);
       return;
@@ -214,6 +217,11 @@ export const LibraryTranscriptionView: React.FC<LibraryTranscriptionViewProps> =
       cancelled = true;
     };
   }, [projectId, selectedMediaId, analysisRefreshKey, analysisRetryKey]);
+
+  const requestSeek = useCallback((seconds: number) => {
+    setFocusedTime(seconds);
+    setSeekRequest((prev) => ({ seconds, token: (prev?.token ?? 0) + 1 }));
+  }, []);
 
   const handleLibraryChanged = useCallback(() => {
     void loadMediaList();
@@ -544,56 +552,56 @@ export const LibraryTranscriptionView: React.FC<LibraryTranscriptionViewProps> =
               </div>
             </div>
 
-            {/* Right Panel: Player placeholder, timeline and clip analysis */}
+            {/* Right Panel: player, timeline and clip analysis */}
             <div className="flex-1 min-w-0 flex flex-col min-h-0 bg-[#070d18]">
               <div className="shrink-0 p-4 space-y-3 border-b border-slate-800 bg-[#050912]">
-                <div className="relative h-36 xl:h-52 rounded-2xl overflow-hidden bg-black flex items-center justify-center border border-slate-800">
-                  {selectedAsset?.thumbnailUrl ? (
-                    <img src={selectedAsset.thumbnailUrl} alt="Pré-visualização do clipe" className="w-full h-full object-contain opacity-80" />
-                  ) : (
-                    <div className="flex flex-col items-center gap-2 text-slate-600">
-                      <Video className="w-10 h-10" aria-hidden="true" />
-                      <span className="text-xs font-mono">Sem visualização de vídeo</span>
-                    </div>
-                  )}
-
-                  <button
-                    type="button"
-                    disabled
-                    title="Reprodução ainda não conectada nesta versão (planejamento/revisão)"
-                    aria-label="Reprodução indisponível nesta versão"
-                    className="absolute w-12 h-12 rounded-full bg-slate-800/90 text-slate-500 flex items-center justify-center border border-slate-700 cursor-not-allowed"
-                  >
-                    <Play className="w-5 h-5" />
-                  </button>
-
-                  <div className="absolute top-3 left-3 z-10 px-3 py-1 rounded-lg bg-black/70 backdrop-blur border border-white/10 text-xs font-mono font-bold text-cyan-300">
-                    Tempo selecionado: {formatClock(focusedTime)}
-                  </div>
-
-                  <div className="absolute top-3 right-3 z-10 flex gap-1.5">
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-slate-900/80 backdrop-blur border border-slate-700 text-slate-300">
-                      {selectedAsset?.codec || 'Desconhecido'}
-                    </span>
-                    {selectedDetails?.isVariableFrameRate && (
-                      <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-amber-500/20 border border-amber-500/40 text-amber-300 flex items-center gap-1">
-                        <AlertTriangle className="w-3 h-3" aria-hidden="true" /> VFR
-                      </span>
+                {selectedAsset && projectId && !isImageAsset(selectedAsset) ? (
+                  <MediaClipPlayer
+                    key={`${projectId}:${selectedAsset.mediaId}`}
+                    projectId={projectId}
+                    mediaId={selectedAsset.mediaId}
+                    posterUrl={selectedAsset.thumbnailUrl ?? null}
+                    isVideo={!isAudioAsset(selectedAsset)}
+                    durationHint={selectedAsset.durationSeconds}
+                    seekRequest={seekRequest}
+                    onTimeUpdate={setFocusedTime}
+                    badges={
+                      <>
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-slate-900/80 backdrop-blur border border-slate-700 text-slate-300">
+                          {selectedAsset.codec || 'Desconhecido'}
+                        </span>
+                        {selectedDetails?.isVariableFrameRate && (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-amber-500/20 border border-amber-500/40 text-amber-300 flex items-center gap-1">
+                            <AlertTriangle className="w-3 h-3" aria-hidden="true" /> VFR
+                          </span>
+                        )}
+                        {selectedDetails?.sourceDateEvidence && (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-cyan-950/80 backdrop-blur border border-cyan-800 text-cyan-300 font-mono">
+                            {selectedDetails.sourceDateEvidence}
+                          </span>
+                        )}
+                      </>
+                    }
+                  />
+                ) : (
+                  <div className="relative h-36 xl:h-52 rounded-2xl overflow-hidden bg-black flex items-center justify-center border border-slate-800">
+                    {selectedAsset?.thumbnailUrl ? (
+                      <img src={selectedAsset.thumbnailUrl} alt="Pré-visualização do clipe" className="w-full h-full object-contain" />
+                    ) : (
+                      <div className="flex flex-col items-center gap-2 text-slate-600">
+                        <Video className="w-10 h-10" aria-hidden="true" />
+                        <span className="text-xs font-mono">{selectedAsset ? 'Sem visualização' : 'Selecione um clipe'}</span>
+                      </div>
                     )}
-                    {selectedDetails?.sourceDateEvidence && (
-                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-cyan-950/80 backdrop-blur border border-cyan-800 text-cyan-300 font-mono">
-                        {selectedDetails.sourceDateEvidence}
-                      </span>
-                    )}
                   </div>
-                </div>
+                )}
 
                 <ClipTimelineStrip
                   durationSeconds={selectedAsset?.durationSeconds ?? 0}
                   silences={analysis?.silenceStatus === 'completed' ? analysis.silences : []}
                   hesitations={analysis?.hesitations ?? []}
                   selectedSec={focusedTime}
-                  onSeek={setFocusedTime}
+                  onSeek={requestSeek}
                 />
 
                 <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono">
@@ -611,7 +619,6 @@ export const LibraryTranscriptionView: React.FC<LibraryTranscriptionViewProps> =
                         <span>{selectedDetails.audioChannels}ch @ {selectedDetails.audioSampleRate}Hz</span>
                       </>
                     )}
-                    <Maximize2 className="w-4 h-4 text-slate-600" aria-hidden="true" />
                   </span>
                 </div>
               </div>
@@ -631,7 +638,7 @@ export const LibraryTranscriptionView: React.FC<LibraryTranscriptionViewProps> =
                     error={analysisError}
                     mediaStageStates={selectedMediaStages}
                     selectedSec={focusedTime}
-                    onSeek={setFocusedTime}
+                    onSeek={requestSeek}
                     onAnalyze={() => {
                       void pipeline.startAnalysis({ mediaIds: [selectedAsset.mediaId], force: false });
                     }}

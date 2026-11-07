@@ -499,6 +499,13 @@ Validação: dotnet build -c Release 0 erros; dotnet test -c Release UnitTests 1
 Observação: testes Python não executados (VM sem Python). Nenhum download ou transcrição real. Auditoria qa-auditor/senior-analyst não foi acionada nesta entrega. Job de instalação de ferramentas continua local à tela.
 Próximo: roteiro F13.2 no host.
 
+[2026-11-07 01:49 -03:00] F13.3-A | orchestrator (Opus 5.5) | TESTADO
+Ação: Player real na Biblioteca. MediaClipPlayer novo sobre usePlaybackSource/useProxyGeneration (MediaIntervalPlayer é preso a janela de corte): play/pausa, barra, volume, silenciar, tempo, tela cheia, sem autoplay, troca por key (libera src ao desmontar), proxy com posição mantida, reconsulta se proxy já em geração. HEVC: erro do elemento e caso videoWidth=0 (áudio carrega sem imagem) viram aviso com 'Gerar proxy compatível'. Sincronia: tempo sobe do vídeo (limite 0,25 s); busca desce só por pedido com token (requestSeek), sem laço. Faixa temporal clicável (stripPositionToSeconds; marcadores com stopPropagation). Placeholder e botão desabilitado removidos. Sem file://: só URL de media.getPlaybackSource; sem novas permissões do WebView2.
+Arquivos: frontend/src/components/{media/{MediaClipPlayer.tsx,mediaClipModel.ts,__tests__/mediaClipPlayer.test.tsx},analysis/SignalsPanel.tsx,LibraryTranscriptionView.tsx}
+Validação: tsc 0; vitest completo; navegador interno com vídeos sintéticos de canvas (sem arquivo no repo): semAutoplay, tocando, pausou, buscaExterna=1, mesmoTokenNaoRebusca, silenciou, trocouClipe, liberouAnterior, pausadoAposTroca, erro de codec com botão de proxy — todos ok.
+Observação: HEVC real, proxy real e tela cheia no WebView2 dependem do host.
+Próximo: F13.3-B.
+
 ## Modelo de entrada (copiar preenchendo com dados reais)
 
 ```text

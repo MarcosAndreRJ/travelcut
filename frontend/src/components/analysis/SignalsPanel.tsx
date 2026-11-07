@@ -1,4 +1,5 @@
 import React, { useId } from 'react';
+import { stripPositionToSeconds } from '../media/mediaClipModel';
 import type { HesitationCandidateDto, VadSilenceSegmentDto } from '../../types/ipc';
 import {
   confidenceText,
@@ -145,17 +146,27 @@ export const ClipTimelineStrip: React.FC<ClipTimelineStripProps> = ({
 
   const pct = (sec: number): string => `${Math.min(100, Math.max(0, (sec / durationSeconds) * 100))}%`;
 
+  const handleStripClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const seconds = stripPositionToSeconds(event.clientX, rect.left, rect.width, durationSeconds);
+    if (seconds !== null) onSeek(seconds);
+  };
+
   return (
     <div
       role="group"
       aria-label="Linha do clipe com silêncios e hesitações"
-      className="relative h-8 w-full rounded-lg border border-slate-800 bg-[#0a1222] overflow-hidden"
+      onClick={handleStripClick}
+      className="relative h-8 w-full rounded-lg border border-slate-800 bg-[#0a1222] overflow-hidden cursor-pointer"
     >
       {silences.map((s, idx) => (
         <button
           key={`s-${idx}`}
           type="button"
-          onClick={() => onSeek(s.startSeconds)}
+          onClick={(event) => {
+            event.stopPropagation();
+            onSeek(s.startSeconds);
+          }}
           title={`Silêncio ${formatSeconds(s.durationSeconds)} em ${formatClock(s.startSeconds)}`}
           aria-label={`Silêncio de ${formatSeconds(s.durationSeconds)} em ${formatClock(s.startSeconds)}`}
           className="absolute top-1 bottom-1 rounded-sm bg-amber-500/50 hover:bg-amber-400/70 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-400"
@@ -169,7 +180,10 @@ export const ClipTimelineStrip: React.FC<ClipTimelineStripProps> = ({
         <button
           key={`h-${idx}`}
           type="button"
-          onClick={() => onSeek(h.startSeconds)}
+          onClick={(event) => {
+            event.stopPropagation();
+            onSeek(h.startSeconds);
+          }}
           title={`Hesitação "${h.detectedWord}" em ${formatClock(h.startSeconds)}`}
           aria-label={`Hesitação "${h.detectedWord}" em ${formatClock(h.startSeconds)}`}
           className="absolute top-0 bottom-0 w-1 bg-rose-500 hover:bg-rose-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-400"
