@@ -1,3 +1,4 @@
+using TravelCut.Application.Audio;
 using TravelCut.Contracts.Dtos;
 using TravelCut.Domain.Entities;
 
@@ -97,6 +98,10 @@ public sealed class PipelineJobRun
     public DateTime? StartedAtUtc { get; private set; }
     public DateTime? FinishedAtUtc { get; private set; }
     public string? CurrentMediaRelativePath { get; private set; }
+    public string? CurrentStage { get; private set; }
+    public string? CurrentDetail { get; private set; }
+    public double? CurrentPercent { get; private set; }
+    public DateTime? LastActivityAtUtc { get; private set; }
 
     public bool IsFinished
     {
@@ -131,6 +136,7 @@ public sealed class PipelineJobRun
         {
             State = "running";
             StartedAtUtc = DateTime.UtcNow;
+            LastActivityAtUtc = StartedAtUtc;
         }
     }
 
@@ -139,6 +145,25 @@ public sealed class PipelineJobRun
         lock (Sync)
         {
             CurrentMediaRelativePath = relativePath;
+            LastActivityAtUtc = DateTime.UtcNow;
+        }
+    }
+
+    /// <summary>Telemetria do worker durante a etapa atual. Depois do fim do job é ignorada.</summary>
+    public void ReportTranscriptionProgress(TranscriptionProgressUpdate update)
+    {
+        lock (Sync)
+        {
+            if (FinishedAtUtc.HasValue) return;
+            CurrentDetail = update.Stage switch
+            {
+                "loading_audio" => "Decodificando o áudio",
+                "loading_model" => "Carregando o modelo",
+                "transcribing" => "Transcrevendo",
+                _ => CurrentDetail
+            };
+            CurrentPercent = update.Percent;
+            LastActivityAtUtc = DateTime.UtcNow;
         }
     }
 
@@ -149,6 +174,11 @@ public sealed class PipelineJobRun
             media.States[stage] = state;
             if (reason != null) media.Reasons[stage] = reason;
             else media.Reasons.Remove(stage);
+
+            if (state == StageStates.Running) CurrentStage = stage;
+            CurrentDetail = null;
+            CurrentPercent = null;
+            LastActivityAtUtc = DateTime.UtcNow;
         }
     }
 
@@ -240,6 +270,10 @@ public sealed class PipelineJobRun
             }
             FinishedAtUtc = DateTime.UtcNow;
             CurrentMediaRelativePath = null;
+            CurrentStage = null;
+            CurrentDetail = null;
+            CurrentPercent = null;
+            LastActivityAtUtc = FinishedAtUtc;
         }
     }
 
@@ -281,7 +315,16 @@ public sealed class PipelineJobRun
                 CurrentMedia: CurrentMediaRelativePath,
                 Environment: environment,
                 StartedAtUtc: StartedAtUtc,
-                FinishedAtUtc: FinishedAtUtc);
+                FinishedAtUtc: FinishedAtUtc,
+                Activity: new PipelineActivityDto(
+                    CurrentStage: CurrentStage,
+                    CurrentStageLabel: CurrentStage is null ? null : PipelineStages.Label(CurrentStage),
+                    Detail: CurrentDetail,
+                    Percent: CurrentPercent,
+                    LastActivityAtUtc: LastActivityAtUtc,
+                    CancelRequested: Cts.IsCancellationRequested,
+                    MediaCompleted: Media.Count(m => m.States.Values.All(StageStates.IsTerminal)),
+                    MediaTotal: Media.Count));
         }
     }
 

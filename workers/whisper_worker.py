@@ -5,6 +5,13 @@ TravelCut Studio - worker Whisper (protocolo "travelcut.whisper" v1).
 Transporte: NDJSON (uma mensagem JSON por linha) em stdin/stdout.
 Comandos: "probe", "transcribe", "exit".
 
+Durante "transcribe" o worker também emite eventos de telemetria, sem o campo "ok"
+(a resposta final continua sendo a única mensagem com "ok"):
+  {"protocol", "version", "requestId", "event": "progress"|"heartbeat", "stage", "percent"}
+- stage: loading_audio | loading_model | transcribing.
+- percent: avanço real da decodificação (quadros processados / total), ou null quando desconhecido.
+- heartbeat: processo vivo a cada HEARTBEAT_SECONDS; não prova avanço. O áudio nunca é dividido para gerar percentual.
+
 Regras:
 - Modelo padrão "large-v3". O worker NUNCA troca o modelo pedido por outro.
 - Não baixa modelos. Se o arquivo do modelo não estiver no cache, responde
@@ -21,6 +28,7 @@ import os
 import re
 import shutil
 import sys
+import threading
 import time
 
 PROTOCOL = "travelcut.whisper"
@@ -28,14 +36,18 @@ PROTOCOL_VERSION = 1
 DEFAULT_MODEL = "large-v3"
 DEFAULT_LANGUAGE = "pt"
 MODEL_NAME_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+HEARTBEAT_SECONDS = 10
 
 # Canal de protocolo: guardado antes de redirecionar sys.stdout para sys.stderr.
 _proto_out = sys.stdout
+_emit_lock = threading.Lock()
 
 
 def _emit(message):
-    _proto_out.write(json.dumps(message, ensure_ascii=True) + "\n")
-    _proto_out.flush()
+    line = json.dumps(message, ensure_ascii=True) + "\n"
+    with _emit_lock:
+        _proto_out.write(line)
+        _proto_out.flush()
 
 
 def _ok(request_id, result):
@@ -56,6 +68,93 @@ def _err(request_id, code, message):
         "ok": False,
         "error": {"code": code, "message": message},
     })
+
+
+def _progress_percent(done, total):
+    """Percentual real, ou None sem total válido. Nunca passa de 100."""
+    if not total or total <= 0 or done < 0:
+        return None
+    return round(min(100.0, done * 100.0 / total), 1)
+
+
+class _Telemetry:
+    """Etapa atual do transcribe, publicada como eventos e repetida pelo heartbeat."""
+
+    def __init__(self, request_id):
+        self.request_id = request_id
+        self.stage = "loading_audio"
+        self.percent = None
+        self._stop = threading.Event()
+        self._thread = None
+
+    def _send(self, event):
+        _emit({
+            "protocol": PROTOCOL,
+            "version": PROTOCOL_VERSION,
+            "requestId": self.request_id,
+            "event": event,
+            "stage": self.stage,
+            "percent": self.percent,
+        })
+
+    def report(self, stage, percent=None):
+        self.stage = stage
+        self.percent = percent
+        self._send("progress")
+
+    def _beat(self):
+        while not self._stop.wait(HEARTBEAT_SECONDS):
+            self._send("heartbeat")
+
+    def start(self):
+        self._thread = threading.Thread(target=self._beat, daemon=True)
+        self._thread.start()
+
+    def stop(self):
+        # Antes da resposta final: nenhum evento depois do "ok".
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=2)
+
+
+def _install_progress_hook(telemetry):
+    """
+    Liga a barra interna do openai-whisper à telemetria. Devolve a função que desfaz a troca.
+    Depende de um detalhe interno (whisper.transcribe usa tqdm.tqdm com total em quadros): se o pacote
+    mudar, não há percentual, apenas heartbeat. Falha aqui nunca interrompe a transcrição.
+    """
+    try:
+        module = sys.modules.get("whisper.transcribe")
+        original = getattr(module, "tqdm", None)
+        base = getattr(original, "tqdm", None)
+        if base is None:
+            return lambda: None
+
+        class _ReportingBar(base):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                self._tc_total = kwargs.get("total")
+                self._tc_done = 0
+
+            def update(self, n=1):
+                result = super().update(n)
+                self._tc_done += n or 0
+                percent = _progress_percent(self._tc_done, self._tc_total)
+                if percent is not None:
+                    telemetry.report("transcribing", percent)
+                return result
+
+        class _TqdmModule:
+            tqdm = _ReportingBar
+
+        module.tqdm = _TqdmModule
+
+        def restore():
+            module.tqdm = original
+
+        return restore
+    except Exception:
+        return lambda: None
 
 
 def _cache_dir():
@@ -149,7 +248,11 @@ def handle_transcribe(request_id, payload):
         return
 
     started = time.time()
+    telemetry = _Telemetry(request_id)
+    restore_hook = lambda: None
     try:
+        telemetry.start()
+        telemetry.report("loading_audio")
         cuda = bool(torch.cuda.is_available())
         device = "cuda" if cuda else "cpu"
         lang = None if language in (None, "", "auto") else language
@@ -159,13 +262,20 @@ def handle_transcribe(request_id, payload):
         duration = len(audio) / float(whisper.audio.SAMPLE_RATE)
 
         # O arquivo já está no cache (verificado acima): load_model não baixa.
+        telemetry.report("loading_model")
         model_obj = whisper.load_model(model, device=device)
+
+        telemetry.report("transcribing")
+        restore_hook = _install_progress_hook(telemetry)
         result = model_obj.transcribe(
             audio,
             language=lang,
             word_timestamps=True,
             fp16=cuda,
         )
+        restore_hook()
+        restore_hook = lambda: None
+        telemetry.stop()
 
         words = []
         for segment in result.get("segments") or []:
@@ -190,6 +300,8 @@ def handle_transcribe(request_id, payload):
             "elapsedSecs": round(time.time() - started, 3),
         })
     except Exception as exc:
+        restore_hook()
+        telemetry.stop()
         _err(request_id, "transcription_failed", f"{type(exc).__name__}: {str(exc)[:300]}")
 
 

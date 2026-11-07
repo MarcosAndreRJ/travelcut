@@ -4,14 +4,19 @@ import type { PipelineStatusDto } from '../../types/ipc';
 import { errorMessage, isPipelineActive } from './analysisFormat';
 
 export const PIPELINE_POLL_INTERVAL_MS = 1000;
+/** Espera entre tentativas quando o host não responde a um job acompanhado. */
+export const PIPELINE_RETRY_INTERVAL_MS = 3000;
 /** Tentativas aguardando o job aparecer no status após um start (evita polling infinito). */
 const MAX_WAIT_ATTEMPTS = 15;
 
-interface Tracking {
+export interface Tracking {
   jobId: string | null;
   sawActive: boolean;
   waitAttempts: number;
 }
+
+/** Falha temporária de IPC não pode encerrar o acompanhamento: o job continua no host. */
+export const shouldKeepPollingAfterError = (track: Tracking | null): boolean => track !== null;
 
 export interface StartAnalysisOptions {
   mediaIds?: string[] | null;
@@ -69,7 +74,9 @@ export function usePipeline(projectId: string | null, onFinished: () => void): U
       } catch (err) {
         if (!cancelled) {
           setStatusError(errorMessage(err));
-          trackRef.current = null;
+          if (shouldKeepPollingAfterError(trackRef.current)) {
+            timer = setTimeout(() => void tick(), PIPELINE_RETRY_INTERVAL_MS);
+          }
         }
         return;
       }

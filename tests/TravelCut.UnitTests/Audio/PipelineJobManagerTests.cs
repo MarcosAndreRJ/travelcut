@@ -218,6 +218,102 @@ public class PipelineJobManagerTests : IDisposable
     }
 
     [Fact]
+    public async Task LongTranscription_ExposesRealActivity_WhileMediaCountStaysZero()
+    {
+        var whisper = new FakeWhisperService
+        {
+            WaitForCancellation = true,
+            ProgressDelivered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously)
+        };
+        whisper.ProgressScript.Add(new TranscriptionProgressUpdate("loading_model", null));
+        whisper.ProgressScript.Add(new TranscriptionProgressUpdate("transcribing", 37.5));
+        var h = NewHarness(whisper, new FakeSilenceService { FfmpegAvailable = false });
+        var project = h.CreateProject();
+        h.AddMedia(project, "1-Bruto/longo.mp4");
+
+        var jobId = await h.Manager.StartAsync(Start(project.ProjectId, stages: new List<string> { "transcription" }));
+        await whisper.ProgressDelivered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+        var status = await h.Manager.GetStatusAsync(project.ProjectId);
+        var activity = status.Activity!;
+
+        Assert.Equal("running", status.State);
+        Assert.Equal("1-Bruto/longo.mp4", status.CurrentMedia);
+        Assert.Equal("transcription", activity.CurrentStage);
+        Assert.Equal("Transcrição (Whisper large-v3)", activity.CurrentStageLabel);
+        Assert.Equal("Transcrevendo", activity.Detail);
+        Assert.Equal(37.5, activity.Percent);
+        Assert.NotNull(activity.LastActivityAtUtc);
+        Assert.False(activity.CancelRequested);
+        Assert.Equal(0, activity.MediaCompleted);
+        Assert.Equal(1, activity.MediaTotal);
+        Assert.Equal(0, Assert.Single(status.Stages).ProcessedItems);
+
+        Assert.True(h.Manager.Cancel(jobId));
+        var canceling = await h.Manager.GetStatusAsync(project.ProjectId);
+        Assert.True(canceling.State == "canceled" || canceling.Activity!.CancelRequested);
+
+        var final = await h.WaitForFinishAsync(project.ProjectId);
+        Assert.Equal("canceled", final.State);
+        Assert.Null(final.Activity!.CurrentStage);
+        Assert.Null(final.Activity.Percent);
+    }
+
+    [Fact]
+    public async Task Transcription_WithoutEnginePercent_KeepsPercentNull()
+    {
+        var whisper = new FakeWhisperService
+        {
+            WaitForCancellation = true,
+            ProgressDelivered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously)
+        };
+        whisper.ProgressScript.Add(new TranscriptionProgressUpdate("transcribing", null));
+        var h = NewHarness(whisper, new FakeSilenceService { FfmpegAvailable = false });
+        var project = h.CreateProject();
+        h.AddMedia(project, "1-Bruto/longo.mp4");
+
+        var jobId = await h.Manager.StartAsync(Start(project.ProjectId, stages: new List<string> { "transcription" }));
+        await whisper.ProgressDelivered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+        var activity = (await h.Manager.GetStatusAsync(project.ProjectId)).Activity!;
+        Assert.Equal("Transcrevendo", activity.Detail);
+        Assert.Null(activity.Percent);
+
+        h.Manager.Cancel(jobId);
+        await h.WaitForFinishAsync(project.ProjectId);
+    }
+
+    [Fact]
+    public async Task Finished_ReportsCompletedMedia_AndClearsCurrentStage()
+    {
+        var whisper = new FakeWhisperService { Outcome = CompletedTranscription() };
+        whisper.ProgressScript.Add(new TranscriptionProgressUpdate("transcribing", 80));
+        var h = NewHarness(whisper, new FakeSilenceService { FfmpegAvailable = false });
+        var project = h.CreateProject();
+        h.AddMedia(project, "1-Bruto/clip.mp4");
+
+        await h.Manager.StartAsync(Start(project.ProjectId, stages: new List<string> { "transcription" }));
+        var status = await h.WaitForFinishAsync(project.ProjectId);
+
+        Assert.Equal("completed", status.State);
+        Assert.Equal(1, status.Activity!.MediaCompleted);
+        Assert.Null(status.Activity.CurrentStage);
+        Assert.Null(status.Activity.Percent);
+    }
+
+    [Fact]
+    public async Task IdleProject_HasNoActivity()
+    {
+        var h = NewHarness();
+        var project = h.CreateProject();
+
+        var status = await h.Manager.GetStatusAsync(project.ProjectId);
+
+        Assert.Equal("idle", status.State);
+        Assert.Null(status.Activity);
+    }
+
+    [Fact]
     public async Task RerunWithForce_PreservesDecidedSuggestions_AndReplacesProposedOfSameAuthor()
     {
         var whisper = new FakeWhisperService { Outcome = CompletedTranscription() };

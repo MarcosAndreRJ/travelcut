@@ -85,7 +85,8 @@ public class WhisperTranscriptionService : IWhisperTranscriptionService
         Guid mediaId,
         string model = DefaultModel,
         string language = "pt",
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        IProgress<TranscriptionProgressUpdate>? progress = null)
     {
         var requestedModel = string.IsNullOrWhiteSpace(model) ? DefaultModel : model.Trim();
         var requestedLanguage = string.IsNullOrWhiteSpace(language) ? "pt" : language.Trim();
@@ -133,7 +134,8 @@ public class WhisperTranscriptionService : IWhisperTranscriptionService
                     BuildArgs(env.Python, env.WorkerScript),
                     _options.TranscribeTimeout ?? DefaultTranscribeTimeout,
                     command,
-                    PythonEnvironment),
+                    PythonEnvironment,
+                    StandardOutputLine: progress is null ? null : line => ReportWorkerEvent(line, reqId, progress)),
                 ct).ConfigureAwait(false);
 
             return MapTranscribeRun(run, reqId, mediaId, requestedModel, requestedLanguage);
@@ -498,7 +500,42 @@ public class WhisperTranscriptionService : IWhisperTranscriptionService
 
     // ---- Protocolo / JSON ----
 
+    // Evento de telemetria do worker (sem "ok"): linhas fora do protocolo são ignoradas, e um percentual inválido vira null.
+    private static void ReportWorkerEvent(string rawLine, string requestId, IProgress<TranscriptionProgressUpdate> progress)
+    {
+        var line = rawLine.Trim();
+        if (line.Length == 0 || line[0] != '{') return;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(line);
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object
+                || GetString(root, "protocol") != TranscriptValidator.ExpectedProtocol
+                || GetString(root, "requestId") != requestId
+                || GetString(root, "event") is null
+                || GetString(root, "stage") is not { Length: > 0 } stage)
+            {
+                return;
+            }
+
+            double? percent = root.TryGetProperty("percent", out var p)
+                && p.ValueKind == JsonValueKind.Number
+                && p.TryGetDouble(out var value)
+                && value is >= 0 and <= 100
+                    ? value
+                    : null;
+
+            progress.Report(new TranscriptionProgressUpdate(stage, percent));
+        }
+        catch (JsonException)
+        {
+            // linha não JSON: ignorada
+        }
+    }
+
     // Procura a resposta com o requestId esperado (linhas que não são JSON do protocolo são ignoradas).
+    // Eventos de telemetria têm o mesmo requestId, mas não trazem "ok": não são resposta.
     private static JsonElement? FindResponse(string stdout, string requestId)
     {
         JsonElement? found = null;
@@ -516,7 +553,8 @@ public class WhisperTranscriptionService : IWhisperTranscriptionService
                 var root = doc.RootElement;
                 if (root.ValueKind == JsonValueKind.Object
                     && GetString(root, "protocol") == TranscriptValidator.ExpectedProtocol
-                    && GetString(root, "requestId") == requestId)
+                    && GetString(root, "requestId") == requestId
+                    && root.TryGetProperty("ok", out _))
                 {
                     found = root.Clone();
                 }

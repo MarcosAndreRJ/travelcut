@@ -19,6 +19,8 @@ interface ClipAnalysisPanelProps {
   analyzeDisabledReason: string | null;
   isStarting: boolean;
   isMock: boolean;
+  /** Resumo da atividade quando este clipe é o que está em processamento. */
+  activityLine?: string | null;
 }
 
 /**
@@ -37,7 +39,8 @@ export const ClipAnalysisPanel: React.FC<ClipAnalysisPanelProps> = ({
   onRetry,
   analyzeDisabledReason,
   isStarting,
-  isMock
+  isMock,
+  activityLine = null
 }) => {
   const fileName = asset.relativePath.split(/[/\\]/).pop() || asset.relativePath;
   const isRunningHere = mediaStageStates
@@ -86,7 +89,7 @@ export const ClipAnalysisPanel: React.FC<ClipAnalysisPanelProps> = ({
 
       {isRunningHere && (
         <p role="status" className="text-[11px] text-cyan-300 shrink-0">
-          Análise em andamento para este clipe; os resultados serão atualizados ao final.
+          Análise em andamento para este clipe{activityLine ? ` (${activityLine})` : ''}; os resultados serão atualizados ao final.
         </p>
       )}
 

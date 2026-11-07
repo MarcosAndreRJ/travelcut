@@ -18,7 +18,9 @@ public sealed record ProcessRunRequest(
     TimeSpan Timeout,
     string? StandardInput = null,
     IReadOnlyDictionary<string, string>? EnvironmentVariables = null,
-    string? WorkingDirectory = null
+    string? WorkingDirectory = null,
+    // Chamado a cada linha de stdout enquanto o processo roda; StandardOutput continua completo no resultado.
+    Action<string>? StandardOutputLine = null
 );
 
 public sealed record ProcessRunResult(

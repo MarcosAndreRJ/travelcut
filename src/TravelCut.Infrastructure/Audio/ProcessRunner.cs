@@ -72,7 +72,9 @@ public sealed class ProcessRunner : IProcessRunner
             return NotStarted();
         }
 
-        var stdoutTask = process.StandardOutput.ReadToEndAsync();
+        var stdoutTask = request.StandardOutputLine is { } onLine
+            ? ReadLinesAsync(process.StandardOutput, onLine)
+            : process.StandardOutput.ReadToEndAsync();
         var stderrTask = process.StandardError.ReadToEndAsync();
 
         try
@@ -107,6 +109,24 @@ public sealed class ProcessRunner : IProcessRunner
         var outText = await stdoutTask.ConfigureAwait(false);
         var errText = await stderrTask.ConfigureAwait(false);
         return new ProcessRunResult(ProcessRunStatus.Completed, process.ExitCode, outText, errText);
+    }
+
+    private static async Task<string> ReadLinesAsync(StreamReader reader, Action<string> onLine)
+    {
+        var text = new System.Text.StringBuilder();
+        while (await reader.ReadLineAsync().ConfigureAwait(false) is { } line)
+        {
+            text.Append(line).Append('\n');
+            try
+            {
+                onLine(line);
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                // Telemetria não pode interromper a leitura nem o processo.
+            }
+        }
+        return text.ToString();
     }
 
     private static ProcessRunResult NotStarted() =>

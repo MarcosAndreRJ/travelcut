@@ -485,6 +485,13 @@ Validação: tsc 0 erros; vitest 64/64 (tracker + environment); dotnet test filt
 Observação: job de instalação de ferramentas continua local à tela (fora do escopo). Sem retomada após fechar o app (backend guarda jobs em memória).
 Próximo: Etapa 2.
 
+[2026-11-07 01:34 -03:00] F13.2-ETAPA2 | orchestrator (Opus 5.5) | TESTADO
+Ação: Progresso da análise. processedItems/totalItems contam mídias, por isso 0/1 até o fim. Worker: eventos NDJSON sem 'ok' (progress/heartbeat a cada 10 s; stage loading_audio/loading_model/transcribing; percent real dos quadros via troca da barra tqdm interna de whisper.transcribe, com queda para heartbeat sem percentual se o interno mudar; áudio não é dividido). ProcessRunner: StandardOutputLine opcional. WhisperTranscriptionService: ignora linhas estranhas/requestId alheio/percentual inválido; FindResponse exige 'ok'. PipelineJobRun + PipelineActivityDto em pipeline.status (etapa, detalhe, percent, lastActivityAtUtc, cancelRequested, mediaCompleted/Total). UI: pipelineActivity.ts + PipelineActivitySummary (clipe, etapa, tempo, último sinal, fase, erro, mídias concluídas, barra indeterminada, 'sem telemetria recente' sem afirmar travamento). usePipeline continua consultando após falha de IPC (antes parava de vez). Conclusão/cancelamento recarregam o clipe via analysisRefreshKey (já existente, conferido).
+Arquivos: workers/{whisper_worker.py,tests/test_whisper_worker.py}, src/TravelCut.Application/{Audio/IWhisperTranscriptionService.cs,Ports/IProcessRunner.cs}, src/TravelCut.Contracts/Dtos/SpeechAnalysisDtos.cs, src/TravelCut.Infrastructure/{Audio/{ProcessRunner,WhisperTranscriptionService,PipelineJobManager}.cs,Analysis/PipelineJobRun.cs,Tooling/EnvironmentAssistantService.Install.cs}, tests/TravelCut.UnitTests/{Audio/*,EndToEnd/E2EPortFixtures.cs}, frontend/src/{types/ipc.ts,components/LibraryTranscriptionView.tsx,components/analysis/*}
+Validação: dotnet test filtro Audio 136/136; vitest analysis 29/29; tsc 0 erros. test_whisper_worker.py NÃO EXECUTADO (VM sem Python). Nenhuma transcrição real.
+Observação: percentual real depende de detalhe interno do openai-whisper — confirmar no host. Heartbeat prova processo vivo, não avanço.
+Próximo: Etapa 3.
+
 ## Modelo de entrada (copiar preenchendo com dados reais)
 
 ```text

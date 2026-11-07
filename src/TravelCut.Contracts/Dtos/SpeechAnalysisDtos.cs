@@ -113,7 +113,24 @@ public record PipelineStatusDto(
     [property: JsonPropertyName("currentMedia")] string? CurrentMedia, // relativePath em processamento
     [property: JsonPropertyName("environment")] AnalysisEnvironmentDto? Environment,
     [property: JsonPropertyName("startedAtUtc")] DateTime? StartedAtUtc,
-    [property: JsonPropertyName("finishedAtUtc")] DateTime? FinishedAtUtc
+    [property: JsonPropertyName("finishedAtUtc")] DateTime? FinishedAtUtc,
+    [property: JsonPropertyName("activity")] PipelineActivityDto? Activity = null
+);
+
+/// <summary>
+/// Atividade interna do job. ProcessedItems/TotalItems contam mídias concluídas; aqui fica o que acontece dentro da mídia.
+/// Percent só vem de telemetria real do motor (null = sem dado; a UI mostra progresso indeterminado).
+/// LastActivityAtUtc é o último sinal confirmado; ausência de sinal não significa processo travado.
+/// </summary>
+public record PipelineActivityDto(
+    [property: JsonPropertyName("currentStage")] string? CurrentStage,
+    [property: JsonPropertyName("currentStageLabel")] string? CurrentStageLabel,
+    [property: JsonPropertyName("detail")] string? Detail,
+    [property: JsonPropertyName("percent")] double? Percent,
+    [property: JsonPropertyName("lastActivityAtUtc")] DateTime? LastActivityAtUtc,
+    [property: JsonPropertyName("cancelRequested")] bool CancelRequested,
+    [property: JsonPropertyName("mediaCompleted")] int MediaCompleted,
+    [property: JsonPropertyName("mediaTotal")] int MediaTotal
 );
 
 public record CancelPipelineResponse(

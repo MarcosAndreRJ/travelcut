@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Microsoft.Extensions.Logging.Abstractions;
+using TravelCut.Application.Audio;
 using TravelCut.Application.Ports;
 using TravelCut.Infrastructure.Audio;
 using Xunit;
@@ -290,6 +291,64 @@ public class WhisperTranscriptionServiceTests
 
         var transcribe = runner.Requests.Single(r => FakeProcessRunner.IsCommand(r, "transcribe"));
         Assert.Contains("\"language\":\"pt\"", transcribe.StandardInput);
+    }
+
+    [Fact]
+    public async Task WorkerEvents_AreReportedAsTelemetry_AndDoNotReplaceFinalResponse()
+    {
+        var (_, script) = CreateWorkerScript();
+        var media = CreateMediaFile(out _);
+        var final = FixtureFiles.Read("whisper_transcribe_ok.json");
+
+        var runner = new FakeProcessRunner(r =>
+        {
+            if (FakeProcessRunner.IsCommand(r, "transcribe"))
+            {
+                var req = FakeProcessRunner.RequestIdFrom(r);
+                string Event(string stage, string percent, string id) =>
+                    $"{{\"protocol\":\"travelcut.whisper\",\"version\":1,\"requestId\":\"{id}\",\"event\":\"progress\",\"stage\":\"{stage}\",\"percent\":{percent}}}";
+
+                var lines = new[]
+                {
+                    "linha fora do protocolo",
+                    Event("loading_model", "null", req),
+                    Event("transcribing", "12.5", req),
+                    Event("transcribing", "140", req),
+                    Event("transcribing", "50", "outro-request"),
+                };
+                foreach (var line in lines) r.StandardOutputLine?.Invoke(line);
+
+                // Evento depois da resposta não pode ser confundido com ela.
+                var stdout = string.Join("\n", lines) + "\n" + final.Replace("__REQ__", req) + "\n" + Event("transcribing", "99", req);
+                return FakeProcessRunner.Completed(0, stdout);
+            }
+            return PythonOk()(r);
+        });
+        var service = CreateService(runner, script);
+        var updates = new List<TranscriptionProgressUpdate>();
+
+        var outcome = await service.TranscribeAsync(media, Guid.NewGuid(), progress: new SynchronousProgress<TranscriptionProgressUpdate>(updates.Add));
+
+        Assert.Equal("completed", outcome.Status);
+        Assert.Equal(new TranscriptionProgressUpdate("loading_model", null), updates[0]);
+        Assert.Equal(new TranscriptionProgressUpdate("transcribing", 12.5), updates[1]);
+        Assert.Equal(new TranscriptionProgressUpdate("transcribing", null), updates[2]); // 140 não é percentual válido
+        Assert.Equal(3, updates.Count); // requestId alheio e texto solto são ignorados
+    }
+
+    [Fact]
+    public async Task WorkerWithoutEvents_StillCompletes_WithNoTelemetry()
+    {
+        var (_, script) = CreateWorkerScript();
+        var media = CreateMediaFile(out _);
+        var runner = new FakeProcessRunner(PythonOk(FixtureFiles.Read("whisper_transcribe_ok.json")));
+        var service = CreateService(runner, script);
+        var updates = new List<TranscriptionProgressUpdate>();
+
+        var outcome = await service.TranscribeAsync(media, Guid.NewGuid(), progress: new SynchronousProgress<TranscriptionProgressUpdate>(updates.Add));
+
+        Assert.Equal("completed", outcome.Status);
+        Assert.Empty(updates);
     }
 
     [Fact]

@@ -94,7 +94,8 @@ public sealed class E2EPortFixtures : IFfprobeExtractor, IWhisperTranscriptionSe
         Guid mediaId,
         string model = "large-v3",
         string language = "pt",
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        IProgress<TranscriptionProgressUpdate>? progress = null)
     {
         string name = Path.GetFileName(mediaPath);
         Count(_whisperCalls, name);

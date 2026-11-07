@@ -29,6 +29,7 @@ import { PipelineQueuePanel } from './analysis/PipelineQueuePanel';
 import { ClipAnalysisPanel } from './analysis/ClipAnalysisPanel';
 import { ClipTimelineStrip } from './analysis/SignalsPanel';
 import { usePipeline } from './analysis/usePipeline';
+import { activitySummaryLine, pipelineActivityView } from './analysis/pipelineActivity';
 import { errorMessage, formatClock, formatDuration } from './analysis/analysisFormat';
 
 /**
@@ -638,6 +639,11 @@ export const LibraryTranscriptionView: React.FC<LibraryTranscriptionViewProps> =
                     analyzeDisabledReason={analyzeDisabledReason}
                     isStarting={pipeline.isStarting}
                     isMock={ipc.isMock}
+                    activityLine={
+                      pipeline.status?.currentMedia === selectedAsset.relativePath
+                        ? activitySummaryLine(pipelineActivityView(pipeline.status, Date.now(), pipeline.isCanceling))
+                        : null
+                    }
                   />
                 ) : (
                   <div className="flex-1 flex items-center justify-center text-xs text-slate-500">

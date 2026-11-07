@@ -24,6 +24,9 @@ public sealed class FakeWhisperService : IWhisperTranscriptionService
     public bool Available { get; set; } = true;
     public TranscriptionOutcome? Outcome { get; set; }
     public bool WaitForCancellation { get; set; }
+    /// <summary>Telemetria entregue antes de bloquear ou responder.</summary>
+    public List<TranscriptionProgressUpdate> ProgressScript { get; } = new();
+    public TaskCompletionSource<bool>? ProgressDelivered { get; set; }
 
     public int TranscribeCalls => Volatile.Read(ref _transcribeCalls);
 
@@ -45,13 +48,16 @@ public sealed class FakeWhisperService : IWhisperTranscriptionService
         Guid mediaId,
         string model = "large-v3",
         string language = "pt",
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        IProgress<TranscriptionProgressUpdate>? progress = null)
     {
         Interlocked.Increment(ref _transcribeCalls);
         if (!Available)
         {
             return new TranscriptionOutcome("unavailable", null, "Python/Whisper indisponível (teste).", null, null);
         }
+        foreach (var update in ProgressScript) progress?.Report(update);
+        ProgressDelivered?.TrySetResult(true);
         if (WaitForCancellation)
         {
             await Task.Delay(Timeout.Infinite, ct);

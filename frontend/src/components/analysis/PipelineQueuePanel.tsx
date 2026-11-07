@@ -8,6 +8,7 @@ import {
   stageStateLabel,
   stageStateTone
 } from './analysisFormat';
+import { PipelineActivitySummary } from './PipelineActivitySummary';
 
 interface PipelineQueuePanelProps {
   status: PipelineStatusDto | null;
@@ -27,6 +28,8 @@ interface PipelineQueuePanelProps {
 const StageRow: React.FC<{ index: number; stage: PipelineStageStatusDto }> = ({ index, stage }) => {
   const hasTotal = stage.totalItems > 0;
   const ratio = hasTotal ? Math.min(1, Math.max(0, stage.processedItems / stage.totalItems)) : 0;
+  // A barra conta mídias concluídas: em 0/1 a etapa ativa não pode parecer parada.
+  const runningWithoutItems = stage.state === 'running' && stage.processedItems === 0;
 
   return (
     <li
@@ -52,7 +55,10 @@ const StageRow: React.FC<{ index: number; stage: PipelineStageStatusDto }> = ({ 
             aria-valuenow={stage.processedItems}
             className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden"
           >
-            <div className={`h-full rounded-full ${barTone(stage.state)}`} style={{ width: `${ratio * 100}%` }} />
+            <div
+              className={`h-full rounded-full ${barTone(stage.state)} ${runningWithoutItems ? 'animate-pulse' : ''}`}
+              style={{ width: runningWithoutItems ? '100%' : `${ratio * 100}%` }}
+            />
           </div>
         ) : (
           <span className="text-[10px] text-slate-600">Sem itens</span>
@@ -60,7 +66,7 @@ const StageRow: React.FC<{ index: number; stage: PipelineStageStatusDto }> = ({ 
       </div>
 
       <span className="w-28 shrink-0 text-[11px] font-mono text-slate-300 text-right">
-        {hasTotal ? `${stage.processedItems}/${stage.totalItems} mídias` : '—'}
+        {hasTotal ? `${stage.processedItems}/${stage.totalItems} concluídas` : '—'}
       </span>
 
       <span className={`shrink-0 px-2 py-0.5 rounded border text-[10px] font-semibold ${stageStateTone(stage.state)}`}>
@@ -89,7 +95,7 @@ export const PipelineQueuePanel: React.FC<PipelineQueuePanelProps> = ({
   const canCancel = active && !!status?.jobId && !isCanceling;
 
   return (
-    <section aria-labelledby="pipeline-queue-title" className="shrink-0 border-t border-slate-800 bg-[#080e1b] px-6 py-3 flex flex-col min-h-0 max-h-72">
+    <section aria-labelledby="pipeline-queue-title" className="shrink-0 border-t border-slate-800 bg-[#080e1b] px-6 py-3 flex flex-col min-h-0 max-h-80">
       <header className="flex flex-wrap items-center justify-between gap-3 mb-2">
         <div className="flex items-center gap-2 min-w-0">
           <h3 id="pipeline-queue-title" className="text-xs font-bold text-white">Fila de Processamento</h3>
@@ -158,6 +164,8 @@ export const PipelineQueuePanel: React.FC<PipelineQueuePanelProps> = ({
       )}
 
       {!status && !statusError && <p role="status" className="text-[11px] text-slate-400">Carregando fila…</p>}
+
+      <PipelineActivitySummary status={status} isCanceling={isCanceling} hostUnreachable={!!statusError} />
 
       {status && status.stages.length === 0 && (
         <p className="text-[11px] text-slate-500">O host não informou etapas de processamento.</p>

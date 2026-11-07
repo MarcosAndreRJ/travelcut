@@ -591,6 +591,21 @@ export interface PipelineStatusDto {
   environment: AnalysisEnvironmentDto | null;
   startedAtUtc: string | null;
   finishedAtUtc: string | null;
+  /** Atividade dentro da mídia; ausente quando não há job ou no modo demonstração. */
+  activity?: PipelineActivityDto | null;
+}
+
+/** processedItems/totalItems contam mídias; aqui fica o que acontece dentro da mídia em análise. */
+export interface PipelineActivityDto {
+  currentStage: string | null;
+  currentStageLabel: string | null;
+  detail: string | null;
+  /** Só com telemetria real do motor; null = progresso indeterminado. */
+  percent: number | null;
+  lastActivityAtUtc: string | null;
+  cancelRequested: boolean;
+  mediaCompleted: number;
+  mediaTotal: number;
 }
 
 // ============================================================================

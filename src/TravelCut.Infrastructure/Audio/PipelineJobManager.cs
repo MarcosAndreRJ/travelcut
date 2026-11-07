@@ -412,7 +412,8 @@ public class PipelineJobManager : IPipelineJobManager
 
         if (outcome == null)
         {
-            outcome = await _whisper.TranscribeAsync(media.AbsolutePath!, media.MediaId, WhisperModel, job.Language, ct);
+            outcome = await _whisper.TranscribeAsync(media.AbsolutePath!, media.MediaId, WhisperModel, job.Language, ct,
+                new SynchronousProgress<TranscriptionProgressUpdate>(job.ReportTranscriptionProgress));
             if (outcome.Status == "completed" && outcome.Transcript != null)
             {
                 await cache.WriteArtifactTextAsync(job.ProjectRoot, CacheCategory, key, Serialize(outcome), ct);

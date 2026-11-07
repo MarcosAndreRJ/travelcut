@@ -12,6 +12,18 @@ public record WhisperProbeResult(
     string StatusSummary
 );
 
+/// <summary>
+/// Telemetria real do worker. Stage: loading_audio | loading_model | transcribing.
+/// Percent só existe quando o motor informou avanço; nunca é estimado por tempo.
+/// </summary>
+public sealed record TranscriptionProgressUpdate(string Stage, double? Percent);
+
+/// <summary>Entrega o progresso na própria thread: Progress&lt;T&gt; enfileira e um relato tardio poderia sobrescrever o estado final.</summary>
+public sealed class SynchronousProgress<T>(Action<T> handler) : IProgress<T>
+{
+    public void Report(T value) => handler(value);
+}
+
 public interface IWhisperTranscriptionService
 {
     Task<WhisperProbeResult> ProbeEnvironmentAsync(CancellationToken ct = default);
@@ -23,6 +35,7 @@ public interface IWhisperTranscriptionService
         Guid mediaId,
         string model = "large-v3",
         string language = "pt",
-        CancellationToken ct = default
+        CancellationToken ct = default,
+        IProgress<TranscriptionProgressUpdate>? progress = null
     );
 }

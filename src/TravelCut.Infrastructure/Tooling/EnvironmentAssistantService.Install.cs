@@ -1,3 +1,4 @@
+using TravelCut.Application.Audio;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.RegularExpressions;
@@ -185,15 +186,6 @@ public sealed partial class EnvironmentAssistantService
                 IsCompleted = true;
             }
         }
-    }
-
-    /// <summary>
-    /// Entrega o progresso de forma síncrona. Progress&lt;T&gt; enfileira no thread pool e uma atualização
-    /// atrasada poderia sobrescrever o estado "Concluído".
-    /// </summary>
-    private sealed class SynchronousProgress<T>(Action<T> handler) : IProgress<T>
-    {
-        public void Report(T value) => handler(value);
     }
 
     public async Task<EnvironmentInstallPlanDto> GetInstallPlanAsync(string toolKey, CancellationToken ct = default)
