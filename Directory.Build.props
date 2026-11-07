@@ -8,7 +8,7 @@
   -->
 
   <PropertyGroup>
-    <TravelCutProductVersion>0.10.0-host-test.4</TravelCutProductVersion>
+    <TravelCutProductVersion>0.10.0-host-test.5</TravelCutProductVersion>
     <Version>$(TravelCutProductVersion)</Version>
     <InformationalVersion>$(TravelCutProductVersion)</InformationalVersion>
     <Company>TravelCut Studio</Company>

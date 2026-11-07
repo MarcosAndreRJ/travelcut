@@ -1,10 +1,12 @@
 using System.IO;
+using System.Text;
 using System.Text.Json;
 using System.Windows;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Web.WebView2.Core;
 using TravelCut.Application.Ipc;
+using TravelCut.Application.Services;
 using TravelCut.Application.UseCases;
 using TravelCut.Contracts.Dtos;
 using TravelCut.Contracts.Ipc;
@@ -27,6 +29,7 @@ public partial class MainWindow : Window
 
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<MainWindow> _logger;
+    private string? _currentProjectRoot;
 
     public MainWindow(IServiceProvider serviceProvider, ILogger<MainWindow> logger)
     {
@@ -185,21 +188,55 @@ public partial class MainWindow : Window
     /// <summary>Observa respostas de sucesso de project.open/project.create para atualizar o host de mídia.</summary>
     private void ApplyMediaHostForResponse(IpcResponse response)
     {
-        if (!response.Ok)
+        if (!response.Ok || response.Payload == null)
         {
             return;
         }
 
-        string? openedRoot = response.Payload switch
+        string? openedRoot = null;
+        if (response.Payload is OpenProjectResponse open)
         {
-            OpenProjectResponse open => open.Project.RootPath,
-            CreateProjectResponse created => created.Project.RootPath,
-            _ => null
-        };
+            openedRoot = open.Project.RootPath;
+        }
+        else if (response.Payload is CreateProjectResponse created)
+        {
+            openedRoot = created.Project.RootPath;
+        }
+        else if (response.Payload is JsonElement json)
+        {
+            if (json.TryGetProperty("project", out var projProp) && projProp.TryGetProperty("rootPath", out var rp))
+            {
+                openedRoot = rp.GetString();
+            }
+            else if (json.TryGetProperty("rootPath", out var rootProp))
+            {
+                openedRoot = rootProp.GetString();
+            }
+        }
+        else
+        {
+            try
+            {
+                var doc = JsonSerializer.SerializeToElement(response.Payload);
+                if (doc.TryGetProperty("project", out var projProp) && projProp.TryGetProperty("rootPath", out var rp))
+                {
+                    openedRoot = rp.GetString();
+                }
+                else if (doc.TryGetProperty("rootPath", out var rootProp))
+                {
+                    openedRoot = rootProp.GetString();
+                }
+            }
+            catch
+            {
+            }
+        }
 
-        if (openedRoot != null)
+        if (!string.IsNullOrWhiteSpace(openedRoot))
         {
+            _currentProjectRoot = openedRoot;
             UpdateMediaHostMapping(openedRoot);
+            _logger.LogInformation("Raiz de projeto ativa para streaming de mídia: {Path}", openedRoot);
         }
     }
 
@@ -323,30 +360,105 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>Filtro de segurança estrito: permite apenas mídias e pastas canônicas no host virtual de mídia.</summary>
+    /// <summary>
+    /// Servidor de mídia embutido para https://media.travelcut.studio/* com suporte real a HTTP 206 Partial Content,
+    /// cabeçalho Range, controle de CORS restrito à origem confiável do app e isolamento estrito de caminho.
+    /// </summary>
     private void CoreWebView2_MediaResourceRequested(object? sender, CoreWebView2WebResourceRequestedEventArgs e)
     {
+        var core = WebViewControl?.CoreWebView2;
+        if (core == null)
+        {
+            return;
+        }
+
         try
         {
             var uri = new Uri(e.Request.Uri);
-            string path = uri.AbsolutePath.TrimStart('/');
-            string ext = Path.GetExtension(path).ToLowerInvariant();
-            bool isAllowedExt = ext is ".mp4" or ".mov" or ".m4v" or ".mkv" or ".avi" or ".mts" or ".m2ts" or ".m4a" or ".mp3" or ".wav" or ".aac" or ".flac" or ".ogg" or ".jpg" or ".jpeg" or ".png" or ".webp";
-            bool isAllowedFolder = path.StartsWith("1-Bruto/", StringComparison.OrdinalIgnoreCase) || path.StartsWith("3-Trabalho/cache/", StringComparison.OrdinalIgnoreCase);
+            string method = e.Request.Method.ToUpperInvariant();
+            string allowedOrigin = "https://" + IpcOriginPolicy.PublishedHost;
 
-            if (!isAllowedExt || !isAllowedFolder)
+            if (method == "OPTIONS")
             {
-                _logger.LogWarning("Requisição ao host de mídia bloqueada por política de segurança: {Uri}", e.Request.Uri);
-                var core = WebViewControl.CoreWebView2;
-                if (core != null)
-                {
-                    e.Response = core.Environment.CreateWebResourceResponse(null, 403, "Forbidden", "Content-Type: text/plain");
-                }
+                string optionsHeaders =
+                    "HTTP/1.1 204 No Content\r\n" +
+                    $"Access-Control-Allow-Origin: {allowedOrigin}\r\n" +
+                    "Access-Control-Allow-Methods: GET, HEAD, OPTIONS\r\n" +
+                    "Access-Control-Allow-Headers: Range, Content-Type, Accept\r\n" +
+                    "Access-Control-Max-Age: 86400\r\n";
+                e.Response = core.Environment.CreateWebResourceResponse(Stream.Null, 204, "No Content", optionsHeaders);
+                return;
             }
+
+            if (method != "GET" && method != "HEAD")
+            {
+                e.Response = core.Environment.CreateWebResourceResponse(Stream.Null, 405, "Method Not Allowed", "Allow: GET, HEAD, OPTIONS\r\n");
+                return;
+            }
+
+            string relativePath = uri.AbsolutePath;
+            var (isAllowed, fullPath, reason) = MediaStreamService.ValidateAndResolvePath(_currentProjectRoot, relativePath);
+            if (!isAllowed || fullPath == null)
+            {
+                _logger.LogWarning("Requisição ao host de mídia recusada ({Reason}): {Uri}", reason, e.Request.Uri);
+                string forbiddenHeaders =
+                    "HTTP/1.1 403 Forbidden\r\n" +
+                    "Content-Type: text/plain; charset=utf-8\r\n" +
+                    $"Access-Control-Allow-Origin: {allowedOrigin}\r\n";
+                byte[] msgBytes = Encoding.UTF8.GetBytes($"Acesso negado: {reason}");
+                e.Response = core.Environment.CreateWebResourceResponse(new MemoryStream(msgBytes), 403, "Forbidden", forbiddenHeaders);
+                return;
+            }
+
+            if (!File.Exists(fullPath))
+            {
+                _logger.LogWarning("Arquivo de mídia não encontrado: {Path}", fullPath);
+                string notFoundHeaders =
+                    "HTTP/1.1 404 Not Found\r\n" +
+                    "Content-Type: text/plain; charset=utf-8\r\n" +
+                    $"Access-Control-Allow-Origin: {allowedOrigin}\r\n";
+                byte[] msgBytes = Encoding.UTF8.GetBytes("Arquivo não encontrado.");
+                e.Response = core.Environment.CreateWebResourceResponse(new MemoryStream(msgBytes), 404, "Not Found", notFoundHeaders);
+                return;
+            }
+
+            long fileLength = new FileInfo(fullPath).Length;
+            string mime = PreviewPaths.MimeTypeFor(fullPath);
+            string? rangeHeader = e.Request.Headers.Contains("Range") ? e.Request.Headers.GetHeader("Range") : null;
+
+            var spec = MediaStreamService.BuildStreamSpec(rangeHeader, fileLength, mime, allowedOrigin);
+
+            if (spec.StatusCode == 416)
+            {
+                _logger.LogWarning("HTTP 416 Range Not Satisfiable para {Uri}: Range={Range}, Length={Length}", e.Request.Uri, rangeHeader, fileLength);
+                e.Response = core.Environment.CreateWebResourceResponse(Stream.Null, 416, spec.ReasonPhrase, spec.HeadersString);
+                return;
+            }
+
+            if (method == "HEAD")
+            {
+                e.Response = core.Environment.CreateWebResourceResponse(Stream.Null, spec.StatusCode, spec.ReasonPhrase, spec.HeadersString);
+                return;
+            }
+
+            var fs = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 64 * 1024);
+
+            Stream contentStream;
+            if (spec.IsRange && spec.StatusCode == 206)
+            {
+                fs.Seek(spec.Start, SeekOrigin.Begin);
+                contentStream = new BoundedReadStream(fs, spec.ContentLength);
+            }
+            else
+            {
+                contentStream = fs;
+            }
+
+            e.Response = core.Environment.CreateWebResourceResponse(contentStream, spec.StatusCode, spec.ReasonPhrase, spec.HeadersString);
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Erro no filtro de segurança do host de mídia");
+            _logger.LogError(ex, "Erro no servidor de streaming de mídia para {Uri}", e.Request.Uri);
         }
     }
 
