@@ -1,3 +1,4 @@
+import { notifyPipelineSuccess, notifyPipelineFailure } from "../../services/notificationService";
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ipc, IpcError } from '../../services/ipcBridge';
 import type { PipelineStatusDto } from '../../types/ipc';
@@ -93,6 +94,13 @@ export function usePipeline(projectId: string | null, onFinished: () => void): U
 
       if (prev && (prev.sawActive || (prev.jobId !== null && next.jobId === prev.jobId))) {
         trackRef.current = null;
+        if (next.state === "completed") {
+          const totalProcessed = next.stages ? next.stages.reduce((acc, s) => acc + s.processedItems, 0) : 1;
+          notifyPipelineSuccess(totalProcessed);
+        } else if (next.state === "failed") {
+          const failReason = next.stages?.find(s => s.state === "failed")?.reason || "Falha durante o processamento da fila.";
+          notifyPipelineFailure(failReason);
+        }
         onFinishedRef.current();
         return;
       }

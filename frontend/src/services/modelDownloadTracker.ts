@@ -1,3 +1,4 @@
+import { notifyModelDownloadSuccess, notifyGeneral } from "./notificationService";
 import type { StartModelDownloadRequest, ToolInstallProgressDto } from '../types/ipc';
 import { ipc, IpcError } from './ipcBridge';
 
@@ -204,8 +205,10 @@ export class ModelDownloadTracker {
       this.setState({ ...base, phase: 'canceled', errorMessage: null });
     } else if (progress.isFailed) {
       this.setState({ ...base, phase: 'failed', errorMessage: progress.errorMessage ?? progress.currentMessage });
+      notifyGeneral("Falha no download", progress.errorMessage ?? progress.currentMessage, "error");
     } else if (progress.isSuccess) {
       this.setState({ ...base, phase: 'success', errorMessage: null });
+      notifyModelDownloadSuccess(this.state.modelName ?? "large-v3");
       this.successListeners.forEach((listener) => listener());
     } else {
       this.setState({ ...base, phase: this.state.phase === 'canceling' ? 'canceling' : 'running' });
