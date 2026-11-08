@@ -30,6 +30,8 @@ import { formatDuration, formatTimecode, framesToSeconds, usToSeconds } from './
 import { useEditPlan } from './plan/useEditPlan';
 import { useTimelineEditor } from './plan/useTimelineEditor';
 import { TimelineEditorToolbar } from './plan/TimelineEditorToolbar';
+import { MultitrackPlanningPanel } from './audio/MultitrackPlanningPanel';
+import { DEFAULT_TRACK_STATES, type TrackAudioState } from './audio/multitrackModel';
 
 interface TimelinePlanningViewProps {
   project: ProjectSummary | null;
@@ -75,6 +77,8 @@ export const TimelinePlanningView: React.FC<TimelinePlanningViewProps> = ({ proj
   const summary = plan?.summary ?? null;
   const tb = plan?.timeBase ?? null;
   const outdated = hasPlanOutdated(validation);
+  const [showMultitrack, setShowMultitrack] = useState(false);
+  const [trackStates, setTrackStates] = useState<Record<string, TrackAudioState>>(DEFAULT_TRACK_STATES);
   const missingClipIds = useMemo(
     () => (plan ? clipsWithMissingSource(plan, validation) : new Set<string>()),
     [plan, validation]
