@@ -23,7 +23,40 @@ const basePlan: any = {
     { trackId: 'A1', kind: 'dialogue', label: 'A1 — áudio (diálogo)' }
   ],
   sections: [],
-  clips: [],
+  clips: [
+    {
+      clipId: 'c1-v1',
+      trackId: 'V1',
+      mediaId: 'm1',
+      relativePath: '1-Bruto/m1.mp4',
+      sectionId: null,
+      sourceInUs: 0,
+      sourceOutUs: 5000000,
+      timelineStartFrame: 0,
+      durationFrames: 150,
+      speedNum: 1,
+      speedDen: 1,
+      linkedClipId: 'c1-a1',
+      needsHumanReview: false,
+      reviewReason: null
+    },
+    {
+      clipId: 'c1-a1',
+      trackId: 'A1',
+      mediaId: 'm1',
+      relativePath: '1-Bruto/m1.mp4',
+      sectionId: null,
+      sourceInUs: 0,
+      sourceOutUs: 5000000,
+      timelineStartFrame: 0,
+      durationFrames: 150,
+      speedNum: 1,
+      speedDen: 1,
+      linkedClipId: 'c1-v1',
+      needsHumanReview: false,
+      reviewReason: null
+    }
+  ],
   transitions: [],
   appliedCuts: [],
   pending: [],

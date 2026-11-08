@@ -103,7 +103,12 @@
   - [x] F10.5 — README de usuário, notas de versão, checklist de smoke test, limitações e riscos.
   - [x] F10.6 — Suíte completa + auditoria qa-auditor do pacote e da UI (nenhum mock falso exibido como real).
   - Fechamento 2026-11-03 03:40: varredura crítica senior-analyst + auditoria final qa-auditor, bloqueante/altos corrigidos; build final reproduzível pelo script (entradas fixadas, determinístico, `reproducible: unverified`), UnitTests 1044/1044, Mcp 107/107, npm 162/162, tsc 0; zip sha256 3494021673f9bcf740e85e6fcee615dcf2ca5adc8fd9fdd23a65e31e39b18f90. F10.4: Z: não montado na VM — pacote local em `dist/`, cópia para o host depende de autorização do usuário; compatibilidade no host `host_pending`.
-- [ ] F11 — homologação real no host e critérios do MVP. Iniciada 2026-11-03 03:45; em correção após falha bloqueante observada no host.
+- [x] F14.1 — Fluxo editorial de 4 telas, velocidade de revisão, pré-cortes manuais, reabertura de decisões e controles de zoom.
+- [x] F14.2 — Editor manual de timeline e reconciliação editorial (split, trim, move, delete, undo/redo).
+- [x] F14.3 — Áudio, waveforms reais, multifaixas (V1/A1 vinculados, V2 B-roll, A2 Música, dynamic tracks).
+- [x] F14.4 — Inteligência editorial, classificação de cenas, zoom inteligente e sugestões de transição.
+- [x] F14.5 — Consolidação definitiva, conciliação de contratos, homologação e release Windows x64.
+- [ ] F14.6 — Edição textual por transcrição e integração visual das waveforms.
   - [ ] F11.1 — Usuário leva o pacote `dist/TravelCutStudio-0.10.0-host-test.1-win-x64.zip` ao host e testa abertura de projeto.
   - [!] F11.2 — Smoke test `docs/22-SMOKE-TEST-HOST.md` no host: FALHA BLOQUEANTE comprovada. Tela preta ao abrir ou criar projeto (interface desaparece).
   - [ ] F11.3 — Roteiros F04b–F09 de `progresso/HOST_TESTS.md` com mídia de teste aprovada e projeto DaVinci TEMPORÁRIO `TravelCut_*`; logs de `%LOCALAPPDATA%\TravelCutStudio\logs` e evidências do harness.

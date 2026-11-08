@@ -34,7 +34,40 @@ const basePlan = (): any => ({
     { trackId: 'A1', kind: 'dialogue', label: 'A1' }
   ],
   sections: [],
-  clips: [],
+  clips: [
+    {
+      clipId: 'v1-clip',
+      trackId: 'V1',
+      mediaId: 'media-1',
+      relativePath: '1-Bruto/vlog1.mp4',
+      sectionId: null,
+      sourceInUs: 0,
+      sourceOutUs: 3000000,
+      timelineStartFrame: 0,
+      durationFrames: 90,
+      speedNum: 1,
+      speedDen: 1,
+      linkedClipId: 'a1-clip',
+      needsHumanReview: false,
+      reviewReason: null
+    },
+    {
+      clipId: 'a1-clip',
+      trackId: 'A1',
+      mediaId: 'media-1',
+      relativePath: '1-Bruto/vlog1.mp4',
+      sectionId: null,
+      sourceInUs: 0,
+      sourceOutUs: 3000000,
+      timelineStartFrame: 0,
+      durationFrames: 90,
+      speedNum: 1,
+      speedDen: 1,
+      linkedClipId: 'v1-clip',
+      needsHumanReview: false,
+      reviewReason: null
+    }
+  ],
   transitions: [],
   appliedCuts: [],
   pending: [],

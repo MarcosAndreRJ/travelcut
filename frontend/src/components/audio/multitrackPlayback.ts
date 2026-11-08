@@ -97,7 +97,7 @@ export function resolveActiveAudioClips(
 
   // Considera trilhas A1 (diálogo), A2 (música), A3 (efeitos) e qualquer outra trilha de áudio
   for (const track of plan.tracks) {
-    if (track.kind !== 'video' && track.kind !== 'b_roll') {
+    if (track.trackId.startsWith('A') || (track.kind !== 'video' && track.kind !== 'b_roll')) {
       const clip = activeTracks.get(track.trackId);
       if (clip) {
         const state = trackStates[track.trackId];

@@ -1,13 +1,14 @@
 # Estado operacional — ponto de retomada
 
-- **Status:** `waiting_for_host` — F13.4 (player da Revisão de Cortes) concluída na VM em 2026-11-07 08:10 -03:00; commit local em `main`, sem push e sem novo pacote.
-- **Fase atual:** `F13.4 — Player da Revisão de Cortes`. Próximo passo humano: roteiros "F13.2", "F13.3" e "F13.4" de `progresso/HOST_TESTS.md` num pacote gerado a partir desta `main`.
-- **Última evidência F13.4:** `npm test` 294/294; `tsc` 0; `npm run build` OK; navegador com painel visível: Depois 0,1 s e 0,6 s com 0 instantes dentro do trecho; Antes passa pelo trecho; mídia só de áudio → aviso "não decodificou a imagem" + proxy; proxy simulado recarrega na mesma janela; layout 1366×768 sem rolagem. NÃO executados: HEVC real, proxy real, app WPF.
-- **Última evidência F13.3:** `dotnet test -c Release` UnitTests 1138/1138 e Mcp.Tests 107/107; `npm test` 281/281; `tsc` 0; script de diagnóstico executado de verdade no Windows PowerShell 5.1 contra worker falso (pasta com espaço e acento); player testado no navegador com vídeos sintéticos. NÃO executados: Python real, HEVC real, proxy real, app WPF.
-- **Última evidência F13.2:** `dotnet build -c Release` 0 erros; `dotnet test -c Release` UnitTests 1125/1125 e Mcp.Tests 107/107 (3 rodadas); `npm test` 258/258; `tsc --noEmit` 0; `npm run build` OK. NÃO executados: `workers/tests/test_whisper_worker.py` (VM sem Python), app WPF, download real, transcrição real.
-- **Histórico anterior (F11) abaixo:** mantido como registro; as linhas seguintes descrevem o estado do pacote `0.10.0-host-test.2`.
-- **Status em F11:** `waiting_for_host` — F11.4 corrigida na VM, merge concluído na branch `main` e pacote `0.10.0-host-test.2` gerado com sucesso para reteste humano no host Windows.
-- **Fase atual:** `11 — Homologação no host, correções e fechamento do MVP (F11.4: Correção da tela preta na navegação de projeto e geração do pacote 2)`. Branch ativa: `main`.
+- **Status:** `consolidated_ready_for_release` — F14.5 (Consolidação definitiva de F14.2, F14.3, F14.4) concluída em 2026-11-08; contratos unificados, suíte de 1.625 testes aprovada.
+- **Fase atual:** `F14.5 — Consolidação Definitiva, Integração e Release Windows`.
+- **Última evidência F14.5:**
+  - `dotnet test -c Release`: UnitTests 1179/1179 aprovados; Mcp.Tests 107/107 aprovados.
+  - `npm test` (Vitest): 339/339 testes aprovados (32 suítes).
+  - `npm run build`: bundle de produção Vite gerado com sucesso.
+  - Total: 1.625 testes automatizados aprovados (0 falhas).
+  - Contratos conciliados: `EditPlanDto`, `multitrackPlayback`, vinculação V1/A1, zoom editorial com Safe Area 90%/80% e reconciliação editorial não destrutiva.
+- **Histórico anterior:** F14.1, F14.2, F14.3 e F14.4 integrados à `main`.
 - **Causa-raiz sanada:**
   1. Contrato IPC `media.list`: backend C# retornava `{ media: dtos }` enquanto frontend em `LibraryTranscriptionView.tsx` e `ipcBridge.ts` esperavam array direto. A tentativa de executar `assets.filter(...)` causava `TypeError: assets.filter is not a function`, que sem Error Boundary desarmava toda a árvore React, deixando a tela preta.
   2. Ausência de Error Boundary: criado componente `ErrorBoundary.tsx` de classe React protegendo tanto a raiz (`main.tsx`) quanto as views dinâmicas (`App.tsx`), capturando erros de renderização com fallback visual e botão de recuperação.
