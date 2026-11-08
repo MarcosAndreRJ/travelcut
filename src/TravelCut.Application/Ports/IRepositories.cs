@@ -1,4 +1,5 @@
 using TravelCut.Domain.Entities;
+using TravelCut.Domain.Entities.Editorial;
 
 namespace TravelCut.Application.Ports;
 
@@ -66,4 +67,24 @@ public interface IEditPlanRepository
 
     /// <summary>Dos ids informados, devolve os que existem como sugestão (ordem não garantida, sem duplicatas).</summary>
     Task<List<Guid>> FindExistingSuggestionIdsAsync(IReadOnlyCollection<Guid> suggestionIds, CancellationToken ct = default);
+}
+
+public interface ISceneClassificationRepository
+{
+    Task<SceneClassificationEntry?> GetByIdAsync(Guid entryId, CancellationToken ct = default);
+    Task<List<SceneClassificationEntry>> ListByProjectAsync(Guid projectId, CancellationToken ct = default);
+    Task<List<SceneClassificationEntry>> ListByMediaAsync(Guid mediaId, CancellationToken ct = default);
+    Task SaveAsync(SceneClassificationEntry entry, CancellationToken ct = default);
+    Task SaveBatchAsync(IEnumerable<SceneClassificationEntry> entries, CancellationToken ct = default);
+    Task DeleteAsync(Guid entryId, CancellationToken ct = default);
+}
+
+public interface IEditorialTransitionRepository
+{
+    Task<EditorialTransition?> GetByIdAsync(Guid transitionId, CancellationToken ct = default);
+    Task<List<EditorialTransition>> ListByProjectAsync(Guid projectId, CancellationToken ct = default);
+    Task<List<EditorialTransition>> ListByMediaPairAsync(Guid mediaIdA, Guid mediaIdB, CancellationToken ct = default);
+    Task SaveAsync(EditorialTransition transition, CancellationToken ct = default);
+    Task SaveBatchAsync(IEnumerable<EditorialTransition> transitions, CancellationToken ct = default);
+    Task DeleteAsync(Guid transitionId, CancellationToken ct = default);
 }

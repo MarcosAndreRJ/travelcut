@@ -76,6 +76,15 @@ public static class TravelCutServiceCollectionExtensions
         services.AddScoped<ITranscriptRepository, SqliteTranscriptRepository>();
         services.AddScoped<IEditPlanRepository, SqliteEditPlanRepository>();
         services.AddScoped<IPlanRevisionRepository, SqlitePlanRevisionRepository>();
+        services.AddScoped<ISceneClassificationRepository, SqliteSceneClassificationRepository>();
+        services.AddScoped<IEditorialTransitionRepository, SqliteEditorialTransitionRepository>();
+
+        // Editorial Services (F14.4)
+        services.AddScoped<TravelCut.Application.Editorial.ISceneClassificationService, TravelCut.Application.Editorial.SceneClassificationService>();
+        services.AddScoped<TravelCut.Application.Editorial.ISmartZoomRecommender, TravelCut.Application.Editorial.SmartZoomRecommender>();
+        services.AddScoped<TravelCut.Application.Editorial.ITransitionRecommender, TravelCut.Application.Editorial.TransitionRecommender>();
+        services.AddScoped<TravelCut.Application.Editorial.IEditorialEffectsService, TravelCut.Application.Editorial.EditorialEffectsService>();
+        services.AddScoped<TravelCut.Application.Editorial.EditorialIpcHandler>();
 
         // Trava entre processos (Desktop e MCP sobre o mesmo projeto): editor-apply e analysis.
         services.AddSingleton<IProjectOperationLock, FileProjectOperationLock>();

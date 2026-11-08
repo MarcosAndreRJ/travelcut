@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using TravelCut.Application.Ports;
 using TravelCut.Application.Services;
 using TravelCut.Domain.Entities;
+using TravelCut.Domain.Entities.Editorial;
 using TravelCut.Infrastructure.Persistence;
 
 namespace TravelCut.Infrastructure.Repositories;
@@ -438,5 +439,171 @@ public class SqliteEditPlanRepository : IEditPlanRepository
             .Select(s => s.SuggestionId)
             .Distinct()
             .ToListAsync(ct);
+    }
+}
+
+public class SqliteSceneClassificationRepository : ISceneClassificationRepository
+{
+    private readonly TravelCutDbContext _db;
+
+    public SqliteSceneClassificationRepository(TravelCutDbContext db)
+    {
+        _db = db;
+    }
+
+    public async Task<SceneClassificationEntry?> GetByIdAsync(Guid entryId, CancellationToken ct = default)
+    {
+        return await _db.SceneClassifications
+            .AsNoTracking()
+            .FirstOrDefaultAsync(s => s.EntryId == entryId, ct);
+    }
+
+    public async Task<List<SceneClassificationEntry>> ListByProjectAsync(Guid projectId, CancellationToken ct = default)
+    {
+        return await _db.SceneClassifications
+            .AsNoTracking()
+            .Where(s => s.ProjectId == projectId)
+            .OrderBy(s => s.MediaId)
+            .ThenBy(s => s.StartSeconds)
+            .ToListAsync(ct);
+    }
+
+    public async Task<List<SceneClassificationEntry>> ListByMediaAsync(Guid mediaId, CancellationToken ct = default)
+    {
+        return await _db.SceneClassifications
+            .AsNoTracking()
+            .Where(s => s.MediaId == mediaId)
+            .OrderBy(s => s.StartSeconds)
+            .ToListAsync(ct);
+    }
+
+    public async Task SaveAsync(SceneClassificationEntry entry, CancellationToken ct = default)
+    {
+        var existing = await _db.SceneClassifications
+            .FirstOrDefaultAsync(s => s.EntryId == entry.EntryId, ct);
+
+        if (existing is null)
+        {
+            await _db.SceneClassifications.AddAsync(entry, ct);
+        }
+        else
+        {
+            existing.StartSeconds = entry.StartSeconds;
+            existing.EndSeconds = entry.EndSeconds;
+            existing.IsFullVideo = entry.IsFullVideo;
+            existing.Environment = entry.Environment;
+            existing.Interaction = entry.Interaction;
+            existing.Framing = entry.Framing;
+            existing.Movement = entry.Movement;
+            existing.EditorialProfile = entry.EditorialProfile;
+            existing.Notes = entry.Notes;
+            existing.UpdatedAtUtc = entry.UpdatedAtUtc;
+        }
+
+        await _db.SaveChangesAsync(ct);
+    }
+
+    public async Task SaveBatchAsync(IEnumerable<SceneClassificationEntry> entries, CancellationToken ct = default)
+    {
+        foreach (var entry in entries)
+        {
+            await SaveAsync(entry, ct);
+        }
+    }
+
+    public async Task DeleteAsync(Guid entryId, CancellationToken ct = default)
+    {
+        var existing = await _db.SceneClassifications
+            .FirstOrDefaultAsync(s => s.EntryId == entryId, ct);
+
+        if (existing is not null)
+        {
+            _db.SceneClassifications.Remove(existing);
+            await _db.SaveChangesAsync(ct);
+        }
+    }
+}
+
+public class SqliteEditorialTransitionRepository : IEditorialTransitionRepository
+{
+    private readonly TravelCutDbContext _db;
+
+    public SqliteEditorialTransitionRepository(TravelCutDbContext db)
+    {
+        _db = db;
+    }
+
+    public async Task<EditorialTransition?> GetByIdAsync(Guid transitionId, CancellationToken ct = default)
+    {
+        return await _db.EditorialTransitions
+            .AsNoTracking()
+            .FirstOrDefaultAsync(t => t.TransitionId == transitionId, ct);
+    }
+
+    public async Task<List<EditorialTransition>> ListByProjectAsync(Guid projectId, CancellationToken ct = default)
+    {
+        return await _db.EditorialTransitions
+            .AsNoTracking()
+            .Where(t => t.ProjectId == projectId)
+            .OrderByDescending(t => t.CreatedAtUtc)
+            .ToListAsync(ct);
+    }
+
+    public async Task<List<EditorialTransition>> ListByMediaPairAsync(Guid mediaIdA, Guid mediaIdB, CancellationToken ct = default)
+    {
+        return await _db.EditorialTransitions
+            .AsNoTracking()
+            .Where(t => t.MediaIdA == mediaIdA && t.MediaIdB == mediaIdB)
+            .ToListAsync(ct);
+    }
+
+    public async Task SaveAsync(EditorialTransition transition, CancellationToken ct = default)
+    {
+        var existing = await _db.EditorialTransitions
+            .FirstOrDefaultAsync(t => t.TransitionId == transition.TransitionId, ct);
+
+        if (existing is null)
+        {
+            await _db.EditorialTransitions.AddAsync(transition, ct);
+        }
+        else
+        {
+            existing.Type = transition.Type;
+            existing.DurationSeconds = transition.DurationSeconds;
+            existing.Preset = transition.Preset;
+            existing.Status = transition.Status;
+            existing.Origin = transition.Origin;
+            existing.Rationale = transition.Rationale;
+            existing.IsAdjacentOnTimeline = transition.IsAdjacentOnTimeline;
+            existing.InsufficientHandles = transition.InsufficientHandles;
+            existing.HandleWarningMessage = transition.HandleWarningMessage;
+            existing.AvailableHandleFramesA = transition.AvailableHandleFramesA;
+            existing.AvailableHandleFramesB = transition.AvailableHandleFramesB;
+            existing.TimelineClipIdA = transition.TimelineClipIdA;
+            existing.TimelineClipIdB = transition.TimelineClipIdB;
+            existing.UpdatedAtUtc = transition.UpdatedAtUtc;
+        }
+
+        await _db.SaveChangesAsync(ct);
+    }
+
+    public async Task SaveBatchAsync(IEnumerable<EditorialTransition> transitions, CancellationToken ct = default)
+    {
+        foreach (var transition in transitions)
+        {
+            await SaveAsync(transition, ct);
+        }
+    }
+
+    public async Task DeleteAsync(Guid transitionId, CancellationToken ct = default)
+    {
+        var existing = await _db.EditorialTransitions
+            .FirstOrDefaultAsync(t => t.TransitionId == transitionId, ct);
+
+        if (existing is not null)
+        {
+            _db.EditorialTransitions.Remove(existing);
+            await _db.SaveChangesAsync(ct);
+        }
     }
 }
