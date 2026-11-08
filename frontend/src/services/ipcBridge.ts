@@ -844,6 +844,30 @@ class IpcBridgeService {
         this.mockPlanRevisions.push(copy);
         return clonePlanData(copy);
       }
+      case 'plan.saveManualRevision': {
+        this.assertMockProject(payload?.projectId);
+        const plan = payload?.plan as EditPlanDto;
+        const latestRev = this.mockPlanRevisions[this.mockPlanRevisions.length - 1]?.revision ?? 0;
+        const rev = latestRev + 1;
+        const copy = clonePlanData(plan);
+        copy.revision = rev;
+        copy.baseRevision = plan.revision;
+        copy.author = payload?.author ?? 'user';
+        copy.createdAtUtc = new Date().toISOString();
+        copy.planFingerprint = `manual-plan-r${rev}`;
+        copy.validation = this.mockValidatePlan(copy);
+        this.mockPlanRevisions.push(copy);
+        return clonePlanData(copy);
+      }
+      case 'plan.reconcile': {
+        this.assertMockProject(payload?.projectId);
+        const latest = this.mockPlanRevisions[this.mockPlanRevisions.length - 1];
+        return {
+          reconciledPlan: clonePlanData(latest),
+          hasConflicts: false,
+          conflicts: []
+        };
+      }
 
       case 'profile.get':
         return { ...this.mockProfile };
@@ -2285,6 +2309,29 @@ class IpcBridgeService {
   /** Cria uma nova revisão com o conteúdo de toRevision (o histórico é preservado). */
   public async revertPlan(projectId: string, toRevision: number): Promise<EditPlanDto> {
     return this.send<EditPlanDto>('plan.revert', { projectId, toRevision }, { timeoutMs: PLAN_IPC_TIMEOUT_MS });
+  }
+
+  /** F14.2: Grava uma revisão editorial manual (não destrutiva) no plano. */
+  public async savePlanRevision(
+    projectId: string,
+    plan: EditPlanDto,
+    author: string = 'user',
+    operations?: PlanEditorialOperationDto[]
+  ): Promise<EditPlanDto> {
+    return this.send<EditPlanDto>(
+      'plan.saveManualRevision',
+      { projectId, plan, author, operations },
+      { timeoutMs: PLAN_IPC_TIMEOUT_MS }
+    );
+  }
+
+  /** F14.2: Reconcilia edições manuais com uma nova revisão gerada automaticamente (F14.1). */
+  public async reconcilePlan(projectId: string, targetRevision?: number): Promise<ReconcilePlanResponse> {
+    return this.send<ReconcilePlanResponse>(
+      'plan.reconcile',
+      { projectId, targetRevision },
+      { timeoutMs: PLAN_IPC_TIMEOUT_MS }
+    );
   }
 
   public async getEditorialProfile(): Promise<EditorialProfileDto> {

@@ -938,6 +938,45 @@ export interface PlanRevisionInfoDto {
   timelineDurationFrames: number;
 }
 
+// ---- F14.2: Editorial Operations & Reconciliation ----
+
+export interface PlanEditorialOperationDto {
+  operationId: string;
+  type: 'MOVE' | 'TRIM' | 'SPLIT' | 'DUPLICATE' | 'DELETE' | 'REPOSITION';
+  clipId: string;
+  linkedClipId?: string | null;
+  newStartFrame?: number | null;
+  newDurationFrames?: number | null;
+  sourceInUs?: number | null;
+  sourceOutUs?: number | null;
+  splitAtFrame?: number | null;
+  targetTrackId?: string | null;
+  timestampUtc: string;
+}
+
+export interface SavePlanRevisionRequest {
+  projectId: string;
+  plan: EditPlanDto;
+  operations?: PlanEditorialOperationDto[] | null;
+  author?: string | null;
+}
+
+export interface PlanConflictDto {
+  conflictId: string;
+  clipId?: string | null;
+  linkedClipId?: string | null;
+  type: string;
+  message: string;
+  severity: string;
+  suggestedResolution?: string | null;
+}
+
+export interface ReconcilePlanResponse {
+  reconciledPlan: EditPlanDto;
+  hasConflicts: boolean;
+  conflicts: PlanConflictDto[];
+}
+
 // ---- Animações (motion/1) — espelho de src/TravelCut.Contracts/Dtos/MotionDtos.cs ----
 // Capacidade declarada por estado real. "mock" é simulado e nunca gera arquivo de vídeo.
 // rendererVersion/nodeVersion são null quando o host não leu a versão (nunca inventar).

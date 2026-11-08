@@ -610,6 +610,26 @@ public class IpcDispatcher
                     var outcome = await _planning.RevertAsync(req, ct);
                     return PlanResponse(request.RequestId, outcome);
                 }
+                case "plan.saveManualRevision":
+                {
+                    var req = DeserializePayload<SavePlanRevisionRequest>(request.Payload);
+                    if (req == null || req.ProjectId == Guid.Empty || req.Plan == null)
+                    {
+                        return IpcResponse.Fail(request.RequestId, "INVALID_ARGUMENT", "Payload inválido para gravação de plano manual.");
+                    }
+                    var outcome = await _planning.SaveManualRevisionAsync(req, ct);
+                    return PlanResponse(request.RequestId, outcome);
+                }
+                case "plan.reconcile":
+                {
+                    var req = DeserializePayload<ReconcilePlanRequest>(request.Payload);
+                    if (req == null || req.ProjectId == Guid.Empty)
+                    {
+                        return IpcResponse.Fail(request.RequestId, "INVALID_ARGUMENT", "Payload inválido para reconciliação de plano.");
+                    }
+                    var outcome = await _planning.ReconcileAsync(req, ct);
+                    return PlanResponse(request.RequestId, outcome);
+                }
 
                 // --- Assistente de Ambiente & Instalações Assistidas (F12) ---
                 case "environment.diagnose":
