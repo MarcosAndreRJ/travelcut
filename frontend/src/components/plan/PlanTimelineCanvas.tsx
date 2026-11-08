@@ -479,6 +479,8 @@ export const PlanTimelineCanvas: React.FC<PlanTimelineCanvasProps> = ({
                     width: widthPx
                   };
                   const label = clipLabel(clip, missingSource);
+                  const isAudioTrack = row.trackId.startsWith('A') || row.kind === 'dialogue' || row.kind === 'music' || row.kind === 'audio';
+
                   return (
                     <button
                       key={clip.clipId}
@@ -545,7 +547,23 @@ export const PlanTimelineCanvas: React.FC<PlanTimelineCanvasProps> = ({
                           });
                         }}
                       />
-                      <span className="block truncate text-[10px] font-medium text-white">
+                      {/* Onda sonora real dentro do bloco de áudio (F14.6 Checkpoint B) */}
+                      {isAudioTrack && clip.mediaId && (
+                        <div className="absolute inset-0 pointer-events-none overflow-hidden opacity-60 z-0">
+                          <TimelineWaveform
+                            projectId={plan.projectId}
+                            mediaId={clip.mediaId}
+                            sourceInSeconds={clip.sourceInUs / 1_000_000}
+                            sourceOutSeconds={clip.sourceOutUs / 1_000_000}
+                            speedRatio={(clip.speedNumerator ?? clip.speedNum ?? 1) / (clip.speedDenominator ?? clip.speedDen ?? 1)}
+                            widthPx={pos.width}
+                            heightPx={ROW_HEIGHT_PX - 12}
+                            color={selected ? '#38bdf8' : row.kind === 'music' ? '#c084fc' : '#22d3ee'}
+                          />
+                        </div>
+                      )}
+
+                      <span className="relative z-10 block truncate text-[10px] font-medium text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)]">
                         {basename(clip.relativePath)}
                       </span>
                       <span className="flex items-center gap-1 min-w-0 overflow-hidden">

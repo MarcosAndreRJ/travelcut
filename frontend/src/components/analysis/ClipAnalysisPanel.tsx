@@ -21,6 +21,8 @@ interface ClipAnalysisPanelProps {
   isMock: boolean;
   /** Resumo da atividade quando este clipe é o que está em processamento. */
   activityLine?: string | null;
+  onDeleteInterval?: (startSec: number, endSec: number, text: string) => Promise<string | void>;
+  onCreateZoomInterval?: (startSec: number, endSec: number, text: string, config: { scale: number; transitionInSec: number; transitionOutSec: number; anchor: string }) => Promise<string | void>;
 }
 
 /**
@@ -40,7 +42,9 @@ export const ClipAnalysisPanel: React.FC<ClipAnalysisPanelProps> = ({
   analyzeDisabledReason,
   isStarting,
   isMock,
-  activityLine = null
+  activityLine = null,
+  onDeleteInterval,
+  onCreateZoomInterval
 }) => {
   const fileName = asset.relativePath.split(/[/\\]/).pop() || asset.relativePath;
   const isRunningHere = mediaStageStates
@@ -119,6 +123,8 @@ export const ClipAnalysisPanel: React.FC<ClipAnalysisPanelProps> = ({
                 hesitations={analysis.hesitations}
                 selectedSec={selectedSec}
                 onSeek={onSeek}
+                onDeleteInterval={onDeleteInterval}
+                onCreateZoomInterval={onCreateZoomInterval}
               />
             ) : analysis.transcriptionStatus === 'completed' ? (
               <p className="text-[11px] text-slate-500">Transcrição concluída sem dados para exibir.</p>

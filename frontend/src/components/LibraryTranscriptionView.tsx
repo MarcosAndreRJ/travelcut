@@ -883,6 +883,40 @@ export const LibraryTranscriptionView: React.FC<LibraryTranscriptionViewProps> =
                     analyzeDisabledReason={analyzeDisabledReason}
                     isStarting={pipeline.isStarting}
                     isMock={ipc.isMock}
+                    onDeleteInterval={async (startSec, endSec, text) => {
+                      if (!project?.projectId || !selectedAsset) return;
+                      try {
+                        const res = await ipc.createManualSuggestion({
+                          projectId: project.projectId,
+                          mediaId: selectedAsset.mediaId,
+                          startSeconds: startSec,
+                          endSeconds: endSec,
+                          rationale: `Exclusão por transcrição: "${text.substring(0, 80)}"`
+                        });
+                        setCutSuccessSuggestionId(res.suggestion.suggestionId);
+                        setCutError(null);
+                        return res.suggestion.suggestionId;
+                      } catch (err) {
+                        setCutError(err instanceof Error ? err.message : 'Falha ao registrar exclusão na transcrição.');
+                      }
+                    }}
+                    onCreateZoomInterval={async (startSec, endSec, text, config) => {
+                      if (!project?.projectId || !selectedAsset) return;
+                      try {
+                        const res = await ipc.createManualSuggestion({
+                          projectId: project.projectId,
+                          mediaId: selectedAsset.mediaId,
+                          startSeconds: startSec,
+                          endSeconds: endSec,
+                          rationale: `Zoom ${config.scale}× (${config.anchor}): "${text.substring(0, 60)}"`
+                        });
+                        setCutSuccessSuggestionId(res.suggestion.suggestionId);
+                        setCutError(null);
+                        return res.suggestion.suggestionId;
+                      } catch (err) {
+                        setCutError(err instanceof Error ? err.message : 'Falha ao registrar zoom por transcrição.');
+                      }
+                    }}
                     activityLine={
                       pipeline.status?.currentMedia === selectedAsset.relativePath
                         ? activitySummaryLine(pipelineActivityView(pipeline.status, Date.now(), pipeline.isCanceling))

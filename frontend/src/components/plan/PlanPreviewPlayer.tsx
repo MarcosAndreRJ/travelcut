@@ -581,16 +581,7 @@ export const PlanPreviewPlayer: React.FC<PlanPreviewPlayerProps> = ({ plan, sele
         </p>
       )}
 
-      {activeClip && activeMediaId && timeBaseValid && (
-        <WaveformStrip
-          projectId={projectId}
-          mediaId={activeMediaId}
-          startSeconds={sourceInSeconds(activeClip)}
-          endSeconds={sourceOutSeconds(activeClip)}
-          currentSeconds={sourceNowSeconds}
-          buckets={WAVEFORM_BUCKETS}
-        />
-      )}
+      {/* F14.6: Waveform superior redundante removida. As ondas sonoras agora são renderizadas diretamente nos blocos de áudio da timeline (A1, A2, etc). */}
 
       <div className="space-y-2 pt-1">
         <div className="flex items-center gap-2">
