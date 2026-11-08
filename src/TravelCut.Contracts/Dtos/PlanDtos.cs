@@ -173,3 +173,48 @@ public record RevertPlanRequest(
 public record PlanListResponse(
     [property: JsonPropertyName("revisions")] List<PlanRevisionInfoDto> Revisions
 );
+
+// ---- F14.2: Editorial Operations & Reconciliation ----
+
+public record PlanEditorialOperationDto(
+    [property: JsonPropertyName("operationId")] Guid OperationId,
+    [property: JsonPropertyName("type")] string Type, // MOVE, TRIM, SPLIT, DUPLICATE, DELETE, REPOSITION
+    [property: JsonPropertyName("clipId")] Guid ClipId,
+    [property: JsonPropertyName("linkedClipId")] Guid? LinkedClipId,
+    [property: JsonPropertyName("timelineStartFrame")] long? TimelineStartFrame,
+    [property: JsonPropertyName("durationFrames")] long? DurationFrames,
+    [property: JsonPropertyName("sourceInUs")] long? SourceInUs,
+    [property: JsonPropertyName("sourceOutUs")] long? SourceOutUs,
+    [property: JsonPropertyName("splitAtFrame")] long? SplitAtFrame,
+    [property: JsonPropertyName("targetTrackId")] string? TargetTrackId,
+    [property: JsonPropertyName("timestampUtc")] DateTime TimestampUtc
+);
+
+public record SavePlanRevisionRequest(
+    [property: JsonPropertyName("projectId")] Guid ProjectId,
+    [property: JsonPropertyName("baseRevision")] int BaseRevision,
+    [property: JsonPropertyName("plan")] EditPlanDto Plan,
+    [property: JsonPropertyName("operations")] List<PlanEditorialOperationDto>? Operations = null,
+    [property: JsonPropertyName("author")] string? Author = null
+);
+
+public record PlanConflictDto(
+    [property: JsonPropertyName("conflictId")] Guid ConflictId,
+    [property: JsonPropertyName("clipId")] Guid? ClipId,
+    [property: JsonPropertyName("linkedClipId")] Guid? LinkedClipId,
+    [property: JsonPropertyName("type")] string Type, // CUT_REOPENED, MEDIA_REMOVED, INTERVAL_CONFLICT, TRACK_COLLISION
+    [property: JsonPropertyName("message")] string Message,
+    [property: JsonPropertyName("severity")] string Severity, // warning, error
+    [property: JsonPropertyName("suggestedResolution")] string? SuggestedResolution = null
+);
+
+public record ReconcilePlanRequest(
+    [property: JsonPropertyName("projectId")] Guid ProjectId,
+    [property: JsonPropertyName("targetRevision")] int? TargetRevision = null
+);
+
+public record ReconcilePlanResponse(
+    [property: JsonPropertyName("reconciledPlan")] EditPlanDto ReconciledPlan,
+    [property: JsonPropertyName("hasConflicts")] bool HasConflicts,
+    [property: JsonPropertyName("conflicts")] List<PlanConflictDto> Conflicts
+);

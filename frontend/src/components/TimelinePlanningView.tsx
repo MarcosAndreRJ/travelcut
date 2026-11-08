@@ -1,5 +1,18 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, Layers, Send } from 'lucide-react';
+import {
+  AlertCircle,
+  AlertTriangle,
+  Copy,
+  Layers,
+  Magnet,
+  Redo2,
+  RefreshCw,
+  Save,
+  Scissors,
+  Send,
+  Trash2,
+  Undo2
+} from 'lucide-react';
 import { ProjectSummary } from '../types/ipc';
 import { ClipInspector } from './plan/ClipInspector';
 import { PlanTimelineCanvas } from './plan/PlanTimelineCanvas';
@@ -15,6 +28,8 @@ import {
 import { clipsWithMissingSource, findClip, hasPlanOutdated } from './plan/planModel';
 import { formatDuration, formatTimecode, framesToSeconds, usToSeconds } from './plan/planTime';
 import { useEditPlan } from './plan/useEditPlan';
+import { useTimelineEditor } from './plan/useTimelineEditor';
+import { TimelineEditorToolbar } from './plan/TimelineEditorToolbar';
 
 interface TimelinePlanningViewProps {
   project: ProjectSummary | null;
@@ -31,10 +46,24 @@ export const TimelinePlanningView: React.FC<TimelinePlanningViewProps> = ({ proj
   const planState = useEditPlan(project?.projectId ?? null, project?.lastModifiedUtc ?? null);
   const { plan, validation, status } = planState;
   const mediaCount = project?.mediaCount ?? 0;
-  const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
   const [currentFrame, setCurrentFrame] = useState<number>(0);
-  const planKey = plan ? `${plan.planId}:${plan.revision}` : null;
+
+  const timelineEditor = useTimelineEditor({
+    initialPlan: plan,
+    currentRevision: planState.selectedRevision,
+    currentFrame,
+    projectId: project?.projectId ?? "",
+    onPlanSaved: (newPlan) => {
+      planState.selectRevision(newPlan.revision);
+    },
+  });
+
+  const activePlan = timelineEditor.plan ?? plan;
+  const selectedClipId = timelineEditor.selectedClipId;
+  const setSelectedClipId = timelineEditor.selectClip;
+
+  const planKey = activePlan ? `${activePlan.planId}:${activePlan.revision}` : null;
 
   // A seleção não sobrevive a troca de revisão ou de projeto.
   useEffect(() => {
@@ -205,14 +234,15 @@ export const TimelinePlanningView: React.FC<TimelinePlanningViewProps> = ({ proj
 
             {/* Prévia interativa e timeline */}
             <div className="flex-1 min-w-0 flex flex-col gap-3 min-h-[420px]">
+              <TimelineEditorToolbar editor={timelineEditor} activePlan={activePlan} />
               <PlanPreviewPlayer
-                plan={plan}
+                plan={activePlan}
                 selectedClip={selectedClip}
                 currentFrame={currentFrame}
                 onSeekFrame={setCurrentFrame}
               />
               <PlanTimelineCanvas
-                plan={plan}
+                plan={activePlan}
                 selectedClipId={selectedClipId}
                 onSelectClip={setSelectedClipId}
                 zoom={zoom}
@@ -220,12 +250,19 @@ export const TimelinePlanningView: React.FC<TimelinePlanningViewProps> = ({ proj
                 currentFrame={currentFrame}
                 onSeekFrame={setCurrentFrame}
                 missingClipIds={missingClipIds}
+                onMoveClip={timelineEditor.moveClip}
+                onTrimClip={timelineEditor.trimClip}
+                snappingEnabled={timelineEditor.snappingEnabled}
+                snapGuide={timelineEditor.snapGuide}
+                onSnapGuideChange={timelineEditor.setSnapGuide}
+                calculateSnap={timelineEditor.calculateSnap}
+                selectedClipIds={timelineEditor.selectedClipIds}
               />
             </div>
 
             {/* Inspetor do clipe */}
             <div className="xl:w-80 shrink-0 rounded-xl border border-slate-800 bg-[#080e1b] xl:overflow-hidden min-h-[240px]">
-              <ClipInspector plan={plan} clip={selectedClip} onSelectClip={setSelectedClipId} />
+              <ClipInspector plan={activePlan} clip={selectedClip} onSelectClip={setSelectedClipId} />
             </div>
           </div>
         </>

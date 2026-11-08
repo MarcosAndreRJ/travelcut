@@ -38,6 +38,14 @@ interface PlanTimelineCanvasProps {
   onSeekFrame?: (frame: number | ((prev: number) => number)) => void;
   /** Clipes cujo arquivo de mídia está ausente (SOURCE_FILE_MISSING): destaque vermelho. */
   missingClipIds?: ReadonlySet<string>;
+  /** F14.2: Operações interativas da timeline */
+  onMoveClip?: (clipId: string, newStartFrame: number) => void;
+  onTrimClip?: (clipId: string, edge: 'start' | 'end', newFrame: number) => void;
+  snappingEnabled?: boolean;
+  snapGuide?: number | null;
+  onSnapGuideChange?: (guide: number | null) => void;
+  calculateSnap?: (frame: number, excludeClipIds?: string[]) => { snappedFrame: number; snappedTo: number | null };
+  selectedClipIds?: ReadonlySet<string>;
 }
 
 const clampZoom = (value: number): number => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, value));
@@ -67,8 +75,97 @@ export const PlanTimelineCanvas: React.FC<PlanTimelineCanvasProps> = ({
   onZoomChange,
   currentFrame = 0,
   onSeekFrame,
-  missingClipIds
+  missingClipIds,
+  onMoveClip,
+  onTrimClip,
+  snappingEnabled = true,
+  snapGuide = null,
+  onSnapGuideChange,
+  calculateSnap,
+  selectedClipIds
 }) => {
+  const [activeDrag, setActiveDrag] = React.useState<{
+    clipId: string;
+    mode: 'move' | 'trim-start' | 'trim-end';
+    startX: number;
+    initialStartFrame: number;
+    initialDurationFrames: number;
+    deltaFrames: number;
+  } | null>(null);
+
+  React.useEffect(() => {
+    if (!activeDrag) return;
+
+    const handlePointerMove = (e: PointerEvent) => {
+      const deltaPx = e.clientX - activeDrag.startX;
+      const rawDeltaFrames = Math.round(deltaPx / pxPerFrame);
+
+      if (activeDrag.mode === 'move') {
+        let targetFrame = Math.max(0, activeDrag.initialStartFrame + rawDeltaFrames);
+        if (snappingEnabled && calculateSnap) {
+          const snap = calculateSnap(targetFrame, [activeDrag.clipId]);
+          targetFrame = snap.snappedFrame;
+          onSnapGuideChange?.(snap.snappedTo);
+        } else {
+          onSnapGuideChange?.(null);
+        }
+        setActiveDrag((prev) => (prev ? { ...prev, deltaFrames: targetFrame - prev.initialStartFrame } : null));
+      } else if (activeDrag.mode === 'trim-start') {
+        let targetStart = activeDrag.initialStartFrame + rawDeltaFrames;
+        if (snappingEnabled && calculateSnap) {
+          const snap = calculateSnap(targetStart, [activeDrag.clipId]);
+          targetStart = snap.snappedFrame;
+          onSnapGuideChange?.(snap.snappedTo);
+        } else {
+          onSnapGuideChange?.(null);
+        }
+        const maxStart = activeDrag.initialStartFrame + activeDrag.initialDurationFrames - 1;
+        targetStart = Math.max(0, Math.min(maxStart, targetStart));
+        setActiveDrag((prev) => (prev ? { ...prev, deltaFrames: targetStart - prev.initialStartFrame } : null));
+      } else if (activeDrag.mode === 'trim-end') {
+        let targetEnd = activeDrag.initialStartFrame + activeDrag.initialDurationFrames + rawDeltaFrames;
+        if (snappingEnabled && calculateSnap) {
+          const snap = calculateSnap(targetEnd, [activeDrag.clipId]);
+          targetEnd = snap.snappedFrame;
+          onSnapGuideChange?.(snap.snappedTo);
+        } else {
+          onSnapGuideChange?.(null);
+        }
+        targetEnd = Math.max(activeDrag.initialStartFrame + 1, targetEnd);
+        setActiveDrag((prev) => (prev ? { ...prev, deltaFrames: targetEnd - (prev.initialStartFrame + prev.initialDurationFrames) } : null));
+      }
+    };
+
+    const handlePointerUp = () => {
+      if (activeDrag) {
+        if (activeDrag.mode === 'move' && onMoveClip) {
+          const finalFrame = Math.max(0, activeDrag.initialStartFrame + activeDrag.deltaFrames);
+          if (finalFrame !== activeDrag.initialStartFrame) {
+            onMoveClip(activeDrag.clipId, finalFrame);
+          }
+        } else if (activeDrag.mode === 'trim-start' && onTrimClip) {
+          const finalStart = Math.max(0, activeDrag.initialStartFrame + activeDrag.deltaFrames);
+          if (finalStart !== activeDrag.initialStartFrame) {
+            onTrimClip(activeDrag.clipId, 'start', finalStart);
+          }
+        } else if (activeDrag.mode === 'trim-end' && onTrimClip) {
+          const finalEnd = Math.max(activeDrag.initialStartFrame + 1, activeDrag.initialStartFrame + activeDrag.initialDurationFrames + activeDrag.deltaFrames);
+          if (finalEnd !== activeDrag.initialStartFrame + activeDrag.initialDurationFrames) {
+            onTrimClip(activeDrag.clipId, 'end', finalEnd);
+          }
+        }
+      }
+      setActiveDrag(null);
+      onSnapGuideChange?.(null);
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+    };
+  }, [activeDrag, pxPerFrame, snappingEnabled, calculateSnap, onSnapGuideChange, onMoveClip, onTrimClip]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const clipRefs = useRef(new Map<string, HTMLButtonElement>());
   const scrubbingRef = useRef<boolean>(false);
@@ -242,6 +339,14 @@ export const PlanTimelineCanvas: React.FC<PlanTimelineCanvasProps> = ({
       >
         <div className="relative" style={{ width: LABEL_WIDTH_PX + contentWidth }}>
           {/* Linha vertical do playhead através de toda a timeline */}
+          {snapGuide !== null && (
+            <div
+              className="absolute top-0 bottom-0 pointer-events-none z-30 w-0.5 bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.9)]"
+              style={{ left: LABEL_WIDTH_PX + snapGuide * pxPerFrame }}
+            >
+              <div className="absolute top-0 -left-1.5 w-3.5 h-3.5 bg-cyan-400 rotate-45 shadow-sm" />
+            </div>
+          )}
           {onSeekFrame && (
             <div
               className="absolute top-0 bottom-0 pointer-events-none z-40 flex flex-col items-center"
@@ -345,12 +450,31 @@ export const PlanTimelineCanvas: React.FC<PlanTimelineCanvasProps> = ({
                   </span>
                 )}
                 {row.clips.map((clip) => {
-                  const selected = clip.clipId === selectedClipId;
+                  const selected = clip.clipId === selectedClipId || (selectedClipIds?.has(clip.clipId) ?? false);
+                  const isLinkedToSelected = Boolean(
+                    selectedClipId &&
+                      (clip.linkedClipId === selectedClipId ||
+                        plan.clips.find((c) => c.clipId === selectedClipId)?.linkedClipId === clip.clipId)
+                  );
                   const speedBadge = !isNormalSpeed(clip.speedNum, clip.speedDen);
                   const missingSource = missingClipIds?.has(clip.clipId) ?? false;
+
+                  let leftPx = clip.timelineStartFrame * pxPerFrame;
+                  let widthPx = Math.max(3, clip.durationFrames * pxPerFrame);
+                  if (activeDrag?.clipId === clip.clipId) {
+                    if (activeDrag.mode === 'move') {
+                      leftPx = Math.max(0, (clip.timelineStartFrame + activeDrag.deltaFrames) * pxPerFrame);
+                    } else if (activeDrag.mode === 'trim-start') {
+                      leftPx = Math.max(0, (clip.timelineStartFrame + activeDrag.deltaFrames) * pxPerFrame);
+                      widthPx = Math.max(3, (clip.durationFrames - activeDrag.deltaFrames) * pxPerFrame);
+                    } else if (activeDrag.mode === 'trim-end') {
+                      widthPx = Math.max(3, (clip.durationFrames + activeDrag.deltaFrames) * pxPerFrame);
+                    }
+                  }
+
                   const pos = {
-                    left: clip.timelineStartFrame * pxPerFrame,
-                    width: Math.max(3, clip.durationFrames * pxPerFrame)
+                    left: leftPx,
+                    width: widthPx
                   };
                   const label = clipLabel(clip, missingSource);
                   return (
@@ -359,18 +483,66 @@ export const PlanTimelineCanvas: React.FC<PlanTimelineCanvasProps> = ({
                       ref={(el) => setSelectedRef(clip.clipId, el)}
                       type="button"
                       onClick={() => onSelectClip(clip.clipId)}
+                      onPointerDown={(e) => {
+                        if (e.button !== 0) return;
+                        onSelectClip(clip.clipId);
+                        setActiveDrag({
+                          clipId: clip.clipId,
+                          mode: 'move',
+                          startX: e.clientX,
+                          initialStartFrame: clip.timelineStartFrame,
+                          initialDurationFrames: clip.durationFrames,
+                          deltaFrames: 0,
+                        });
+                      }}
                       aria-pressed={selected}
                       aria-label={label}
                       title={label}
                       data-testid="timeline-clip"
                       data-missing-source={missingSource ? 'true' : undefined}
-                      className={`absolute top-1.5 bottom-1.5 rounded border px-1.5 py-0.5 text-left overflow-hidden flex flex-col justify-center gap-0.5 transition-colors hover:brightness-125 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 ${
+                      className={`group absolute top-1.5 bottom-1.5 rounded border px-1.5 py-0.5 text-left overflow-hidden flex flex-col justify-center gap-0.5 transition-colors cursor-grab active:cursor-grabbing hover:brightness-125 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 ${
                         missingSource ? MISSING_SOURCE_TONE : clipTone(row.kind)
-                      } ${selected ? 'ring-2 ring-cyan-300' : ''} ${
+                      } ${selected ? 'ring-2 ring-cyan-300 z-10' : isLinkedToSelected ? 'ring-1 ring-cyan-400/80 border-dashed border-cyan-400' : ''} ${
                         clip.needsHumanReview ? 'border-2 border-amber-300 shadow-[0_0_0_1px_rgba(252,211,77,0.6)]' : ''
                       } ${missingSource ? 'border-2 shadow-[0_0_0_1px_rgba(251,113,133,0.8)]' : ''}`}
                       style={pos}
                     >
+                      {/* Alça de aparar início (Trim In) */}
+                      <div
+                        className="absolute left-0 top-0 bottom-0 w-2.5 z-20 cursor-ew-resize hover:bg-cyan-400/60 rounded-l transition-colors"
+                        title="Aparar início (Trim In)"
+                        onPointerDown={(e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                          onSelectClip(clip.clipId);
+                          setActiveDrag({
+                            clipId: clip.clipId,
+                            mode: 'trim-start',
+                            startX: e.clientX,
+                            initialStartFrame: clip.timelineStartFrame,
+                            initialDurationFrames: clip.durationFrames,
+                            deltaFrames: 0,
+                          });
+                        }}
+                      />
+                      {/* Alça de aparar fim (Trim Out) */}
+                      <div
+                        className="absolute right-0 top-0 bottom-0 w-2.5 z-20 cursor-ew-resize hover:bg-cyan-400/60 rounded-r transition-colors"
+                        title="Aparar fim (Trim Out)"
+                        onPointerDown={(e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                          onSelectClip(clip.clipId);
+                          setActiveDrag({
+                            clipId: clip.clipId,
+                            mode: 'trim-end',
+                            startX: e.clientX,
+                            initialStartFrame: clip.timelineStartFrame,
+                            initialDurationFrames: clip.durationFrames,
+                            deltaFrames: 0,
+                          });
+                        }}
+                      />
                       <span className="block truncate text-[10px] font-medium text-white">
                         {basename(clip.relativePath)}
                       </span>
