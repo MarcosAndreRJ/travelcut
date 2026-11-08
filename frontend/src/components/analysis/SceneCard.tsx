@@ -45,9 +45,9 @@ export const SceneCard: React.FC<SceneCardProps> = ({ scene, sceneStageState }) 
       {scene.isHypothesis && (
         <p className="text-[10px] text-amber-200/80">Classificação sugerida: revisão humana recomendada.</p>
       )}
-      {scene.evidence.length > 0 ? (
+      {(scene.evidence?.length ?? 0) > 0 ? (
         <ul className="list-disc pl-4 text-[11px] text-slate-300 space-y-0.5">
-          {scene.evidence.map((ev, idx) => (
+          {scene.evidence?.map((ev, idx) => (
             <li key={idx}>{ev}</li>
           ))}
         </ul>

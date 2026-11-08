@@ -96,13 +96,13 @@ export const TimelineWaveform: React.FC<TimelineWaveformProps> = ({
     })
       .then((dto: WaveformDto) => {
         if (!isMounted || activeRequestRef.current !== cacheKey) return;
-        if (dto.status === 'ready' && dto.peaks && dto.peaks.length > 0) {
+        if ((dto.status as string) === 'ready' && dto.peaks && dto.peaks.length > 0) {
           setCachedWaveform(cacheKey, dto.peaks);
           setPeaks(dto.peaks);
           setErrorMsg(null);
         } else {
           setPeaks(null);
-          setErrorMsg(previewErrorMessage(dto.errorCode, dto.detail));
+          setErrorMsg(previewErrorMessage(dto.errorCode));
         }
       })
       .catch((err: unknown) => {

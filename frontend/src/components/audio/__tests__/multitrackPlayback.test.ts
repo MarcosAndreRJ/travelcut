@@ -31,8 +31,15 @@ const makeClip = (
   sourceOutUs: sourceInUs + 10_000_000,
   timelineStartFrame: startFrame,
   durationFrames,
+  speedNum,
+  speedDen,
   speedNumerator: speedNum,
   speedDenominator: speedDen,
+  rationale: "",
+  evidence: [],
+  suggestionIds: [],
+  confidenceBand: "medium",
+  zoom: null,
   needsHumanReview: false,
   reviewReason: null,
   linkedClipId: null
@@ -40,27 +47,31 @@ const makeClip = (
 
 const makePlan = (clips: PlanClipDto[]): EditPlanDto => ({
   schemaVersion: 'editplan/1',
+  planId: 'p1',
   projectId: 'p1',
-  timeBase: tb2997,
+  revision: 1,
+  baseRevision: null,
+  createdAtUtc: '2026-11-07T12:00:00Z',
+  author: 'test',
+  profile: { profileId: 'default' } as any,
+  mediaSetFingerprint: 'fp',
+  planFingerprint: 'fp',
+  timeZoneId: 'UTC',
+  timeBase: tb2997 as any,
   tracks: [
     { trackId: 'V1', kind: 'video', label: 'V1 — Vídeo' },
     { trackId: 'V2', kind: 'b_roll', label: 'V2 — B-roll' },
     { trackId: 'A1', kind: 'dialogue', label: 'A1 — Diálogo' },
-    { trackId: 'A2', kind: 'music', label: 'A2 — Música' }
+    { trackId: 'A2', kind: 'b_roll', label: 'A2 — Áudio secundário' },
+    { trackId: 'A3', kind: 'music', label: 'A3 — Trilha sonora' }
   ],
   sections: [],
   clips,
   transitions: [],
   appliedCuts: [],
-  pendingItems: [],
-  revision: 1,
-  baseRevision: null,
-  createdAtUtc: '2026-11-07T00:00:00Z',
-  author: 'system',
-  planFingerprint: 'fp',
-  isValid: true,
-  clipCount: clips.length,
-  timelineDurationFrames: 500
+  pending: [],
+  summary: {} as any,
+  validation: { isValid: true, issues: [], validatedAtUtc: '' }
 });
 
 describe('multitrackPlayback', () => {

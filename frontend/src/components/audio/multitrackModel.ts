@@ -124,6 +124,7 @@ export function addDynamicTrack(plan: EditPlanDto, mediaType: 'video' | 'audio',
 }
 
 export interface InsertBrollParams {
+  enableAudio?: boolean;
   mediaId: string;
   relativePath: string;
   timelineStartFrame: number;
@@ -152,6 +153,11 @@ export function insertBrollClip(plan: EditPlanDto, params: InsertBrollParams): E
     durationFrames: params.durationFrames,
     speedNum: 1,
     speedDen: 1,
+    rationale: "",
+    evidence: [],
+    suggestionIds: [],
+    confidenceBand: "medium",
+    zoom: null,
     linkedClipId: null,
     needsHumanReview: false,
     reviewReason: null
@@ -160,6 +166,7 @@ export function insertBrollClip(plan: EditPlanDto, params: InsertBrollParams): E
 }
 
 export interface InsertMusicParams {
+  volumeDb?: number;
   mediaId: string;
   relativePath: string;
   timelineStartFrame: number;

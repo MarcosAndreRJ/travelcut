@@ -53,17 +53,16 @@ export const TimelinePlanningView: React.FC<TimelinePlanningViewProps> = ({ proj
 
   const timelineEditor = useTimelineEditor({
     initialPlan: plan,
-    currentRevision: planState.selectedRevision,
     currentFrame,
-    projectId: project?.projectId ?? "",
-    onPlanSaved: (newPlan) => {
+    projectId: project?.projectId ?? '',
+    onPlanChanged: (newPlan) => {
       planState.selectRevision(newPlan.revision);
     },
   });
 
   const activePlan = timelineEditor.plan ?? plan;
   const selectedClipId = timelineEditor.selectedClipId;
-  const setSelectedClipId = timelineEditor.selectClip;
+  const setSelectedClipId = timelineEditor.setSelectedClipId;
 
   const planKey = activePlan ? `${activePlan.planId}:${activePlan.revision}` : null;
 
@@ -240,13 +239,13 @@ export const TimelinePlanningView: React.FC<TimelinePlanningViewProps> = ({ proj
             <div className="flex-1 min-w-0 flex flex-col gap-3 min-h-[420px]">
               <TimelineEditorToolbar editor={timelineEditor} activePlan={activePlan} />
               <PlanPreviewPlayer
-                plan={activePlan}
+                plan={activePlan!}
                 selectedClip={selectedClip}
                 currentFrame={currentFrame}
                 onSeekFrame={setCurrentFrame}
               />
               <PlanTimelineCanvas
-                plan={activePlan}
+                plan={activePlan!}
                 selectedClipId={selectedClipId}
                 onSelectClip={setSelectedClipId}
                 zoom={zoom}
@@ -260,13 +259,13 @@ export const TimelinePlanningView: React.FC<TimelinePlanningViewProps> = ({ proj
                 snapGuide={timelineEditor.snapGuide}
                 onSnapGuideChange={timelineEditor.setSnapGuide}
                 calculateSnap={timelineEditor.calculateSnap}
-                selectedClipIds={timelineEditor.selectedClipIds}
+                selectedClipIds={new Set(timelineEditor.selectedClipId ? [timelineEditor.selectedClipId] : [])}
               />
             </div>
 
             {/* Inspetor do clipe */}
             <div className="xl:w-80 shrink-0 rounded-xl border border-slate-800 bg-[#080e1b] xl:overflow-hidden min-h-[240px]">
-              <ClipInspector plan={activePlan} clip={selectedClip} onSelectClip={setSelectedClipId} />
+              <ClipInspector plan={activePlan!} clip={selectedClip} onSelectClip={setSelectedClipId} />
             </div>
           </div>
         </>

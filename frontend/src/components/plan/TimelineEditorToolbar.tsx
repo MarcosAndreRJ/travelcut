@@ -95,7 +95,7 @@ export const TimelineEditorToolbar: React.FC<TimelineEditorToolbarProps> = ({
           {/* Dividir no Playhead */}
           <button
             type="button"
-            onClick={editor.splitClipAtPlayhead}
+            onClick={() => editor.splitClipAtPlayhead()}
             disabled={!editor.selectedClipId}
             title="Dividir clipe selecionado no cursor de reprodução (Tecla S)"
             aria-label="Dividir clipe no playhead"
@@ -159,7 +159,7 @@ export const TimelineEditorToolbar: React.FC<TimelineEditorToolbarProps> = ({
           {/* Indicador de Alterações Pendentes / Salvar */}
           <button
             type="button"
-            onClick={() => editor.saveRevision('user')}
+            onClick={() => editor.saveRevision()}
             disabled={!editor.isDirty || editor.isSaving}
             title="Gravar revisão manual no plano editorial (F14.2)"
             aria-label="Salvar revisão manual"

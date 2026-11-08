@@ -108,7 +108,7 @@ export const ClipInspector: React.FC<ClipInspectorProps> = ({ plan, clip, onSele
           </Row>
           <Row label="Velocidade">{speedText}</Row>
           <Row label="Zoom">
-            {clip.zoom === null ? 'Sem zoom' : <span>{formatZoom(clip.zoom)} <Badge tone="cyan">zoom sugerido</Badge></span>}
+            {clip.zoom === null ? 'Sem zoom' : <span>{formatZoom(clip.zoom ?? 1)} <Badge tone="cyan">zoom sugerido</Badge></span>}
           </Row>
         </dl>
       </Section>
@@ -126,11 +126,11 @@ export const ClipInspector: React.FC<ClipInspectorProps> = ({ plan, clip, onSele
         <p className="text-xs text-slate-200 leading-relaxed pt-1">{clip.rationale || 'Sem justificativa registrada.'}</p>
         <div>
           <h5 className="text-[11px] font-semibold text-slate-400 mb-1">Evidências</h5>
-          {clip.evidence.length === 0 ? (
+          {(clip.evidence?.length ?? 0) === 0 ? (
             <p className="text-[11px] text-slate-500">Nenhuma evidência registrada.</p>
           ) : (
             <ul className="list-disc pl-4 space-y-0.5 text-[11px] text-slate-300">
-              {clip.evidence.map((item, index) => (
+              {clip.evidence?.map((item, index) => (
                 <li key={`${index}-${item}`}>{item}</li>
               ))}
             </ul>
@@ -142,10 +142,10 @@ export const ClipInspector: React.FC<ClipInspectorProps> = ({ plan, clip, onSele
         <div className="space-y-1 text-xs">
           <p className="text-slate-400">
             Sugestões vinculadas:{' '}
-            {clip.suggestionIds.length === 0 ? (
+            {(clip.suggestionIds?.length ?? 0) === 0 ? (
               <span className="text-slate-500">nenhuma</span>
             ) : (
-              <span className="font-mono text-slate-200 break-all">{clip.suggestionIds.join(', ')}</span>
+              <span className="font-mono text-slate-200 break-all">{clip.suggestionIds?.join(', ')}</span>
             )}
           </p>
           <p className="text-slate-400">

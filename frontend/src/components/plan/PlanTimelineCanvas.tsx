@@ -86,6 +86,11 @@ export const PlanTimelineCanvas: React.FC<PlanTimelineCanvasProps> = ({
   calculateSnap,
   selectedClipIds
 }) => {
+  const tb = plan.timeBase;
+  const secPerFrame = tb.frameDurationNum / tb.frameDurationDen;
+  const pxPerSecond = BASE_PX_PER_SECOND * zoom;
+  const pxPerFrame = secPerFrame * pxPerSecond;
+
   const [activeDrag, setActiveDrag] = React.useState<{
     clipId: string;
     mode: 'move' | 'trim-start' | 'trim-end';
@@ -171,11 +176,6 @@ export const PlanTimelineCanvas: React.FC<PlanTimelineCanvasProps> = ({
   const scrollRef = useRef<HTMLDivElement>(null);
   const clipRefs = useRef(new Map<string, HTMLButtonElement>());
   const scrubbingRef = useRef<boolean>(false);
-  const tb = plan.timeBase;
-
-  const secPerFrame = tb.frameDurationNum / tb.frameDurationDen;
-  const pxPerSecond = BASE_PX_PER_SECOND * zoom;
-  const pxPerFrame = secPerFrame * pxPerSecond;
   const totalFrames = timelineEndFrame(plan);
   const totalSeconds = framesToSeconds(totalFrames, tb);
   const contentWidth = Math.max(640, Math.ceil(totalFrames * pxPerFrame) + 32);

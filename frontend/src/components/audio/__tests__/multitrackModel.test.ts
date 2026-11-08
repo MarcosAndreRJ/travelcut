@@ -16,60 +16,30 @@ import {
   DEFAULT_TRACK_STATES
 } from '../multitrackModel';
 
-const basePlan = (): EditPlanDto => ({
+const basePlan = (): any => ({
   schemaVersion: 'editplan/1',
   projectId: 'proj-1',
+  planId: 'p1',
   revision: 1,
   baseRevision: null,
   createdAtUtc: '2026-11-07T12:00:00Z',
   author: 'test',
-  planFingerprint: 'fp-1',
-  isValid: true,
-  clipCount: 2,
-  timelineDurationFrames: 90,
+  planFingerprint: 'fp',
+  mediaSetFingerprint: 'fp',
+  timeZoneId: 'UTC',
+  timeBase: { frameDurationNum: 1, frameDurationDen: 30, label: '30 fps' },
+  timelineDurationFrames: 300,
   tracks: [
-    { trackId: 'V1', label: 'V1 — Vídeo', kind: 'video' },
-    { trackId: 'A1', label: 'A1 — Áudio', kind: 'dialogue' }
+    { trackId: 'V1', kind: 'video', label: 'V1' },
+    { trackId: 'A1', kind: 'dialogue', label: 'A1' }
   ],
   sections: [],
-  clips: [
-    {
-      clipId: 'v1-clip',
-      trackId: 'V1',
-      mediaId: 'media-1',
-      relativePath: '1-Bruto/vlog1.mp4',
-      sectionId: null,
-      sourceInUs: 0,
-      sourceOutUs: 3000000,
-      timelineStartFrame: 0,
-      durationFrames: 90,
-      speedNum: 1,
-      speedDen: 1,
-      linkedClipId: 'a1-clip',
-      needsHumanReview: false,
-      reviewReason: null
-    },
-    {
-      clipId: 'a1-clip',
-      trackId: 'A1',
-      mediaId: 'media-1',
-      relativePath: '1-Bruto/vlog1.mp4',
-      sectionId: null,
-      sourceInUs: 0,
-      sourceOutUs: 3000000,
-      timelineStartFrame: 0,
-      durationFrames: 90,
-      speedNum: 1,
-      speedDen: 1,
-      linkedClipId: 'v1-clip',
-      needsHumanReview: false,
-      reviewReason: null
-    }
-  ],
+  clips: [],
   transitions: [],
   appliedCuts: [],
-  pendingItems: [],
-  issues: [],
+  pending: [],
+  summary: {},
+  validation: { isValid: true, issues: [], validatedAtUtc: '' },
   profile: {
     schemaVersion: 'editorialprofile/1',
     pace: 'normal',

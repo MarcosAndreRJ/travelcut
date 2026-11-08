@@ -5,59 +5,31 @@ import { MultitrackPlanningPanel } from '../MultitrackPlanningPanel';
 import type { EditPlanDto, PlanClipDto } from '../../../types/ipc';
 import { DEFAULT_TRACK_STATES } from '../multitrackModel';
 
-const basePlan: EditPlanDto = {
+const basePlan: any = {
   schemaVersion: 'editplan/1',
   projectId: 'p1',
-  profileId: 'default',
+  planId: 'p1',
   revision: 1,
   baseRevision: null,
   createdAtUtc: '2026-11-07T12:00:00Z',
   author: 'test',
   planFingerprint: 'fp',
-  timelineTimeBase: { fpsNumerator: 30000, fpsDenominator: 1001, dropFrame: true },
+  mediaSetFingerprint: 'fp',
+  timeZoneId: 'UTC',
+  timeBase: { frameDurationNum: 1001, frameDurationDen: 30000, label: '29.97 fps' },
   timelineDurationFrames: 300,
   tracks: [
     { trackId: 'V1', kind: 'video', label: 'V1 — vídeo' },
     { trackId: 'A1', kind: 'dialogue', label: 'A1 — áudio (diálogo)' }
   ],
   sections: [],
-  clips: [
-    {
-      clipId: 'c1-v1',
-      trackId: 'V1',
-      mediaId: 'm1',
-      relativePath: '1-Bruto/m1.mp4',
-      sectionId: null,
-      sourceInUs: 0,
-      sourceOutUs: 5000000,
-      timelineStartFrame: 0,
-      durationFrames: 150,
-      speedNum: 1,
-      speedDen: 1,
-      linkedClipId: 'c1-a1',
-      needsHumanReview: false,
-      reviewReason: null
-    },
-    {
-      clipId: 'c1-a1',
-      trackId: 'A1',
-      mediaId: 'm1',
-      relativePath: '1-Bruto/m1.mp4',
-      sectionId: null,
-      sourceInUs: 0,
-      sourceOutUs: 5000000,
-      timelineStartFrame: 0,
-      durationFrames: 150,
-      speedNum: 1,
-      speedDen: 1,
-      linkedClipId: 'c1-v1',
-      needsHumanReview: false,
-      reviewReason: null
-    }
-  ],
+  clips: [],
   transitions: [],
-  issues: [],
-  isValid: true
+  appliedCuts: [],
+  pending: [],
+  summary: {},
+  validation: { isValid: true, issues: [], validatedAtUtc: '' },
+  profile: { profileId: 'default' }
 };
 
 describe('MultitrackPlanningPanel', () => {

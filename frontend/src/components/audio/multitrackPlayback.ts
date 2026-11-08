@@ -73,12 +73,12 @@ export function resolveActiveVisualClip(
 export function calculateClipPlaybackTime(
   clip: PlanClipDto,
   currentFrame: number,
-  timeBase: RationalTimeBaseDto
+  timeBase: any
 ): number {
   const sourceInSec = clip.sourceInUs / 1_000_000;
   const frameOffset = Math.max(0, currentFrame - clip.timelineStartFrame);
-  const fps = timeBase.fpsNumerator / timeBase.fpsDenominator;
-  const speed = clip.speedNumerator / clip.speedDenominator;
+  const fps = (timeBase.fpsNumerator ?? 30) / (timeBase.fpsDenominator ?? 1);
+  const speed = (Number(clip.speedNumerator ?? clip.speedNum ?? 1) / Number(clip.speedDenominator ?? clip.speedDen ?? 1));
   // Tempo de reprodução no arquivo original
   return sourceInSec + (frameOffset / fps) * speed;
 }

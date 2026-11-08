@@ -310,8 +310,8 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleDecision = (suggestionId: string, action: ReviewDecisionAction) =>
-    runDecision(() => ipc.submitDecision({ suggestionId, action, reviewer: REVIEWER }));
+  const handleDecision = (suggestionId: string, action: any) =>
+    runDecision(() => ipc.submitDecision({ suggestionId, action: action as any, reviewer: REVIEWER }));
 
   const handleModify = (suggestionId: string, startSeconds: number, endSeconds: number) =>
     runDecision(() =>
@@ -329,7 +329,7 @@ export const App: React.FC = () => {
   const handleRedoDecision = (suggestionId: string) => runDecision(() => ipc.redoDecision(suggestionId));
 
   const handleBatchDecide = (suggestionIds: string[], action: ReviewDecisionAction) =>
-    runDecision(() => ipc.batchDecide({ suggestionIds, action, reviewer: REVIEWER }));
+    runDecision(() => ipc.batchDecide({ suggestionIds, action: action as any, reviewer: REVIEWER }));
 
   const clearReviewFeedback = () => {
     setReviewError(null);

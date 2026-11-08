@@ -142,9 +142,9 @@ export const countByStatus = (suggestions: EditSuggestion[]): StatusCounts => {
 
 export const filterSuggestions = (suggestions: EditSuggestion[], filters: ReviewFilters): EditSuggestion[] =>
   suggestions.filter((s) => {
-    if (filters.categoryFilter === 'cuts' && !isCutKind(s.kind)) return false;
-    if (filters.categoryFilter === 'zooms' && !isZoomKind(s.kind)) return false;
-    if (filters.categoryFilter === 'transitions' && !isTransitionKind(s.kind)) return false;
+    if (filters.category === 'cuts' && !isCutKind(s.kind)) return false;
+    if (filters.category === 'zooms' && !isZoomKind(s.kind)) return false;
+    if (filters.category === 'transitions' && !isTransitionKind(s.kind)) return false;
 
     if (filters.status === 'pending' && !isPending(s)) return false;
     if (filters.status === 'approved' && !isApproved(s)) return false;

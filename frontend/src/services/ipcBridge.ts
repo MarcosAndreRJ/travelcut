@@ -38,6 +38,8 @@ import {
   PlanSectionDto,
   PlanTrackDto,
   PlanTransitionDto,
+  PlanEditorialOperationDto,
+  ReconcilePlanResponse,
   PlanValidationDto,
   TimelineTimeBaseDto,
   BatchDecideRequest,

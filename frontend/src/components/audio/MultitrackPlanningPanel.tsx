@@ -19,7 +19,7 @@ export interface MultitrackPlanningPanelProps {
   initialTab?: 'tracks' | 'clip' | 'insert' | 'export';
   onPlanChange: (updatedPlan: EditPlanDto) => void;
   onTrackStatesChange?: (states: Record<string, TrackAudioState>) => void;
-  onSelectClip?: (clipId: string) => void;
+  onSelectClip?: (clipId: string | null) => void;
 }
 
 export const MultitrackPlanningPanel: React.FC<MultitrackPlanningPanelProps> = ({
@@ -153,7 +153,7 @@ export const MultitrackPlanningPanel: React.FC<MultitrackPlanningPanelProps> = (
             plan={plan}
             selectedClip={selectedClip}
             onPlanChange={onPlanChange}
-            onSelectClip={onSelectClip}
+            onSelectClip={(id) => onSelectClip?.(id)}
           />
         )}
 

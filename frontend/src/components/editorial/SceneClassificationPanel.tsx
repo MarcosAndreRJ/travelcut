@@ -31,7 +31,7 @@ export const SceneClassificationPanel: React.FC<SceneClassificationPanelProps> =
     setSaving(true);
     setStatusMsg(null);
     try {
-      await ipc.invoke('scene.upsert', {
+      await ipc.send('scene.upsert', {
         projectId,
         mediaId,
         isFullVideo,

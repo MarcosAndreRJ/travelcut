@@ -1,12 +1,12 @@
 export interface IpcRequest<T = any> {
-  version: number;
+  version?: number;
   requestId: string;
   type: string;
   payload?: T;
 }
 
 export interface IpcResponse<T = any> {
-  version: number;
+  version?: number;
   requestId: string;
   ok?: boolean;
   success?: boolean;
@@ -45,7 +45,7 @@ export interface ProjectSummary {
 // Append-only; estado efetivo = última decisão. "modify" = aprovar com intervalo ajustado.
 // Após decidir, o host regenera o plano (nova revisão só se o conteúdo mudar).
 
-export type DecisionAction = 'approve' | 'reject' | 'defer' | 'modify';
+export type DecisionAction = 'approve' | 'reject' | 'defer' | 'modify' | 'reopen';
 
 export interface EditDecisionDto {
   decisionId: string;
@@ -54,7 +54,7 @@ export interface EditDecisionDto {
   reviewer: string;
   notes: string;
   timestampUtc: string;
-  version: number;
+  version?: number;
   baseRevision?: number | null;
   sourceStartSeconds?: number | null;
   sourceEndSeconds?: number | null;
@@ -102,6 +102,8 @@ export interface EditSuggestion {
   rationale: string;
   confidenceBand: 'low' | 'medium' | 'high' | string;
   needsHumanReview: boolean;
+
+
   suggestedAction: string;
   status: 'Proposed' | 'Approved' | 'Rejected' | 'Deferred' | string;
   author: string;
@@ -118,6 +120,8 @@ export interface EditSuggestion {
 export interface PlaybackSourceDto {
   mediaId: string;
   status: 'original' | 'proxy' | 'unavailable';
+  errorCode?: string;
+  detail?: string;
   url: string | null;
   mimeType: string | null;
   codec: string | null;
@@ -127,6 +131,8 @@ export interface PlaybackSourceDto {
 }
 
 export interface WaveformDto {
+  errorCode?: string;
+  detail?: string;
   status: 'ok' | 'ffmpeg_unavailable' | 'no_audio' | 'failed';
   startSeconds: number;
   bucketSeconds: number;
@@ -534,12 +540,15 @@ export interface HesitationCandidateDto {
   contextBefore: string;
   contextAfter: string;
   needsHumanReview: boolean;
+  reviewReason?: string | null;
+  speedNumerator?: number;
+  speedDenominator?: number;
 }
 
 export interface SceneClassificationDto {
   mediaId: string;
   category: 'conversa' | 'estrada' | 'paisagem' | 'loja' | 'drone' | 'outro' | 'indeterminado' | string;
-  confidenceBand: ConfidenceBand;
+  confidenceBand?: ConfidenceBand;
   isHypothesis: boolean;
   evidence: string[];
   hasSpeech: boolean | null;
@@ -799,19 +808,23 @@ export interface MediaAnalysisDto {
 // (frameDurationNum/frameDurationDen segundos por frame). Seções são hipóteses até revisão.
 
 export interface EditorialProfileDto {
-  profileId: string;
-  version: number;
-  silencePolicy: 'conservative' | 'balanced' | 'aggressive' | string;
+  schemaVersion?: string | number;
+  profileId?: string;
+  version?: number;
+  silencePolicy?: 'conservative' | 'balanced' | 'aggressive' | string;
   pace: 'calm' | 'normal' | 'fast' | string;
   jokePreservation: 'strict' | 'normal' | string;
   zoomStrength: 'off' | 'subtle' | 'medium' | string;
   speedBroll: 'off' | '2x' | '4x' | 'auto' | string;
   musicPolicy: 'suggest_only' | 'off' | string;
-  reviewAmbiguous: boolean;
-  autoApplyTrivialCuts: boolean;
+  reviewAmbiguous?: boolean;
+  autoApplyTrivialCuts?: boolean;
 }
 
 export interface TimelineTimeBaseDto {
+  fpsNumerator?: number;
+  fpsDenominator?: number;
+  dropFrame?: boolean;
   frameDurationNum: number;
   frameDurationDen: number;
   label: string;
@@ -828,7 +841,7 @@ export interface PlanSectionDto {
   order: number;
   role: 'abertura' | 'desenvolvimento' | 'encerramento' | string;
   title: string;
-  rationale: string;
+  rationale?: string;
   isHypothesis: boolean;
   startFrame: number;
   endFrame: number;
@@ -847,12 +860,15 @@ export interface PlanClipDto {
   speedNum: number;
   speedDen: number;
   linkedClipId: string | null;
-  zoom: number | null;
-  rationale: string;
-  evidence: string[];
-  suggestionIds: string[];
-  confidenceBand: ConfidenceBand;
+  zoom?: number | null;
+  rationale?: string;
+  evidence?: string[];
+  suggestionIds?: string[];
+  confidenceBand?: ConfidenceBand;
   needsHumanReview: boolean;
+  reviewReason?: string | null;
+  speedNumerator?: number;
+  speedDenominator?: number;
 }
 
 export interface PlanTransitionDto {
@@ -904,6 +920,10 @@ export interface PlanSummaryDto {
 }
 
 export interface EditPlanDto {
+  issues?: any[];
+  timelineDurationFrames?: number;
+  clipCount?: number;
+  isValid?: boolean;
   schemaVersion: string;
   planId: string;
   projectId: string;
@@ -922,6 +942,7 @@ export interface EditPlanDto {
   transitions: PlanTransitionDto[];
   appliedCuts: PlanAppliedCutDto[];
   pending: PlanPendingItemDto[];
+  pendingItems?: PlanPendingItemDto[];
   summary: PlanSummaryDto;
   validation: PlanValidationDto;
 }
@@ -1004,4 +1025,22 @@ export interface MotionCapabilitiesDto {
   reasonCode: string | null;
   templates: MotionTemplateCapabilityDto[];
   checkedAtUtc: string;
+}
+
+
+export interface RationalTimeBaseDto {
+  numerator?: number;
+  denominator?: number;
+  fpsNumerator?: number;
+  fpsDenominator?: number;
+  frameDurationNum?: number;
+  frameDurationDen?: number;
+  label?: string;
+  dropFrame?: boolean;
+}
+
+export interface ReconcilePlanResponse {
+  plan: EditPlanDto;
+  conflicts: PlanConflictDto[];
+  hasConflicts: boolean;
 }

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import type { EditSuggestion, MediaAnalysisDto } from '../../types/ipc';
 import {

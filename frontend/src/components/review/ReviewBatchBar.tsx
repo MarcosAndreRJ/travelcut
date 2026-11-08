@@ -22,7 +22,8 @@ interface ReviewBatchBarProps {
 const VERB: Record<ReviewDecisionAction, string> = {
   approve: 'Aprovar',
   reject: 'Rejeitar',
-  defer: 'Adiar'
+  defer: 'Adiar',
+  reopen: 'Reabrir'
 };
 
 const PLURAL_NOUN = (n: number): string => (n === 1 ? 'candidato' : 'candidatos');
