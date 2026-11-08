@@ -11,6 +11,7 @@ import {
   type ReviewConfidenceFilter,
   type ReviewFilters,
   type ReviewStatusFilter,
+  type EditorialCategoryFilter,
   type StatusCounts
 } from './reviewModel';
 
@@ -38,6 +39,13 @@ const STATUS_OPTIONS: { value: ReviewStatusFilter; label: string; count: (c: Sta
   { value: 'rejected', label: 'Rejeitados', count: (c) => c.rejected },
   { value: 'deferred', label: 'Adiados', count: (c) => c.deferred },
   { value: 'all', label: 'Todos', count: (c) => c.all }
+];
+
+const CATEGORY_OPTIONS: { value: EditorialCategoryFilter; label: string }[] = [
+  { value: 'all', label: 'Todos' },
+  { value: 'cuts', label: 'Cortes' },
+  { value: 'zooms', label: 'Zooms' },
+  { value: 'transitions', label: 'Transições' }
 ];
 
 const CONFIDENCE_OPTIONS: { value: ReviewConfidenceFilter; label: string }[] = [
@@ -91,6 +99,28 @@ export const ReviewQueue: React.FC<ReviewQueueProps> = ({
           <span className="text-[10px] text-cyan-400 font-mono" aria-live="polite">
             {items.length} {items.length === 1 ? 'item' : 'itens'}
           </span>
+        </div>
+
+        <div role="group" aria-label="Filtrar por tipo editorial" className="flex flex-wrap gap-1 border-b border-slate-800/80 pb-2">
+          {CATEGORY_OPTIONS.map((opt) => {
+            const current = filters.category ?? 'all';
+            const pressed = current === opt.value;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                aria-pressed={pressed}
+                onClick={() => setFilter('category', opt.value)}
+                className={`px-2 py-0.5 rounded text-[10px] font-semibold border transition-all ${
+                  pressed
+                    ? 'bg-purple-600/30 text-purple-200 border-purple-500/60'
+                    : 'text-slate-400 border-slate-800 hover:bg-slate-800'
+                }`}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
         </div>
 
         <div role="group" aria-label="Filtrar por status" className="flex flex-wrap gap-1">

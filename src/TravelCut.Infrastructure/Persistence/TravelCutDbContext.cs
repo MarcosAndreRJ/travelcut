@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Microsoft.Extensions.Logging;
 using TravelCut.Domain.Entities;
+using TravelCut.Domain.Entities.Editorial;
 using TravelCut.Domain.ValueObjects;
 using TravelCut.Infrastructure.Locks;
 using TravelCut.Infrastructure.Planning;
@@ -66,6 +67,8 @@ public class TravelCutDbContext : DbContext
     public DbSet<TimelineClip> TimelineClips => Set<TimelineClip>();
     public DbSet<ProcessingJob> ProcessingJobs => Set<ProcessingJob>();
     public DbSet<PlanRevisionRecord> PlanRevisions => Set<PlanRevisionRecord>();
+    public DbSet<SceneClassificationEntry> SceneClassifications => Set<SceneClassificationEntry>();
+    public DbSet<EditorialTransition> EditorialTransitions => Set<EditorialTransition>();
 
     public TravelCutDbContext(DbContextOptions<TravelCutDbContext> options) : base(options)
     {
@@ -246,6 +249,23 @@ public class TravelCutDbContext : DbContext
             b.Property(r => r.PlanFingerprint).HasMaxLength(128).IsRequired();
             b.Property(r => r.RelativeJsonPath).HasMaxLength(1024).IsRequired();
         });
+
+        // SceneClassificationEntry (F14.4)
+        modelBuilder.Entity<SceneClassificationEntry>(b =>
+        {
+            b.HasKey(s => s.EntryId);
+            b.HasIndex(s => new { s.ProjectId, s.MediaId });
+            b.Property(s => s.Notes).HasMaxLength(1024);
+        });
+
+        // EditorialTransition (F14.4)
+        modelBuilder.Entity<EditorialTransition>(b =>
+        {
+            b.HasKey(t => t.TransitionId);
+            b.HasIndex(t => t.ProjectId);
+            b.HasIndex(t => new { t.MediaIdA, t.MediaIdB });
+            b.Property(t => t.Rationale).HasMaxLength(1024);
+        });
     }
 
     private static RationalTimeBase ParseTimeBase(string s)
@@ -360,6 +380,62 @@ public class TravelCutDbContext : DbContext
 
         // Bancos existentes não recebem tabelas novas via EnsureCreated: criação idempotente da tabela do plano.
         foreach (var statement in PlanRevisionsDdl)
+        {
+            using var ddl = connection.CreateCommand();
+            ddl.CommandText = statement;
+            ddl.ExecuteNonQuery();
+        }
+
+        // Tabelas da F14.4 (Classificação de Cenas e Transições Editoriais)
+        var f144Statements = new[]
+        {
+            """
+            CREATE TABLE IF NOT EXISTS SceneClassifications (
+                EntryId TEXT NOT NULL PRIMARY KEY,
+                ProjectId TEXT NOT NULL,
+                MediaId TEXT NOT NULL,
+                StartSeconds REAL NOT NULL,
+                EndSeconds REAL NOT NULL,
+                IsFullVideo INTEGER NOT NULL,
+                Environment INTEGER NOT NULL,
+                Interaction INTEGER NOT NULL,
+                Framing INTEGER NOT NULL,
+                Movement INTEGER NOT NULL,
+                EditorialProfile INTEGER NOT NULL,
+                Notes TEXT,
+                CreatedAtUtc TEXT NOT NULL,
+                UpdatedAtUtc TEXT NOT NULL
+            );
+            """,
+            "CREATE INDEX IF NOT EXISTS IX_SceneClassifications_Project_Media ON SceneClassifications (ProjectId, MediaId);",
+            """
+            CREATE TABLE IF NOT EXISTS EditorialTransitions (
+                TransitionId TEXT NOT NULL PRIMARY KEY,
+                ProjectId TEXT NOT NULL,
+                MediaIdA TEXT NOT NULL,
+                MediaIdB TEXT NOT NULL,
+                TransitionType INTEGER NOT NULL,
+                DurationSeconds REAL NOT NULL,
+                Preset INTEGER NOT NULL,
+                Status INTEGER NOT NULL,
+                Origin TEXT NOT NULL,
+                Rationale TEXT NOT NULL,
+                IsAdjacentOnTimeline INTEGER NOT NULL,
+                InsufficientHandles INTEGER NOT NULL,
+                HandleWarningMessage TEXT,
+                AvailableHandleFramesA REAL NOT NULL,
+                AvailableHandleFramesB REAL NOT NULL,
+                TimelineClipIdA TEXT,
+                TimelineClipIdB TEXT,
+                CreatedAtUtc TEXT NOT NULL,
+                UpdatedAtUtc TEXT NOT NULL
+            );
+            """,
+            "CREATE INDEX IF NOT EXISTS IX_EditorialTransitions_ProjectId ON EditorialTransitions (ProjectId);",
+            "CREATE INDEX IF NOT EXISTS IX_EditorialTransitions_MediaA_B ON EditorialTransitions (MediaIdA, MediaIdB);"
+        };
+
+        foreach (var statement in f144Statements)
         {
             using var ddl = connection.CreateCommand();
             ddl.CommandText = statement;

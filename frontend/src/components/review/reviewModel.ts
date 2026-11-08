@@ -16,20 +16,31 @@ export const TENTH_STEP_SECONDS = 0.1;
 export type ReviewStatusFilter = 'pending' | 'approved' | 'rejected' | 'deferred' | 'all';
 export type ReviewConfidenceFilter = 'all' | 'low' | 'medium' | 'high';
 export type ReviewDecisionAction = 'approve' | 'reject' | 'defer' | 'reopen';
+export type EditorialCategoryFilter = 'all' | 'cuts' | 'zooms' | 'transitions';
 
 export interface ReviewFilters {
   status: ReviewStatusFilter;
   kind: string; // 'all' ou chave em minúsculas do kind
   confidence: ReviewConfidenceFilter;
   humanOnly: boolean;
+  category?: EditorialCategoryFilter;
 }
 
 export const DEFAULT_REVIEW_FILTERS: ReviewFilters = {
   status: 'pending',
   kind: 'all',
   confidence: 'all',
-  humanOnly: false
+  humanOnly: false,
+  category: 'all'
 };
+
+const CUT_KINDS = new Set(['silence', 'pause', 'filler', 'prolongation', 'repetition', 'false_start', 'hesitation', 'speedbroll', 'cut', 'trim']);
+const ZOOM_KINDS = new Set(['subtlezoom', 'zoom', 'punch_in', 'push_in']);
+const TRANSITION_KINDS = new Set(['transition', 'video_fade_in', 'video_fade_out', 'video_dissolve', 'audio_fade_in', 'audio_fade_out', 'audio_crossfade']);
+
+export const isCutKind = (kind: string): boolean => CUT_KINDS.has(kindKey(kind));
+export const isZoomKind = (kind: string): boolean => ZOOM_KINDS.has(kindKey(kind));
+export const isTransitionKind = (kind: string): boolean => TRANSITION_KINDS.has(kindKey(kind));
 
 export interface Interval {
   start: number;
@@ -131,6 +142,10 @@ export const countByStatus = (suggestions: EditSuggestion[]): StatusCounts => {
 
 export const filterSuggestions = (suggestions: EditSuggestion[], filters: ReviewFilters): EditSuggestion[] =>
   suggestions.filter((s) => {
+    if (filters.categoryFilter === 'cuts' && !isCutKind(s.kind)) return false;
+    if (filters.categoryFilter === 'zooms' && !isZoomKind(s.kind)) return false;
+    if (filters.categoryFilter === 'transitions' && !isTransitionKind(s.kind)) return false;
+
     if (filters.status === 'pending' && !isPending(s)) return false;
     if (filters.status === 'approved' && !isApproved(s)) return false;
     if (filters.status === 'rejected' && s.status !== 'Rejected') return false;

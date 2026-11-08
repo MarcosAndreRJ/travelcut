@@ -38,6 +38,7 @@ public class IpcDispatcher
     private readonly ILogger<IpcDispatcher> _logger;
     private readonly IEnvironmentAssistantService? _envAssistant;
     private readonly ITravelCutSettingsService? _settingsService;
+    private readonly TravelCut.Application.Editorial.EditorialIpcHandler? _editorial;
 
     public IpcDispatcher(
         OpenOrCreateProjectUseCase openProjectUseCase,
@@ -60,6 +61,7 @@ public class IpcDispatcher
         PreviewIpcHandler? preview = null,
         EditorIpcHandler? editor = null,
         TravelCut.Application.Motion.MotionIpcHandler? motion = null,
+        TravelCut.Application.Editorial.EditorialIpcHandler? editorial = null,
         IEnvironmentAssistantService? envAssistant = null,
         ITravelCutSettingsService? settingsService = null)
     {
@@ -83,6 +85,7 @@ public class IpcDispatcher
         _getThumbnailUseCase = getThumbnailUseCase;
         _importService = importService;
         _logger = logger;
+        _editorial = editorial;
         _envAssistant = envAssistant;
         _settingsService = settingsService;
     }
@@ -864,6 +867,12 @@ public class IpcDispatcher
                     {
                         var previewResponse = await _preview.TryHandleAsync(request, ct);
                         if (previewResponse is not null) return previewResponse;
+                    }
+                    // Inteligência editorial F14.4 (cenas, transições, zooms) vive em handler próprio.
+                    if (_editorial is not null)
+                    {
+                        var editorialResponse = await _editorial.TryHandleAsync(request, ct);
+                        if (editorialResponse is not null) return editorialResponse;
                     }
                     _logger.LogWarning("Tipo de requisição IPC desconhecido: {Type}", request.Type);
                     return IpcResponse.Fail(request.RequestId, "UNKNOWN_METHOD", $"Método IPC '{request.Type}' não é reconhecido.");
