@@ -21,6 +21,8 @@ import {
   secondsToFrames
 } from './planTime';
 import { basename, roleLabel, trackKindLabel, transitionLabel } from './planFormat';
+import { TimelineWaveform } from '../audio/TimelineWaveform';
+import { AudioSyncBadge } from '../audio/AudioSyncBadge';
 
 const LABEL_WIDTH_PX = 132;
 /** Escala base: 4 px por segundo real em zoom 100%. */
