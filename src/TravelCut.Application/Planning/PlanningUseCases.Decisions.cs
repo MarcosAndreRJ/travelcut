@@ -327,11 +327,20 @@ public sealed partial class PlanningUseCases
     {
         var dtos = new List<EditSuggestionDto>(suggestions.Count);
         var effects = await LoadAppliedEffectsAsync(projectId, ct);
+        var effectiveById = new Dictionary<Guid, EffectiveSuggestion>();
+        var decided = new HashSet<Guid>();
         foreach (var suggestion in suggestions)
         {
-            var effective = await CurrentStateAsync(suggestion, ct);
-            dtos.Add(SuggestionEffectiveMapper.ToDto(suggestion, effective,
-                effects.TryGetValue(suggestion.SuggestionId, out var fx) ? fx : null));
+            effectiveById[suggestion.SuggestionId] = await CurrentStateAsync(suggestion, ct);
+            if ((await _suggestionsAndDecisions.ListDecisionsBySuggestionAsync(suggestion.SuggestionId, ct)).Count > 0)
+                decided.Add(suggestion.SuggestionId);
+        }
+        var batch = await LoadBatchApprovabilityAsync(projectId, suggestions, effectiveById, decided, ct);
+        foreach (var suggestion in suggestions)
+        {
+            dtos.Add(SuggestionEffectiveMapper.ToDto(suggestion, effectiveById[suggestion.SuggestionId],
+                effects.TryGetValue(suggestion.SuggestionId, out var fx) ? fx : null,
+                batch.TryGetValue(suggestion.SuggestionId, out var ba) ? ba : null));
         }
         return dtos;
     }
@@ -455,7 +464,7 @@ public sealed partial class PlanningUseCases
         {
             var existingHistory = await _suggestionsAndDecisions.ListDecisionsBySuggestionAsync(duplicate.SuggestionId, ct);
             var existingEffective = EffectiveSuggestionStatus.ResolveDetailed([duplicate], existingHistory)[duplicate.SuggestionId];
-            return PlanOutcome<EditSuggestionDto>.Ok(SuggestionEffectiveMapper.ToDto(duplicate, existingEffective));
+            return PlanOutcome<EditSuggestionDto>.Ok(SuggestionEffectiveMapper.ToDto(duplicate, existingEffective, null, false));
         }
 
         var suggestion = new EditSuggestion
@@ -486,6 +495,6 @@ public sealed partial class PlanningUseCases
             CanRedo: false
         );
 
-        return PlanOutcome<EditSuggestionDto>.Ok(SuggestionEffectiveMapper.ToDto(suggestion, effective));
+        return PlanOutcome<EditSuggestionDto>.Ok(SuggestionEffectiveMapper.ToDto(suggestion, effective, null, false));
     }
 }

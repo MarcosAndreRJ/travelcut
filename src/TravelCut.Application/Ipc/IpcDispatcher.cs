@@ -266,9 +266,12 @@ public class IpcDispatcher
                     var decisions = await _planRepo.ListDecisionsByProjectAsync(projectId, ct);
                     var effective = EffectiveSuggestionStatus.ResolveDetailed(suggestions, decisions);
                     var appliedEffects = await _planning.LoadAppliedEffectsAsync(projectId, ct);
+                    var batch = await _planning.LoadBatchApprovabilityAsync(
+                        projectId, suggestions, effective, decisions.Select(d => d.SuggestionId).ToHashSet(), ct);
                     var dtos = suggestions
                         .Select(s => SuggestionEffectiveMapper.ToDto(s, effective[s.SuggestionId],
-                            appliedEffects.TryGetValue(s.SuggestionId, out var fx) ? fx : null))
+                            appliedEffects.TryGetValue(s.SuggestionId, out var fx) ? fx : null,
+                            batch.TryGetValue(s.SuggestionId, out var ba) ? ba : null))
                         .ToList();
 
                     return IpcResponse.Success(request.RequestId, new { suggestions = dtos });

@@ -30,7 +30,10 @@ public record EditSuggestionDto(
     [property: JsonPropertyName("policyVersion")] string? PolicyVersion = null,   // só origin "auto" (ex.: "auto-editorial-policy/2")
     [property: JsonPropertyName("policyReason")] string? PolicyReason = null,     // só origin "auto": razão legível da política
     // Parâmetros EFETIVOS (decisão humana ativa; senão os da própria sugestão, ex.: zoom do recomendador). Null = nenhum.
-    [property: JsonPropertyName("parameters")] DecisionParametersDto? Parameters = null
+    [property: JsonPropertyName("parameters")] DecisionParametersDto? Parameters = null,
+    // Elegibilidade ao lote decidida pela AutoEditorialPolicy (aditivo): true só quando o veredito seria Apply (corte pendente, sem
+    // decisão explícita). Null = não calculado (o frontend usa a regra local de compatibilidade).
+    [property: JsonPropertyName("batchApprovable")] bool? BatchApprovable = null
 );
 
 /// <summary>

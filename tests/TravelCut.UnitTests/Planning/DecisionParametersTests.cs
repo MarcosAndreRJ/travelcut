@@ -33,12 +33,14 @@ public sealed class DecisionParametersTests : IDisposable
     private readonly SqlitePlanRevisionRepository _revisions;
     private readonly InMemoryPlanArtifactStore _artifacts = new();
     private readonly PlanningUseCases _planning;
+    private readonly FakePipelineAnalysis _analysis = new();
     private readonly IpcDispatcher _dispatcher;
     private readonly string _root = Path.Combine(Path.GetTempPath(), "tc_f148_" + Guid.NewGuid().ToString("N"));
 
     public DecisionParametersTests()
     {
         _connection.Open();
+        foreach (var kv in TravelFixture.Analyses()) _analysis.Analyses[kv.Key] = kv.Value;
         _db = new TravelCutDbContext(new DbContextOptionsBuilder<TravelCutDbContext>().UseSqlite(_connection).Options);
         _db.Database.EnsureCreated();
         _projects = new SqliteProjectRepository(_db);
@@ -49,7 +51,7 @@ public sealed class DecisionParametersTests : IDisposable
         media.SaveBatchAsync(TravelFixture.Media()).GetAwaiter().GetResult();
         _plan.SaveSuggestionsBatchAsync([ZoomSug(1, 12_400, 40_000), CutSug(2)]).GetAwaiter().GetResult();
         _planning = new PlanningUseCases(
-            _projects, media, _plan, new FakePipelineAnalysis(), new ChronologyService(),
+            _projects, media, _plan, _analysis, new ChronologyService(),
             _revisions, _artifacts, new FileSystemFileExistence(),
             TimeProvider.System, NullLogger<PlanningUseCases>.Instance);
         _dispatcher = new IpcDispatcher(
@@ -289,6 +291,43 @@ public sealed class DecisionParametersTests : IDisposable
         Assert.Equal(0.5, known.ZoomFocalPointX);
         Assert.Equal(SmartZoomConstants.TypePunchIn, known.ZoomCurve);
         Assert.NotNull(known.ZoomDurationSeconds);
+    }
+
+    // ------------------------------------------------------------------ batchApprovable (política, não regra local)
+
+    private static EditSuggestion TrivialSilence() => new()
+    {
+        SuggestionId = S(50), MediaId = M(1), SourceInterval = new TimeRange(30_000, 33_000), EvidenceRefs = "{\"kind\":\"silence\"}",
+        ConfidenceBand = "high", SuggestedAction = "cut", Status = SuggestionStatus.Proposed, Author = "test",
+        CreatedAtUtc = new DateTime(2026, 10, 14, 9, 0, 1, DateTimeKind.Utc),
+    };
+
+    private async Task<Dictionary<Guid, JsonElement>> ListSuggestions() =>
+        Body(await Send("suggestions.list", new ProjectRequest(TravelFixture.ProjectId))).GetProperty("suggestions")
+            .EnumerateArray().ToDictionary(s => s.GetProperty("suggestionId").GetGuid());
+
+    [Fact]
+    public async Task BatchApprovable_TrueOnlyWhenPolicyWouldApply()
+    {
+        await _plan.SaveSuggestionsBatchAsync([TrivialSilence()]);
+        var list = await ListSuggestions();
+
+        Assert.True(list[S(50)].GetProperty("batchApprovable").GetBoolean());   // silêncio inequívoco: Apply
+        Assert.False(list[S(2)].GetProperty("batchApprovable").GetBoolean());   // há fala dentro do intervalo: Review
+        Assert.False(list[S(101)].GetProperty("batchApprovable").GetBoolean()); // zoom nunca vai em lote por esta flag
+
+        // Decisão explícita (rejeitar e desfazer) prevalece: nunca volta a ser elegível ao lote.
+        await _planning.SubmitDecisionAsync(new SubmitDecisionRequest(S(50), "reject", "user", null));
+        await _planning.UndoDecisionAsync(new UndoDecisionRequest(S(50)));
+        Assert.False((await ListSuggestions())[S(50)].GetProperty("batchApprovable").GetBoolean());
+    }
+
+    [Fact]
+    public async Task BatchApprovable_IsAlsoExposedInDecisionResults()
+    {
+        await _plan.SaveSuggestionsBatchAsync([TrivialSilence()]);
+        var deferred = (await _planning.SubmitDecisionAsync(new SubmitDecisionRequest(S(50), "defer", "user", null))).Value!.Suggestions[0];
+        Assert.Equal(false, deferred.BatchApprovable);
     }
 
     // ------------------------------------------------------------------ Round-trip (SQLite real)
