@@ -15,9 +15,13 @@ public class PipelinePostAnalysisTriggerTests : IDisposable
     {
         public List<(Guid ProjectId, Guid JobId)> Calls { get; } = new();
 
+        /// <summary>Sinalizado na primeira chamada: o estado terminal do job é publicado antes do disparo do orquestrador.</summary>
+        public TaskCompletionSource FirstCall { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
         public Task ScheduleAsync(Guid projectId, Guid jobId)
         {
             lock (Calls) Calls.Add((projectId, jobId));
+            FirstCall.TrySetResult();
             return Task.CompletedTask;
         }
 
@@ -59,6 +63,10 @@ public class PipelinePostAnalysisTriggerTests : IDisposable
         }
     }
 
+    /// <summary>Aguarda um sinal do orquestrador sem delay fixo; estoura com TimeoutException se nunca chegar.</summary>
+    private static async Task AwaitSignalAsync(TaskCompletionSource signal) =>
+        await signal.Task.WaitAsync(TimeSpan.FromSeconds(20));
+
     private static StartPipelineRequest Start(Guid projectId, List<string>? stages = null) => new(projectId, null, stages, null, false);
 
     [Fact]
@@ -72,6 +80,7 @@ public class PipelinePostAnalysisTriggerTests : IDisposable
         var status = await WaitAsync(manager, project.ProjectId);
 
         Assert.True(status.State is "completed" or "completed_with_issues", status.State);
+        await AwaitSignalAsync(spy.FirstCall);
         var call = Assert.Single(spy.Calls);
         Assert.Equal((project.ProjectId, jobId), call);
         Assert.NotNull(status.PostAnalysis);
@@ -133,16 +142,27 @@ public class PipelinePostAnalysisTriggerTests : IDisposable
         var status = await WaitAsync(manager2, project.ProjectId);
 
         Assert.True(status.State is "completed" or "completed_with_issues", status.State);
+        // O estado terminal é publicado antes do disparo do orquestrador: aguarda o sinal em vez de assumir a ordem.
+        await AwaitSignalAsync(throwing.Called);
         Assert.Equal(1, throwing.Calls);
+
+        // A falha do orquestrador não pode alterar o estado da análise.
+        var after = await manager2.GetStatusAsync(project.ProjectId);
+        Assert.Equal(status.State, after.State);
     }
 
     private sealed class ThrowingOrchestrator : IPostAnalysisOrchestrator
     {
-        public int Calls { get; private set; }
+        private int _calls;
+
+        public int Calls => Volatile.Read(ref _calls);
+
+        public TaskCompletionSource Called { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public Task ScheduleAsync(Guid projectId, Guid jobId)
         {
-            Calls++;
+            Interlocked.Increment(ref _calls);
+            Called.TrySetResult();
             throw new InvalidOperationException("falha simulada");
         }
 
