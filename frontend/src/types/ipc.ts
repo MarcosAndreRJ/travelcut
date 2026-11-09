@@ -58,6 +58,25 @@ export interface EditDecisionDto {
   baseRevision?: number | null;
   sourceStartSeconds?: number | null;
   sourceEndSeconds?: number | null;
+  parameters?: DecisionParametersDto | null; // F14.8 (aditivo)
+}
+
+// F14.8 — espelho de SmartZoomParametersDto / DecisionParametersDto (EditDtos.cs, EditorialEffectsDtos.cs).
+export interface SmartZoomParametersDto {
+  zoomType: 'punch_in' | 'push_in' | string;
+  scale: number;            // limitada a 1,01–1,12 pelo host
+  focalPointX: number;      // 0–1
+  focalPointY: number;      // 0–1
+  durationSeconds: number;  // >= 0
+  startScale?: number;
+  endScale?: number;
+  framing?: string | null;
+  focalPointKnown?: boolean;
+}
+
+/** Parâmetros opcionais da decisão (hoje só zoom). Decisão humana vence a política. */
+export interface DecisionParametersDto {
+  zoom?: SmartZoomParametersDto | null;
 }
 
 export interface SubmitDecisionRequest {
@@ -67,6 +86,7 @@ export interface SubmitDecisionRequest {
   notes?: string | null;
   modifiedStartSeconds?: number | null; // obrigatório em "modify"
   modifiedEndSeconds?: number | null;
+  parameters?: DecisionParametersDto | null; // F14.8: só approve/modify de sugestão de zoom; ausente = herda os efetivos
 }
 
 export interface UndoDecisionRequest {
@@ -82,6 +102,7 @@ export interface BatchDecideRequest {
   action: 'approve' | 'reject' | 'defer';
   reviewer: string;
   notes?: string | null;
+  parameters?: DecisionParametersDto | null; // F14.8: só com approve e sugestões de zoom
 }
 
 export interface DecisionResultDto {
@@ -111,6 +132,11 @@ export interface EditSuggestion {
   effectiveEndSeconds?: number | null;
   canUndo?: boolean;
   canRedo?: boolean;
+  // F14.8 (aditivo)
+  origin?: 'auto' | 'human' | null;       // human = decisão de usuário ativa; auto = autoaplicada pela política no plano vigente
+  policyVersion?: string | null;          // só origin 'auto'
+  policyReason?: string | null;           // só origin 'auto'
+  parameters?: DecisionParametersDto | null; // efetivos (decisão humana, senão os da própria sugestão de zoom)
 }
 
 // ---- Prévia (F07) — espelho de src/TravelCut.Contracts/Dtos/PreviewDtos.cs ----
@@ -954,6 +980,19 @@ export interface PlanAppliedCutDto {
   origin: 'approved_by_user' | 'auto_trivial' | 'residual_sub_frame';
 }
 
+/** F14.8: efeito aplicado pelo plano com origem auditável (informativo; fora do fingerprint). */
+export interface PlanAppliedEffectDto {
+  suggestionId: string;
+  mediaId: string;
+  kind: 'cut' | 'zoom' | string;
+  origin: 'auto' | 'human';
+  policyVersion?: string | null; // só origin 'auto'
+  reason?: string | null;        // só origin 'auto'
+  scale?: number | null;         // zoom
+  focalPointX?: number | null;   // zoom (decisão humana)
+  focalPointY?: number | null;
+}
+
 export interface PlanPendingItemDto {
   suggestionId: string | null;
   mediaId: string | null;
@@ -1011,6 +1050,7 @@ export interface EditPlanDto {
   pendingItems?: PlanPendingItemDto[];
   summary: PlanSummaryDto;
   validation: PlanValidationDto;
+  appliedEffects?: PlanAppliedEffectDto[] | null; // F14.8 (null em planos antigos)
 }
 
 export interface PlanRevisionInfoDto {
