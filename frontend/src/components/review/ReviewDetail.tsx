@@ -23,6 +23,7 @@ import {
   type Interval
 } from './reviewModel';
 import type { AsyncState } from './useReviewData';
+import type { SourceWindow } from '../media/mediaTime';
 
 interface ReviewDetailProps {
   projectId: string;
@@ -48,6 +49,8 @@ interface ReviewDetailProps {
   onReopen: () => void;
   onUndo: () => void;
   onRedo: () => void;
+  /** "Depois" do plano vigente (intervalos removidos da mídia) ou só este corte quando não há plano. */
+  afterRemoved: { intervals: SourceWindow[]; source: 'plan' | 'candidate' };
 }
 
 const Field: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
@@ -80,7 +83,8 @@ export const ReviewDetail: React.FC<ReviewDetailProps> = ({
   onDefer,
   onReopen,
   onUndo,
-  onRedo
+  onRedo,
+  afterRemoved
 }) => {
   const eff: Interval = effectiveInterval(s);
   const adjusted = isAdjusted(s);
@@ -148,6 +152,8 @@ export const ReviewDetail: React.FC<ReviewDetailProps> = ({
           currentSeconds={currentSeconds}
           onTimeUpdate={onTimeUpdate}
           zoomTransform={zoomConfig}
+          removedIntervals={afterRemoved.intervals}
+          afterSource={afterRemoved.source}
         />
 
         {/* Controles de enquadramento / zoom editorial ao vivo (F14.1 Checkpoint E) */}

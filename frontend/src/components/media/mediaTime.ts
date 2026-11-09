@@ -52,6 +52,45 @@ export const afterModeSkipTarget = (currentSeconds: number, startSeconds: number
   return currentSeconds >= startSeconds && currentSeconds < endSeconds ? endSeconds : null;
 };
 
+/** Fim "de cauda" finito para trechos removidos até o fim da mídia (o elemento limita ao duration). */
+const TRAILING_END_S = 1e12;
+
+/**
+ * Trechos da FONTE removidos pelo plano vigente para uma mídia: complemento dos trechos mantidos
+ * (SourceInUs/SourceOutUs em microssegundos). Inclui o início antes do 1º trecho e as lacunas entre trechos.
+ * Mídia sem nenhum trecho no plano resulta em [0, fim): nada dela entra no "Depois".
+ */
+export const removedIntervalsFromPlan = (
+  clips: ReadonlyArray<{ mediaId: string; sourceInUs: number; sourceOutUs: number }>,
+  mediaId: string
+): SourceWindow[] => {
+  const kept = clips
+    .filter((c) => c.mediaId === mediaId && Number.isFinite(c.sourceInUs) && Number.isFinite(c.sourceOutUs) && c.sourceOutUs > c.sourceInUs)
+    .map((c) => ({ start: c.sourceInUs / 1_000_000, end: c.sourceOutUs / 1_000_000 }))
+    .sort((a, b) => a.start - b.start);
+  const removed: SourceWindow[] = [];
+  let cursor = 0;
+  for (const k of kept) {
+    if (k.start > cursor) removed.push({ start: cursor, end: k.start });
+    cursor = Math.max(cursor, k.end);
+  }
+  removed.push({ start: cursor, end: TRAILING_END_S });
+  return removed;
+};
+
+/**
+ * Modo "after" com vários trechos removidos: se o tempo atual cai em um deles, retorna o fim desse trecho
+ * (para onde saltar). Trechos inválidos são ignorados. Null quando o tempo já está em trecho mantido.
+ */
+export const afterModeSkipTargets = (currentSeconds: number, windows: readonly SourceWindow[]): number | null => {
+  if (!Number.isFinite(currentSeconds)) return null;
+  for (const w of windows) {
+    if (!Number.isFinite(w.start) || !Number.isFinite(w.end) || w.end <= w.start) continue;
+    if (currentSeconds >= w.start && currentSeconds < w.end) return w.end;
+  }
+  return null;
+};
+
 /** Segundos da fonte com 3 casas e separador PT-BR: "12,345 s". */
 export const formatSourceSeconds = (seconds: number): string => {
   if (!Number.isFinite(seconds)) return '—';

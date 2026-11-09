@@ -10,7 +10,9 @@ import { ReviewBatchBar, type PendingBatch } from './review/ReviewBatchBar';
 import { ReviewFeedback } from './review/ReviewFeedback';
 import { ShortcutLegend } from './review/ShortcutLegend';
 import { useMediaAnalysis, useProjectMedia } from './review/useReviewData';
-import { usePlanRemoved } from './review/usePlanRemoved';
+import { usePlanSnapshot } from './review/usePlanRemoved';
+import type { EditPlanDto } from '../types/ipc';
+import { removedIntervalsFromPlan } from './media/mediaTime';
 import {
   DEFAULT_REVIEW_FILTERS,
   countByStatus,
@@ -46,6 +48,17 @@ export interface ReviewDecisionsViewProps {
 }
 
 const fileNameOf = (path: string): string => path.split(/[\\/]/).filter(Boolean).pop() ?? path;
+
+const NO_AFTER: { intervals: { start: number; end: number }[]; source: 'candidate' } = { intervals: [], source: 'candidate' };
+
+/**
+ * "Depois" do candidato: com plano, pula TODOS os trechos removidos da mídia no plano vigente;
+ * sem plano, pula só o intervalo efetivo do candidato (rotulado "só este corte").
+ */
+export const afterRemovedOf = (plan: EditPlanDto | null, s: EditSuggestion) =>
+  plan
+    ? { intervals: removedIntervalsFromPlan(plan.clips, s.mediaId), source: 'plan' as const }
+    : { intervals: [effectiveInterval(s)], source: 'candidate' as const };
 
 /**
  * Confirmação do lote de silêncios. A faixa "alta" é heurística não calibrada (ADR/docs 07);
@@ -284,7 +297,12 @@ export const ReviewDecisionsView: React.FC<ReviewDecisionsViewProps> = ({
 
   const hasSuggestions = suggestions.length > 0;
   // Tempo removido: sempre do plano do host (nunca somado localmente).
-  const planRemoved = usePlanRemoved(projectId, suggestions);
+  const planSnapshot = usePlanSnapshot(projectId, suggestions);
+  const planRemoved = planSnapshot.removed;
+  const afterRemoved = useMemo(
+    () => (activeItem ? afterRemovedOf(planSnapshot.plan, activeItem) : NO_AFTER),
+    [planSnapshot.plan, activeItem]
+  );
 
   let content: React.ReactNode;
   if (!projectId) {
@@ -383,6 +401,7 @@ export const ReviewDecisionsView: React.FC<ReviewDecisionsViewProps> = ({
             onReopen={() => decide('reopen')}
             onUndo={undo}
             onRedo={redo}
+            afterRemoved={afterRemoved}
           />
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center">

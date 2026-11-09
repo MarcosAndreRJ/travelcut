@@ -1,18 +1,26 @@
 import { useEffect, useState } from 'react';
 import { ipc } from '../../services/ipcBridge';
+import type { EditPlanDto } from '../../types/ipc';
 import type { PlanRemovedState } from './reviewModel';
 
 interface Loaded {
   projectId: string;
-  value: PlanRemovedState;
+  plan: EditPlanDto | null;
+  error: boolean;
+}
+
+export interface PlanSnapshot {
+  removed: PlanRemovedState;
+  /** Plano da revisão mais recente (null sem plano, carregando ou com erro). */
+  plan: EditPlanDto | null;
 }
 
 /**
- * Tempo removido da revisão mais recente do plano (plan.get via ipc.getEditPlan).
+ * Plano da revisão mais recente (plan.get via ipc.getEditPlan) e tempo removido.
  * Recarrega quando refreshKey muda (cada decisão pode regenerar o plano no host).
  * Resultado de um projeto anterior nunca é exibido para o projeto atual.
  */
-export function usePlanRemoved(projectId: string | null, refreshKey: unknown): PlanRemovedState {
+export function usePlanSnapshot(projectId: string | null, refreshKey: unknown): PlanSnapshot {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
 
   useEffect(() => {
@@ -21,21 +29,29 @@ export function usePlanRemoved(projectId: string | null, refreshKey: unknown): P
     ipc
       .getEditPlan(projectId, null)
       .then((plan) => {
-        if (!active) return;
-        const value: PlanRemovedState = plan
-          ? { status: 'ready', revision: plan.revision, removedSourceUs: plan.summary.removedSourceUs }
-          : { status: 'none' };
-        setLoaded({ projectId, value });
+        if (active) setLoaded({ projectId, plan, error: false });
       })
       .catch(() => {
-        if (active) setLoaded({ projectId, value: { status: 'error' } });
+        if (active) setLoaded({ projectId, plan: null, error: true });
       });
     return () => {
       active = false;
     };
   }, [projectId, refreshKey]);
 
-  if (!projectId) return { status: 'none' };
-  if (!loaded || loaded.projectId !== projectId) return { status: 'loading' };
-  return loaded.value;
+  if (!projectId) return { removed: { status: 'none' }, plan: null };
+  if (!loaded || loaded.projectId !== projectId) return { removed: { status: 'loading' }, plan: null };
+  if (loaded.error) return { removed: { status: 'error' }, plan: null };
+  const plan = loaded.plan;
+  return {
+    removed: plan
+      ? { status: 'ready', revision: plan.revision, removedSourceUs: plan.summary.removedSourceUs }
+      : { status: 'none' },
+    plan
+  };
+}
+
+/** Só o tempo removido (mantido por compatibilidade). */
+export function usePlanRemoved(projectId: string | null, refreshKey: unknown): PlanRemovedState {
+  return usePlanSnapshot(projectId, refreshKey).removed;
 }

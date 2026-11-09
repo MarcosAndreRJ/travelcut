@@ -3,8 +3,13 @@ import { Maximize2, Minimize2 } from 'lucide-react';
 import { MediaIntervalPlayer } from '../media/MediaIntervalPlayer';
 import { WaveformStrip } from '../media/WaveformStrip';
 import { formatDraft, playerWindowOf, PLAYER_CONTEXT_SECONDS, type Interval } from './reviewModel';
+import type { SourceWindow } from '../media/mediaTime';
 
 export type CompareMode = 'before' | 'after';
+
+/** Rótulo honesto do "Depois": só diz "plano vigente" quando o pulo vem do plano. */
+export const afterLabelOf = (source: 'plan' | 'candidate'): string =>
+  source === 'plan' ? 'Depois (plano vigente)' : 'Depois (só este corte)';
 
 interface BeforeAfterCompareProps {
   projectId: string;
@@ -24,6 +29,10 @@ interface BeforeAfterCompareProps {
     offsetY: number;
     showSafeArea?: boolean;
   } | null;
+  /** Trechos da fonte removidos no "Depois" (plano vigente da mídia). Ausente = só este corte. */
+  removedIntervals?: SourceWindow[] | null;
+  /** 'plan': "Depois" deriva do plano vigente. 'candidate': sem plano, só este corte. */
+  afterSource?: 'plan' | 'candidate';
 }
 
 const MODE_OPTIONS: { value: CompareMode; label: string; hint: string }[] = [
@@ -41,9 +50,13 @@ export const BeforeAfterCompare: React.FC<BeforeAfterCompareProps> = ({
   seekTarget,
   currentSeconds,
   onTimeUpdate,
-  zoomTransform = null
+  zoomTransform = null,
+  removedIntervals = null,
+  afterSource = 'candidate'
 }) => {
   const windowSeconds = playerWindowOf(interval);
+  // Rótulo honesto: sem plano, o "Depois" remove só o candidato aberto.
+  const afterLabel = afterLabelOf(afterSource);
   // Altura limitada para vídeo, controles, intervalo e decisões caberem juntos; o usuário pode expandir.
   const [expanded, setExpanded] = useState(false);
 
@@ -77,7 +90,7 @@ export const BeforeAfterCompare: React.FC<BeforeAfterCompareProps> = ({
                     : 'text-slate-400 border-slate-700 hover:text-white'
                 }`}
               >
-                {opt.label}
+                {opt.value === 'after' ? afterLabel : opt.label}
               </button>
             );
           })}
@@ -99,6 +112,7 @@ export const BeforeAfterCompare: React.FC<BeforeAfterCompareProps> = ({
         seekToSeconds={seekTarget}
         onTimeUpdate={onTimeUpdate}
         zoomTransform={zoomTransform}
+        removedIntervals={mode === 'after' ? removedIntervals : null}
         videoAreaClassName={expanded ? 'h-[65vh]' : 'h-[22vh] min-h-32 max-h-72'}
       />
 
