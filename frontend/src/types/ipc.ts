@@ -420,7 +420,7 @@ export interface ImportJobStatusDto {
   bytesTotal: number;
   bytesCopied: number;
   currentFile: string | null;
-  speechAnalysis: 'not_requested' | 'queued' | 'unavailable';
+  speechAnalysis: 'not_requested' | 'queued' | 'merged' | 'failed' | 'skipped' | 'unavailable';
   message: string | null;
   items: ImportItemStatusDto[];
   startedAtUtc: string;

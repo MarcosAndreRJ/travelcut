@@ -129,6 +129,23 @@ internal sealed class FakePipelineJobManager : IPipelineJobManager
 
     public AnalysisEnvironmentDto? PeekEnvironment() => CachedEnvironment;
 
+    /// <summary>Com ShouldThrowInProgress, simula o gerenciador real: mescla no lote pendente em vez de lançar.</summary>
+    public bool CoalesceInProgress { get; set; }
+    public List<StartPipelineRequest> MergedRequests { get; } = new();
+
+    public async Task<PipelineEnqueueResult> EnqueueAsync(StartPipelineRequest request, CancellationToken ct = default)
+    {
+        lock (_sync)
+        {
+            if (ShouldThrowInProgress && CoalesceInProgress)
+            {
+                MergedRequests.Add(request);
+                return new PipelineEnqueueResult(PipelineEnqueueResult.Merged, NextJobId, request.MediaIds?.Count ?? 0);
+            }
+        }
+        return new PipelineEnqueueResult(PipelineEnqueueResult.Started, await StartAsync(request, ct), 0);
+    }
+
     public Task<Guid> StartAsync(StartPipelineRequest request, CancellationToken ct = default)
     {
         lock (_sync)

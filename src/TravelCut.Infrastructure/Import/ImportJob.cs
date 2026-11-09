@@ -138,6 +138,8 @@ internal sealed class ImportJob
     internal long BytesCopied { get => _bytesCopied; set => _bytesCopied = value; }
     internal string? CurrentFile { get => _currentFile; set => _currentFile = value; }
     internal string SpeechAnalysis { get => _speechAnalysis; set => _speechAnalysis = value; }
+    /// <summary>true quando a fala foi entregue ao pipeline (iniciada ou mesclada). Sem isso, "queued" não pode sobreviver ao fim do job.</summary>
+    internal bool SpeechHandedOff { get; set; }
     internal bool IsFinished => _finished;
 
     internal void AddNote(string note)

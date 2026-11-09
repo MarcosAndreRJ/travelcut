@@ -50,6 +50,20 @@ public class PipelineJobManager : IPipelineJobManager
     private readonly Dictionary<Guid, PipelineJobRun> _jobs = new();
     private readonly Dictionary<Guid, Guid> _activeByProject = new();
     private readonly Dictionary<Guid, Guid> _latestByProject = new();
+    // Coalescência (F14.8/P02): lotes pendentes por projeto (em memória), iniciados ao liberar o slot. FIFO; lotes só se fundem com mesma configuração.
+    private readonly Dictionary<Guid, List<PendingBatch>> _pending = new();
+
+    private sealed class PendingBatch
+    {
+        public required Guid ProjectId { get; init; }
+        public required List<string> Stages { get; init; }
+        public required string Language { get; init; }
+        public required bool Force { get; init; }
+        /// <summary>null = todas as mídias do projeto.</summary>
+        public List<Guid>? MediaIds { get; set; }
+
+        public StartPipelineRequest ToRequest() => new(ProjectId, MediaIds, Stages, Language, Force);
+    }
 
     private readonly SemaphoreSlim _environmentLock = new(1, 1);
     private AnalysisEnvironmentDto? _environment;
@@ -75,6 +89,133 @@ public class PipelineJobManager : IPipelineJobManager
     }
 
     // ---------------------------------------------------------------- IPipelineJobManager
+
+    public async Task<PipelineEnqueueResult> EnqueueAsync(StartPipelineRequest request, CancellationToken ct = default)
+    {
+        // Valida cedo (INVALID_STAGE / idioma): nada inválido entra na fila.
+        var stages = NormalizeStages(request.Stages);
+        var language = NormalizeLanguage(request.Language);
+
+        if (TryMergeIntoPending(request, stages, language) is { } merged) return merged;
+
+        try
+        {
+            return new PipelineEnqueueResult(PipelineEnqueueResult.Started, await StartAsync(request, ct), 0);
+        }
+        catch (InvalidOperationException ex) when (ex.Message == "PIPELINE_IN_PROGRESS")
+        {
+            // Corrida: outro start ocupou o slot entre a checagem e a reserva. Trava entre processos (sem job local): não há aviso de liberação → propaga.
+            if (TryMergeIntoPending(request, stages, language) is { } raced) return raced;
+            throw;
+        }
+    }
+
+    private PipelineEnqueueResult? TryMergeIntoPending(StartPipelineRequest request, List<string> stages, string language)
+    {
+        lock (_registry)
+        {
+            if (!_activeByProject.TryGetValue(request.ProjectId, out var activeJobId)) return null;
+
+            if (!_pending.TryGetValue(request.ProjectId, out var batches))
+            {
+                batches = new List<PendingBatch>();
+                _pending[request.ProjectId] = batches;
+            }
+
+            var batch = batches.FirstOrDefault(b => b.Force == request.Force && b.Language == language && b.Stages.SequenceEqual(stages));
+            if (batch == null)
+            {
+                batch = new PendingBatch
+                {
+                    ProjectId = request.ProjectId,
+                    Stages = stages,
+                    Language = language,
+                    Force = request.Force,
+                    MediaIds = request.MediaIds == null ? null : new List<Guid>()
+                };
+                batches.Add(batch);
+            }
+
+            if (request.MediaIds == null)
+            {
+                batch.MediaIds = null; // "todas" absorve qualquer lista
+            }
+            else if (batch.MediaIds != null)
+            {
+                foreach (var id in request.MediaIds)
+                {
+                    if (!batch.MediaIds.Contains(id)) batch.MediaIds.Add(id);
+                }
+            }
+
+            _logger.LogInformation("Pipeline do projeto {ProjectId} em andamento ({JobId}): mídias mescladas ao lote pendente ({Count})",
+                request.ProjectId, activeJobId, batch.MediaIds?.Count ?? -1);
+            return new PipelineEnqueueResult(PipelineEnqueueResult.Merged, activeJobId, batch.MediaIds?.Count ?? 0);
+        }
+    }
+
+    /// <summary>Inicia o próximo lote pendente do projeto (se o slot estiver livre). Nunca lança: falhas vão ao log.</summary>
+    private async Task DrainPendingAsync(Guid projectId)
+    {
+        try
+        {
+            while (true)
+            {
+                PendingBatch? batch;
+                lock (_registry)
+                {
+                    // Slot ocupado: o job ativo drena ao terminar.
+                    if (_activeByProject.ContainsKey(projectId)) return;
+                    if (!_pending.TryGetValue(projectId, out var list) || list.Count == 0) { _pending.Remove(projectId); return; }
+                    batch = list[0];
+                    list.RemoveAt(0);
+                    if (list.Count == 0) _pending.Remove(projectId);
+                }
+
+                try
+                {
+                    var jobId = await StartAsync(batch.ToRequest(), CancellationToken.None);
+                    _logger.LogInformation("Lote pendente do projeto {ProjectId} iniciado como job {JobId}", projectId, jobId);
+                    return; // o próximo lote é drenado quando este job liberar o slot
+                }
+                catch (InvalidOperationException ex) when (ex.Message == "PIPELINE_IN_PROGRESS")
+                {
+                    lock (_registry)
+                    {
+                        if (_activeByProject.ContainsKey(projectId))
+                        {
+                            // Outro job tomou o slot: devolve o lote ao início da fila; ele drena ao terminar.
+                            if (!_pending.TryGetValue(projectId, out var list)) { list = new List<PendingBatch>(); _pending[projectId] = list; }
+                            list.Insert(0, batch);
+                            return;
+                        }
+                    }
+                    _logger.LogError("Lote pendente do projeto {ProjectId} descartado: a trava de análise entre processos está ocupada.", projectId);
+                }
+                catch (Exception ex)
+                {
+                    // Ex.: NO_MEDIA_TO_ANALYZE / PROJECT_NOT_FOUND. Segue para o próximo lote.
+                    _logger.LogError(ex, "Falha ao iniciar lote pendente do projeto {ProjectId}; lote descartado.", projectId);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Falha inesperada ao drenar a fila pendente do projeto {ProjectId}", projectId);
+        }
+    }
+
+    /// <summary>Cancelamento explícito do usuário descarta os lotes pendentes (não reinicia análise sem pedido).</summary>
+    private void DropPending(Guid projectId)
+    {
+        lock (_registry)
+        {
+            if (_pending.Remove(projectId, out var dropped))
+            {
+                _logger.LogWarning("Análise cancelada: {Count} lote(s) pendente(s) do projeto {ProjectId} descartado(s).", dropped.Count, projectId);
+            }
+        }
+    }
 
     public async Task<Guid> StartAsync(StartPipelineRequest request, CancellationToken ct = default)
     {
@@ -152,6 +293,8 @@ public class PipelineJobManager : IPipelineJobManager
                 _activeByProject.Remove(request.ProjectId);
                 _jobs.Remove(job.JobId);
             }
+            // Lotes mesclados durante a breve reserva não podem ficar órfãos.
+            _ = Task.Run(() => DrainPendingAsync(request.ProjectId));
             throw;
         }
 
@@ -272,6 +415,7 @@ public class PipelineJobManager : IPipelineJobManager
     private async Task RunJobAsync(PipelineJobRun job)
     {
         var ct = job.Cts.Token;
+        bool canceled = false;
         job.MarkRunning();
 
         try
@@ -305,6 +449,7 @@ public class PipelineJobManager : IPipelineJobManager
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
+            canceled = true;
             job.CancelNonTerminal();
             await ReleaseSlotAsync(job);
             job.Finish(forcedState: "canceled");
@@ -321,6 +466,10 @@ public class PipelineJobManager : IPipelineJobManager
         {
             // Redundante por segurança (idempotente): garante liberação mesmo em caminhos não previstos.
             await ReleaseSlotAsync(job);
+
+            // Slot livre e job já finalizado: inicia o lote pendente (mídias importadas durante este pipeline) ou o descarta se cancelado.
+            if (canceled) DropPending(job.ProjectId);
+            else await DrainPendingAsync(job.ProjectId);
         }
     }
 

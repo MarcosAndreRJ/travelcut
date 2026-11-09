@@ -24,6 +24,8 @@ public sealed class FakeWhisperService : IWhisperTranscriptionService
     public bool Available { get; set; } = true;
     public TranscriptionOutcome? Outcome { get; set; }
     public bool WaitForCancellation { get; set; }
+    /// <summary>Quando definido, TranscribeAsync só responde depois que o gate for liberado (mantém o pipeline ativo).</summary>
+    public TaskCompletionSource<bool>? TranscribeGate { get; set; }
     /// <summary>Telemetria entregue antes de bloquear ou responder.</summary>
     public List<TranscriptionProgressUpdate> ProgressScript { get; } = new();
     public TaskCompletionSource<bool>? ProgressDelivered { get; set; }
@@ -84,6 +86,10 @@ public sealed class FakeWhisperService : IWhisperTranscriptionService
         execution?.OnLog("stderr", "aviso de teste");
         foreach (var update in ProgressScript) progress?.Report(update);
         ProgressDelivered?.TrySetResult(true);
+        if (TranscribeGate != null)
+        {
+            await TranscribeGate.Task.WaitAsync(ct);
+        }
         if (WaitForCancellation)
         {
             await Task.Delay(Timeout.Infinite, ct);

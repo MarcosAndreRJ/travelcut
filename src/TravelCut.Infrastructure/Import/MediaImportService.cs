@@ -39,6 +39,9 @@ public sealed class MediaImportService : IMediaImportService
     {
         public const string Queued = "queued";
         public const string Unavailable = "unavailable";
+        public const string Merged = "merged";
+        public const string Failed = "failed";
+        public const string Skipped = "skipped";
     }
 
     private static string DescribeWhisperUnavailable(AnalysisEnvironmentDto env)
@@ -200,7 +203,7 @@ public sealed class MediaImportService : IMediaImportService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Importação {JobId} interrompida por erro inesperado", job.JobId);
-            FinishJob(job, ImportJobStates.Failed, "Erro interno durante a importação. Consulte os logs.");
+            FinishJob(job, ImportJobStates.Failed, "Erro interno durante a importação. Consulte os logs.", SpeechStates.Failed);
         }
     }
 
@@ -505,24 +508,44 @@ public sealed class MediaImportService : IMediaImportService
                 Language: null,
                 Force: false);
 
-            var pipelineJobId = await pipeline.StartAsync(req, ct);
-            job.Mutate(j =>
+            var result = await pipeline.EnqueueAsync(req, ct);
+            if (result.Outcome == PipelineEnqueueResult.Merged)
             {
-                j.SpeechAnalysis = "queued";
-                j.AddNote($"Detecção de fala enfileirada no pipeline audiovisual ({pipelineJobId}) para {mediaIds.Count} arquivo(s).");
-            });
-            _logger.LogInformation(
-                "Job {JobId}: detecção de fala enfileirada com sucesso no pipeline ({PipelineJobId}) para {Count} mídia(s)",
-                job.JobId, pipelineJobId, mediaIds.Count);
+                job.Mutate(j =>
+                {
+                    j.SpeechAnalysis = SpeechStates.Merged;
+                    j.SpeechHandedOff = true;
+                    j.AddNote($"Detecção de fala mesclada ao lote pendente: outro pipeline está em andamento neste projeto ({result.JobId}); {mediaIds.Count} arquivo(s) desta importação serão transcritos quando ele terminar.");
+                });
+                _logger.LogInformation("Job {JobId}: fala mesclada ao lote pendente do pipeline {PipelineJobId} ({Count} mídia(s))",
+                    job.JobId, result.JobId, mediaIds.Count);
+            }
+            else
+            {
+                job.Mutate(j =>
+                {
+                    j.SpeechAnalysis = SpeechStates.Queued;
+                    j.SpeechHandedOff = true;
+                    j.AddNote($"Detecção de fala enfileirada no pipeline audiovisual ({result.JobId}) para {mediaIds.Count} arquivo(s).");
+                });
+                _logger.LogInformation(
+                    "Job {JobId}: detecção de fala enfileirada com sucesso no pipeline ({PipelineJobId}) para {Count} mídia(s)",
+                    job.JobId, result.JobId, mediaIds.Count);
+            }
         }
-        catch (InvalidOperationException ex) when (ex.Message == "PIPELINE_IN_PROGRESS")
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            job.Mutate(j => j.AddNote("Detecção de fala agendada: outro processamento já está em andamento no projeto."));
+            throw; // FinishJob resolve a fala pendente como "skipped"
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Falha ao enfileirar análise de fala no pipeline para o job de importação {JobId}", job.JobId);
-            job.Mutate(j => j.AddNote("Falha ao registrar análise de fala no pipeline."));
+            string code = ex is InvalidOperationException ? $" ({ex.Message})" : string.Empty;
+            job.Mutate(j =>
+            {
+                j.SpeechAnalysis = SpeechStates.Failed;
+                j.AddNote($"Falha ao registrar a análise de fala no pipeline{code}: nada foi enfileirado.");
+            });
         }
     }
 
@@ -773,11 +796,25 @@ public sealed class MediaImportService : IMediaImportService
         return Convert.ToHexString(hash).ToLowerInvariant();
     }
 
-    private void FinishJob(ImportJob job, string state, string summary)
+    private void FinishJob(ImportJob job, string state, string summary, string? pendingSpeechOutcome = null)
     {
         // Libera o projeto antes de publicar o estado final: um novo import pode começar assim que o status indicar conclusão.
         _activeJobByProject.TryRemove(new KeyValuePair<Guid, Guid>(job.ProjectId, job.JobId));
-        job.Mutate(j => j.Finish(state, summary));
+        job.Mutate(j =>
+        {
+            // "queued" só é válido se a fala foi entregue ao pipeline. Qualquer outro caminho (cancelamento, falha, registro falho,
+            // nenhum arquivo elegível) resolve para um estado terminal honesto: nunca fica "queued" para sempre.
+            if (j.DetectSpeech && j.SpeechAnalysis == SpeechStates.Queued && !j.SpeechHandedOff)
+            {
+                j.SpeechAnalysis = pendingSpeechOutcome ?? SpeechStates.Skipped;
+                j.AddNote(j.SpeechAnalysis == SpeechStates.Failed
+                    ? "Detecção de fala não foi iniciada: erro interno durante a importação."
+                    : state == ImportJobStates.Canceled
+                        ? "Detecção de fala não foi iniciada: importação cancelada."
+                        : "Detecção de fala não foi iniciada: nenhuma mídia foi registrada para análise.");
+            }
+            j.Finish(state, summary);
+        });
         _logger.LogInformation("Importação {JobId} finalizada com estado {State}", job.JobId, state);
     }
 
