@@ -574,6 +574,40 @@ public class HesitationDetectionTests
     }
 
     [Fact]
+    public void E10_NaoNao_AtEndOfTranscript_IsEmphasis_NotRepetition()
+    {
+        // Sem palavra depois do par: a guarda de ênfase não pode depender de continuação.
+        var result = Detect(Transcript(10,
+            ("eu", 0.0, 0.2), ("disse", 0.3, 0.6), ("não,", 0.7, 1.0), ("não", 1.1, 1.4)));
+
+        var h = Assert.Single(result);
+        Assert.Equal("emphasis", h.Type);
+        Assert.Equal("low", h.ConfidenceBand);
+        Assert.True(h.NeedsHumanReview);
+        Assert.DoesNotContain(result, c => c.Type == "repetition");
+    }
+
+    [Fact]
+    public void E10_NaoNao_IsTheWholeTranscript_IsEmphasis()
+    {
+        var result = Detect(Transcript(10, ("não", 0.0, 0.3), ("não", 0.4, 0.7)));
+
+        var h = Assert.Single(result);
+        Assert.Equal("emphasis", h.Type);
+        Assert.True(h.NeedsHumanReview);
+    }
+
+    [Fact]
+    public void E10_SimSim_AtEndOfTranscript_IsEmphasis_ButNonEmphasisPairAtEndStaysRepetition()
+    {
+        var emphasis = Assert.Single(Detect(Transcript(10, ("claro", 0.0, 0.3), ("sim", 0.4, 0.7), ("sim", 0.8, 1.1))));
+        Assert.Equal("emphasis", emphasis.Type);
+
+        var repetition = Assert.Single(Detect(Transcript(10, ("vamos", 0.0, 0.4), ("vamos", 0.5, 0.9))));
+        Assert.Equal("repetition", repetition.Type);
+    }
+
+    [Fact]
     public void E10_ArticleStutter_OO_Carro_RemainsRepetitionCandidate()
     {
         var result = Detect(Transcript(10,
