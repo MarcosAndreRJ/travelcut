@@ -152,6 +152,12 @@ public sealed class PipelineJobRun
     }
 
     /// <summary>Novo registro auditável para a execução do worker desta mídia (mantém só as últimas).</summary>
+    /// <summary>P10: transcrições do lote (um processo do worker, modelo carregado uma vez) por mídia; consumidas na ordem do job.</summary>
+    public Dictionary<Guid, Task<TranscriptionOutcome>> BatchTranscriptions { get; } = new();
+
+    /// <summary>P10: mídia cuja transcrição o job está aguardando; só ela repassa telemetria (o worker já pode estar na seguinte).</summary>
+    public Guid AwaitingTranscriptionMediaId { get; set; }
+
     public WhisperExecutionRecord BeginWhisperExecution(PipelineMediaWork media)
     {
         var record = new WhisperExecutionRecord(JobId, media.MediaId);

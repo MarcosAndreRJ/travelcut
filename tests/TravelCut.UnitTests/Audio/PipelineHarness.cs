@@ -45,6 +45,24 @@ public sealed class FakeWhisperService : IWhisperTranscriptionService
         return TranscribeAsync(mediaPath, mediaId, model, language, ct, progress, execution);
     }
 
+    /// <summary>P10: simula o worker com lote (um processo, modelo carregado uma vez). false = sem suporte (null).</summary>
+    public bool BatchSupported { get; set; }
+    private int _loadModelCalls;
+    /// <summary>Quantas vezes o modelo foi carregado: 1 por lote, 1 por TranscribeAsync individual.</summary>
+    public int LoadModelCalls => Volatile.Read(ref _loadModelCalls);
+    public int BatchCalls { get; private set; }
+
+    public IReadOnlyList<Task<TranscriptionOutcome>>? TranscribeBatch(
+        IReadOnlyList<TranscriptionBatchItem> items, string model, string language, CancellationToken ct)
+    {
+        if (!BatchSupported) return null;
+        BatchCalls++;
+        Interlocked.Increment(ref _loadModelCalls);
+        return items
+            .Select(i => Task.FromResult(OutcomeByPath?.Invoke(i.MediaPath) ?? Outcome ?? new TranscriptionOutcome("failed", null, "Sem resultado configurado no fake.", null, null)))
+            .ToList();
+    }
+
     public int TranscribeCalls => Volatile.Read(ref _transcribeCalls);
     public int InvalidateCalls { get; private set; }
 
@@ -91,6 +109,7 @@ public sealed class FakeWhisperService : IWhisperTranscriptionService
         IWhisperExecutionObserver? execution = null)
     {
         Interlocked.Increment(ref _transcribeCalls);
+        Interlocked.Increment(ref _loadModelCalls);
         if (!Available)
         {
             return new TranscriptionOutcome("unavailable", null, "Python/Whisper indisponível (teste).", null, null);

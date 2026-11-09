@@ -618,9 +618,13 @@ public class PipelineJobManager : IPipelineJobManager
         var ct = job.Cts.Token;
         bool canceled = false;
         job.MarkRunning();
+        // P10: cancela o lote de transcrição que ainda esteja rodando quando o job terminar por qualquer caminho.
+        using var batchCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
 
         try
         {
+            await StartTranscriptionBatchAsync(job, batchCts.Token);
+
             foreach (var media in job.Media)
             {
                 ct.ThrowIfCancellationRequested();
@@ -666,12 +670,71 @@ public class PipelineJobManager : IPipelineJobManager
         }
         finally
         {
+            try { batchCts.Cancel(); } catch (ObjectDisposedException) { }
+
             // Redundante por segurança (idempotente): garante liberação mesmo em caminhos não previstos.
             await ReleaseSlotAsync(job);
 
             // Slot livre e job já finalizado: inicia o lote pendente (mídias importadas durante este pipeline) ou o descarta se cancelado.
             if (canceled) DropPending(job.ProjectId);
             else await DrainPendingAsync(job.ProjectId);
+        }
+    }
+
+    /// <summary>
+    /// P10: com 2+ mídias a transcrever, inicia um lote (um processo do worker, modelo carregado uma vez) em vez de um processo
+    /// por mídia. Só entram mídias com áudio e sem transcrição em cache (ou com Force). Serviço sem suporte a lote (null) ou falha
+    /// ao iniciar: o job segue mídia a mídia, como antes.
+    /// </summary>
+    private async Task StartTranscriptionBatchAsync(PipelineJobRun job, CancellationToken batchToken)
+    {
+        if (!job.Stages.Contains(PipelineStages.Transcription)) return;
+
+        try
+        {
+            var candidates = new List<PipelineMediaWork>();
+            using (var scope = _scopeFactory.CreateScope())
+            {
+                var cache = scope.ServiceProvider.GetRequiredService<IMediaCacheManager>();
+                foreach (var media in job.Media)
+                {
+                    if (media.AbsolutePath == null || !File.Exists(media.AbsolutePath) || HasNoAudioTrack(media.Asset)) continue;
+                    if (!job.Force)
+                    {
+                        string key = AnalysisCacheKey(cache, media.Asset, $"whisper:{WhisperModel}:{job.Language}");
+                        var cached = Deserialize<TranscriptionOutcome>(
+                            await cache.ReadArtifactTextAsync(job.ProjectRoot, CacheCategory, key, batchToken));
+                        if (cached is { Status: "completed", Transcript: not null }) continue;
+                    }
+                    candidates.Add(media);
+                }
+            }
+
+            if (candidates.Count < 2) return; // uma só mídia: o caminho individual é equivalente
+
+            var items = candidates.Select(m => new TranscriptionBatchItem(
+                m.AbsolutePath!,
+                m.MediaId,
+                new SynchronousProgress<TranscriptionProgressUpdate>(u =>
+                {
+                    if (job.AwaitingTranscriptionMediaId == m.MediaId) job.ReportTranscriptionProgress(u);
+                }),
+                job.BeginWhisperExecution(m))).ToList();
+
+            var tasks = _whisper.TranscribeBatch(items, WhisperModel, job.Language, batchToken);
+            if (tasks is null || tasks.Count != candidates.Count) return;
+
+            for (int i = 0; i < candidates.Count; i++) job.BatchTranscriptions[candidates[i].MediaId] = tasks[i];
+            _logger.LogInformation("Job {JobId}: transcrição em lote ({Count} mídias, modelo carregado uma vez)", job.JobId, candidates.Count);
+        }
+        catch (OperationCanceledException) when (batchToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Job {JobId}: não foi possível iniciar o lote de transcrição; seguindo mídia a mídia", job.JobId);
+            job.BatchTranscriptions.Clear();
         }
     }
 
@@ -893,8 +956,33 @@ public class PipelineJobManager : IPipelineJobManager
     private async Task<TranscriptionOutcome> TranscribeWithRecoveryAsync(PipelineJobRun job, PipelineMediaWork media, CancellationToken ct)
     {
         var progress = new SynchronousProgress<TranscriptionProgressUpdate>(job.ReportTranscriptionProgress);
-        var outcome = await _whisper.TranscribeAsync(media.AbsolutePath!, media.MediaId, WhisperModel, job.Language, ct,
-            progress, job.BeginWhisperExecution(media));
+
+        TranscriptionOutcome outcome;
+        if (job.BatchTranscriptions.Remove(media.MediaId, out var batched))
+        {
+            // P10: resultado do lote (modelo carregado uma vez). Falha por item cai no recovery abaixo, mídia a mídia.
+            job.AwaitingTranscriptionMediaId = media.MediaId;
+            try
+            {
+                outcome = await batched.WaitAsync(ct);
+            }
+            finally
+            {
+                job.AwaitingTranscriptionMediaId = Guid.Empty;
+            }
+
+            if (outcome.Status == "canceled")
+            {
+                ct.ThrowIfCancellationRequested();
+                outcome = await _whisper.TranscribeAsync(media.AbsolutePath!, media.MediaId, WhisperModel, job.Language, ct,
+                    progress, job.BeginWhisperExecution(media));
+            }
+        }
+        else
+        {
+            outcome = await _whisper.TranscribeAsync(media.AbsolutePath!, media.MediaId, WhisperModel, job.Language, ct,
+                progress, job.BeginWhisperExecution(media));
+        }
 
         if (outcome.Status != "failed") return outcome;
 

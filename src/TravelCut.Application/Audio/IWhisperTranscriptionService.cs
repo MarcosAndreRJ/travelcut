@@ -26,8 +26,24 @@ public sealed class SynchronousProgress<T>(Action<T> handler) : IProgress<T>
     public void Report(T value) => handler(value);
 }
 
+/// <summary>Item de um lote de transcrição (P10). Progress/Execution recebem só a telemetria e o diagnóstico deste item.</summary>
+public sealed record TranscriptionBatchItem(
+    string MediaPath,
+    Guid MediaId,
+    IProgress<TranscriptionProgressUpdate>? Progress = null,
+    IWhisperExecutionObserver? Execution = null);
+
 public interface IWhisperTranscriptionService
 {
+    /// <summary>
+    /// P10: transcreve várias mídias num único processo do worker, que carrega o modelo uma só vez. Devolve uma Task por item, na
+    /// ordem dos itens; cada uma conclui assim que o worker responde aquele item (os itens seguem a ordem do lote). Nunca lança:
+    /// falha de item vira outcome "failed"/"unavailable"/"canceled" (o chamador faz o recovery por item). Retorna null quando a
+    /// implementação não suporta lote (o chamador usa <see cref="TranscribeAsync"/> mídia a mídia).
+    /// </summary>
+    IReadOnlyList<Task<TranscriptionOutcome>>? TranscribeBatch(
+        IReadOnlyList<TranscriptionBatchItem> items, string model, string language, CancellationToken ct) => null;
+
     Task<WhisperProbeResult> ProbeEnvironmentAsync(CancellationToken ct = default);
     Task<string?> FindPythonExecutableAsync(CancellationToken ct = default);
 
