@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
-import type { EditSuggestion, MediaAnalysisDto } from '../../types/ipc';
+import type { EditSuggestion, MediaAnalysisDto, SmartZoomParametersDto } from '../../types/ipc';
 import {
   confidenceText,
   confidenceTone,
@@ -12,7 +12,14 @@ import { BeforeAfterCompare, type CompareMode } from './BeforeAfterCompare';
 import { DecisionActions } from './DecisionActions';
 import { ModifyEditor } from './ModifyEditor';
 import { TranscriptContext } from './TranscriptContext';
-import { EditorialZoomControls, DEFAULT_ZOOM_CONFIG, type EditorialZoomConfig } from './EditorialZoomControls';
+import {
+  EditorialZoomControls,
+  HOST_ZOOM_SCALE_MAX,
+  HOST_ZOOM_SCALE_MIN,
+  type EditorialZoomConfig,
+  zoomConfigFromParameters,
+  zoomConfigToParameters
+} from './EditorialZoomControls';
 import {
   effectiveInterval,
   isAdjusted,
@@ -49,6 +56,8 @@ interface ReviewDetailProps {
   onReopen: () => void;
   onUndo: () => void;
   onRedo: () => void;
+  /** Aplica o zoom atual como decisão `approve` com parameters.zoom (ligado ao submitDecision pelo painel pai). */
+  onApplyZoom?: (zoom: SmartZoomParametersDto) => void;
   /** "Depois" do plano vigente (intervalos removidos da mídia) ou só este corte quando não há plano. */
   afterRemoved: { intervals: SourceWindow[]; source: 'plan' | 'candidate' };
 }
@@ -84,6 +93,7 @@ export const ReviewDetail: React.FC<ReviewDetailProps> = ({
   onReopen,
   onUndo,
   onRedo,
+  onApplyZoom,
   afterRemoved
 }) => {
   const eff: Interval = effectiveInterval(s);
@@ -93,7 +103,24 @@ export const ReviewDetail: React.FC<ReviewDetailProps> = ({
   const effectiveDuration = eff.end - eff.start;
   const delta = effectiveDuration - originalDuration;
   const approved = s.status === 'Approved';
-  const [zoomConfig, setZoomConfig] = useState<EditorialZoomConfig>(DEFAULT_ZOOM_CONFIG);
+  // Fonte da verdade: parameters.zoom efetivo da sugestão. O rascunho só existe enquanto o usuário edita
+  // e é descartado quando o host devolve novos parâmetros (reabrir/recarregar mostra sempre o efetivo).
+  const persistedZoom = useMemo(() => zoomConfigFromParameters(s.parameters?.zoom), [s.parameters]);
+  const [zoomDraft, setZoomDraft] = useState<{ suggestionId: string; config: EditorialZoomConfig } | null>(null);
+  useEffect(() => {
+    setZoomDraft(null);
+  }, [s.parameters, s.suggestionId]);
+  const zoomConfig = zoomDraft && zoomDraft.suggestionId === s.suggestionId ? zoomDraft.config : persistedZoom;
+  const zoomMapping = zoomConfigToParameters(zoomConfig, effectiveDuration);
+  const zoomDirty = zoomDraft !== null && zoomDraft.suggestionId === s.suggestionId;
+  const applyZoomDisabled = busy || !onApplyZoom || zoomMapping.parameters === null;
+  const applyZoomHint = !onApplyZoom
+    ? 'Envio do zoom aguardando ligação ao submitDecision no painel de revisão.'
+    : zoomMapping.parameters === null
+      ? 'Sem zoom (1.0×) não é enviável pelo contrato atual; escolha um nível acima de 1.0×.'
+      : zoomMapping.scaleClamped
+        ? `Escala limitada a ${HOST_ZOOM_SCALE_MIN.toFixed(2)}–${HOST_ZOOM_SCALE_MAX.toFixed(2)}× pelo host.`
+        : '';
 
   return (
     <div className="flex-1 min-w-0 min-h-0 flex flex-col">
@@ -159,9 +186,20 @@ export const ReviewDetail: React.FC<ReviewDetailProps> = ({
         {/* Controles de enquadramento / zoom editorial ao vivo (F14.1 Checkpoint E) */}
         <EditorialZoomControls
           value={zoomConfig}
-          onChange={setZoomConfig}
+          onChange={(config) => setZoomDraft({ suggestionId: s.suggestionId, config })}
           disabled={busy}
         />
+        <div className="flex flex-wrap items-center justify-end gap-2 -mt-2">
+          {applyZoomHint && <p className="text-[10px] text-slate-500 mr-auto">{applyZoomHint}</p>}
+          <button
+            type="button"
+            disabled={applyZoomDisabled || !zoomDirty}
+            onClick={() => zoomMapping.parameters && onApplyZoom?.(zoomMapping.parameters)}
+            className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-cyan-600 text-white border border-cyan-500 disabled:opacity-40"
+          >
+            Aplicar zoom
+          </button>
+        </div>
 
         {/* Intervalos e resumo da decisão */}
         <section aria-label="Intervalo de origem" className="rounded-2xl border border-slate-800 bg-[#0a1222] p-4 space-y-3">
@@ -186,6 +224,11 @@ export const ReviewDetail: React.FC<ReviewDetailProps> = ({
               <span className="font-mono break-all">{s.author}</span>
             </Field>
           </dl>
+          {s.origin === 'auto' && (
+            <p className="text-[10px] text-slate-400" data-testid="origem-automatica">
+              Aplicado automaticamente (política {s.policyVersion ?? '—'}): {s.policyReason || 'razão não registrada'}
+            </p>
+          )}
           <p className="text-[10px] text-slate-500">
             Confiança qualitativa (heurística não calibrada). Aprovação registra o candidato por ID; o intervalo efetivo é o
             que o host gravou.
