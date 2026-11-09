@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { CheckCheck, Scissors, XCircle } from 'lucide-react';
-import type { EditSuggestion } from '../types/ipc';
+import type { EditSuggestion, SmartZoomParametersDto } from '../types/ipc';
 import { ipc } from '../services/ipcBridge';
 import { isBatchApprovable } from './analysis/analysisFormat';
 import type { CompareMode } from './review/BeforeAfterCompare';
@@ -43,6 +43,7 @@ export interface ReviewDecisionsViewProps {
   onDecide: (suggestionId: string, action: ReviewDecisionAction) => Promise<boolean>;
   onBatchDecide: (suggestionIds: string[], action: ReviewDecisionAction) => Promise<boolean>;
   onModify: (suggestionId: string, startSeconds: number, endSeconds: number) => Promise<boolean>;
+  onApplyZoom?: (suggestionId: string, zoom: SmartZoomParametersDto) => Promise<boolean>;
   onUndo: (suggestionId: string) => Promise<boolean>;
   onRedo: (suggestionId: string) => Promise<boolean>;
   /** Navega para a Tela 04 (Planejamento da Timeline) após a revisão. */
@@ -95,6 +96,7 @@ export const ReviewDecisionsView: React.FC<ReviewDecisionsViewProps> = ({
   onDecide,
   onBatchDecide,
   onModify,
+  onApplyZoom,
   onUndo,
   onRedo,
   onNavigateToTimeline
@@ -407,6 +409,7 @@ export const ReviewDecisionsView: React.FC<ReviewDecisionsViewProps> = ({
             onToggleModify={() => setModifyOpen((open) => !open)}
             onCloseModify={() => setModifyOpen(false)}
             onModifySubmit={submitModify}
+            onApplyZoom={onApplyZoom && activeItem ? (zoom) => void run('zoom', () => onApplyZoom(activeItem.suggestionId, zoom)) : undefined}
             onApprove={() => decide('approve')}
             onReject={() => decide('reject')}
             onDefer={() => decide('defer')}

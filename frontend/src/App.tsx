@@ -24,7 +24,7 @@ import { ModelDownloadBanner } from './components/environment/ModelDownloadBanne
 import { integrationStatusStore } from './services/integrationStatusStore';
 import { modelDownloadTracker } from './services/modelDownloadTracker';
 import { ipc } from './services/ipcBridge';
-import { ProjectSummary, EditSuggestion, EditorCapabilities, DecisionResultDto } from './types/ipc';
+import { ProjectSummary, EditSuggestion, EditorCapabilities, DecisionResultDto, SmartZoomParametersDto } from './types/ipc';
 import {
   CREATE_MISSING_FOLDERS_QUESTION,
   isMissingFoldersError,
@@ -324,6 +324,7 @@ export const App: React.FC = () => {
       })
     );
 
+const handleApplyZoom = (suggestionId: string, zoom: SmartZoomParametersDto) =>    runDecision(() =>      ipc.submitDecision({ suggestionId, action: 'approve', reviewer: REVIEWER, parameters: { zoom } })    );
   const handleUndoDecision = (suggestionId: string) => runDecision(() => ipc.undoDecision(suggestionId));
 
   const handleRedoDecision = (suggestionId: string) => runDecision(() => ipc.redoDecision(suggestionId));
@@ -467,6 +468,7 @@ export const App: React.FC = () => {
                 onDecide={handleDecision}
                 onBatchDecide={handleBatchDecide}
                 onModify={handleModify}
+                onApplyZoom={handleApplyZoom}
                 onUndo={handleUndoDecision}
                 onRedo={handleRedoDecision}
                 onNavigateToTimeline={() => setCurrentTab('timeline')}
