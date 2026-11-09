@@ -30,7 +30,7 @@ import {
   type Interval
 } from './reviewModel';
 import type { AsyncState } from './useReviewData';
-import type { SourceWindow } from '../media/mediaTime';
+import type { KeptSegment, SourceWindow } from '../media/mediaTime';
 
 interface ReviewDetailProps {
   projectId: string;
@@ -59,7 +59,7 @@ interface ReviewDetailProps {
   /** Aplica o zoom atual como decisão `approve` com parameters.zoom (ligado ao submitDecision pelo painel pai). */
   onApplyZoom?: (zoom: SmartZoomParametersDto) => void;
   /** "Depois" do plano vigente (intervalos removidos da mídia) ou só este corte quando não há plano. */
-  afterRemoved: { intervals: SourceWindow[]; source: AfterSource };
+  afterRemoved: { intervals: SourceWindow[]; source: AfterSource; segments?: KeptSegment[] };
 }
 
 const Field: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
@@ -180,6 +180,7 @@ export const ReviewDetail: React.FC<ReviewDetailProps> = ({
           onTimeUpdate={onTimeUpdate}
           zoomTransform={zoomConfig}
           removedIntervals={afterRemoved.intervals}
+          keptSegments={afterRemoved.segments ?? null}
           afterSource={afterRemoved.source}
         />
 

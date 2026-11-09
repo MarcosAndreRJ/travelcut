@@ -3,7 +3,7 @@ import { Maximize2, Minimize2 } from 'lucide-react';
 import { MediaIntervalPlayer } from '../media/MediaIntervalPlayer';
 import { WaveformStrip } from '../media/WaveformStrip';
 import { formatDraft, playerWindowOf, PLAYER_CONTEXT_SECONDS, type Interval } from './reviewModel';
-import type { SourceWindow } from '../media/mediaTime';
+import type { KeptSegment, SourceWindow } from '../media/mediaTime';
 
 export type CompareMode = 'before' | 'after';
 
@@ -37,6 +37,8 @@ interface BeforeAfterCompareProps {
   } | null;
   /** Trechos da fonte removidos no "Depois" (plano vigente da mídia). Ausente = só este corte. */
   removedIntervals?: SourceWindow[] | null;
+  /** Trechos mantidos do plano com velocidade e zoom por clipe (só no "Depois"). Prévia aproximada. */
+  keptSegments?: KeptSegment[] | null;
   /** 'plan': "Depois" deriva do plano vigente. 'candidate': sem plano, só este corte. */
   afterSource?: AfterSource;
 }
@@ -58,6 +60,7 @@ export const BeforeAfterCompare: React.FC<BeforeAfterCompareProps> = ({
   onTimeUpdate,
   zoomTransform = null,
   removedIntervals = null,
+  keptSegments = null,
   afterSource = 'candidate'
 }) => {
   const windowSeconds = playerWindowOf(interval);
@@ -119,6 +122,7 @@ export const BeforeAfterCompare: React.FC<BeforeAfterCompareProps> = ({
         onTimeUpdate={onTimeUpdate}
         zoomTransform={zoomTransform}
         removedIntervals={mode === 'after' ? removedIntervals : null}
+        keptSegments={mode === 'after' ? keptSegments : null}
         videoAreaClassName={expanded ? 'h-[65vh]' : 'h-[22vh] min-h-32 max-h-72'}
       />
 

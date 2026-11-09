@@ -14,7 +14,7 @@ import { PREEDIT_OUTCOME_LABEL, derivePreeditSummary, outcomeOf } from './review
 import { useMediaAnalysis, useProjectMedia } from './review/useReviewData';
 import { usePlanSnapshot } from './review/usePlanRemoved';
 import type { EditPlanDto } from '../types/ipc';
-import { removedIntervalsFromPlan } from './media/mediaTime';
+import { keptSegmentsFromPlan, removedIntervalsFromPlan } from './media/mediaTime';
 import {
   DEFAULT_REVIEW_FILTERS,
   countByStatus,
@@ -53,6 +53,7 @@ export interface ReviewDecisionsViewProps {
 const fileNameOf = (path: string): string => path.split(/[\\/]/).filter(Boolean).pop() ?? path;
 
 const NO_AFTER: { intervals: { start: number; end: number }[]; source: 'candidate' } = { intervals: [], source: 'candidate' };
+// keptSegments só existe com plano; "só este corte" e "original" não aplicam taxa/zoom do plano.
 
 /**
  * "Depois" do candidato: com plano, pula TODOS os trechos removidos da mídia no plano vigente;
@@ -63,7 +64,11 @@ export const afterRemovedOf = (plan: EditPlanDto | null, s: EditSuggestion) => {
   // Candidato que o plano não aplicou (pendente, adiado, não aplicado, conflito): o "Depois" é o original.
   const outcome = outcomeOf(s, plan);
   if (outcome !== 'autoApplied' && outcome !== 'userApplied') return { intervals: [], source: 'original' as const };
-  return { intervals: removedIntervalsFromPlan(plan.clips, s.mediaId), source: 'plan' as const };
+  return {
+    intervals: removedIntervalsFromPlan(plan.clips, s.mediaId),
+    segments: keptSegmentsFromPlan(plan.clips, s.mediaId),
+    source: 'plan' as const
+  };
 };
 
 /**
