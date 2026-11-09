@@ -635,6 +635,20 @@ public class PipelineJobManager : IPipelineJobManager
             outcome = await _whisper.TranscribeAsync(media.AbsolutePath!, media.MediaId, WhisperModel, job.Language, ct,
                 new SynchronousProgress<TranscriptionProgressUpdate>(job.ReportTranscriptionProgress),
                 job.BeginWhisperExecution(media));
+
+            // P09: duração do áudio transcrito muito diferente da dos metadados = possível truncamento. Não persiste nem cacheia.
+            if (outcome.Status == "completed" && outcome.Transcript != null
+                && media.Asset.Metadata is { MetadataStatus: MediaMetadataStatus.Ok } md
+                && TranscriptValidator.CheckDurationMismatch(outcome.Transcript.AudioDurationSeconds, md.DurationSeconds) is { } mismatch)
+            {
+                _logger.LogWarning("Transcrição da mídia {MediaId} descartada do cache: {Mismatch}", media.MediaId, mismatch);
+                work.Transcript = null;
+                work.TranscriptionStatus = StageStates.CompletedWithIssues;
+                work.TranscriptionReason = mismatch;
+                job.SetStage(media, PipelineStages.Transcription, StageStates.CompletedWithIssues, mismatch);
+                return;
+            }
+
             if (outcome.Status == "completed" && outcome.Transcript != null)
             {
                 await cache.WriteArtifactTextAsync(job.ProjectRoot, CacheCategory, key, Serialize(outcome), ct);

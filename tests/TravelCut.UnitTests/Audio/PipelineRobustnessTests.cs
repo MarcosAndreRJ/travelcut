@@ -43,6 +43,67 @@ public class PipelineRobustnessTests : IDisposable
             new List<TranscriptWordDto> { new(0, 0.5, 1.0, "cachoeira", 0.95), new(1, 3.4, 3.8, "olha", 0.9) }),
         null, "fake-whisper 1.0", "large-v3");
 
+    // ---------------------------------------------------------------- P09
+
+    [Fact]
+    public void P09_Validator_RejectsZeroDuration_EvenWithoutWords()
+    {
+        var result = TranscriptValidator.Validate(new WhisperTranscriptPayload("", 0, Array.Empty<WhisperRawWord>()));
+        Assert.False(result.IsValid);
+        Assert.True(TranscriptValidator.Validate(new WhisperTranscriptPayload("", 12.0, Array.Empty<WhisperRawWord>())).IsValid);
+    }
+
+    [Theory]
+    [InlineData(10.0, 10.5, false)]
+    [InlineData(100.0, 104.0, false)]
+    [InlineData(100.0, 90.0, true)]
+    [InlineData(10.0, 3.0, true)]
+    [InlineData(0.0, 3.0, false)] // duração da mídia desconhecida: sem comparação
+    public void P09_DurationMismatch_UsesAbsoluteAndRelativeTolerance(double media, double transcript, bool mismatch)
+    {
+        Assert.Equal(mismatch, TranscriptValidator.CheckDurationMismatch(transcript, media) != null);
+    }
+
+    [Fact]
+    public async Task P09_TruncatedTranscript_IsCompletedWithIssues_NotCachedNorPersisted()
+    {
+        var whisper = new FakeWhisperService { Outcome = Completed(duration: 3.0) };
+        var h = NewHarness(whisper, new FakeSilenceService { FfmpegAvailable = false });
+        var project = h.CreateProject();
+        h.AddMedia(project, "1-Bruto/a.mp4", metadata: Metadata(2)); // metadados: 10 s
+
+        var stages = new List<string> { "transcription" };
+        await h.Manager.StartAsync(Start(project.ProjectId, stages: stages));
+        var status = await h.WaitForFinishAsync(project.ProjectId);
+
+        Assert.Equal("completed_with_issues", status.State);
+        Assert.Contains("diverge", status.Media.Single().Message);
+        Assert.Empty(h.Db.Transcripts);
+
+        // Sem cache: a segunda execução transcreve de novo.
+        await h.Manager.StartAsync(Start(project.ProjectId, stages: stages));
+        await h.WaitForFinishAsync(project.ProjectId);
+        Assert.Equal(2, whisper.TranscribeCalls);
+    }
+
+    [Fact]
+    public async Task P09_ValidSilentTranscript_RecordsHasSpeechFalseExplicitly()
+    {
+        var empty = new TranscriptionOutcome("completed",
+            new TranscriptDto(Guid.NewGuid(), Guid.Empty, "large-v3", "pt", "", 10.0, new List<TranscriptWordDto>()),
+            null, "fake-whisper 1.0", "large-v3");
+        var h = NewHarness(new FakeWhisperService { Outcome = empty }, new FakeSilenceService { FfmpegAvailable = false });
+        var project = h.CreateProject();
+        var media = h.AddMedia(project, "1-Bruto/a.mp4", metadata: Metadata(2));
+
+        await h.Manager.StartAsync(Start(project.ProjectId, stages: new List<string> { "transcription", "scene" }));
+        await h.WaitForFinishAsync(project.ProjectId);
+
+        var analysis = await h.Manager.GetMediaAnalysisAsync(project.ProjectId, media.MediaId);
+        Assert.Equal("completed", analysis!.TranscriptionStatus);
+        Assert.False(analysis.Scene!.HasSpeech);
+    }
+
     // ---------------------------------------------------------------- P08
 
     [Fact]
