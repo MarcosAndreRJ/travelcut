@@ -821,6 +821,27 @@ export interface EditorialProfileDto {
   autoApplyTrivialCuts?: boolean;
 }
 
+// ---- Perfil de automação editorial por projeto (F14.8) — espelho de src/TravelCut.Contracts/Dtos/AutomationProfileDtos.cs ----
+// IPC: automation.profile.get / automation.profile.set. plan.generate sem 'profile' usa o perfil persistido.
+
+export type AutomationProfile = 'conservative' | 'balanced' | 'aggressive';
+
+export interface GetAutomationProfileRequest {
+  projectId: string;
+}
+
+export interface SetAutomationProfileRequest {
+  projectId: string;
+  profile: AutomationProfile;
+}
+
+export interface AutomationProfileDto {
+  projectId: string;
+  profile: AutomationProfile;
+  /** true = nunca escolhido pelo usuário (projeto novo/antigo): valor padrão 'balanced'. */
+  isDefault: boolean;
+}
+
 export interface TimelineTimeBaseDto {
   fpsNumerator?: number;
   fpsDenominator?: number;

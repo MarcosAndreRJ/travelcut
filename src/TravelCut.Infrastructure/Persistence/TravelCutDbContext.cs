@@ -85,6 +85,7 @@ public class TravelCutDbContext : DbContext
             b.HasIndex(p => p.RootPath).IsUnique();
             b.Property(p => p.Name).IsRequired().HasMaxLength(255);
             b.Property(p => p.RootPath).IsRequired().HasMaxLength(1024);
+            b.Property(p => p.AutomationProfile).HasMaxLength(32);
         });
 
         // MediaAsset
@@ -457,6 +458,12 @@ public class TravelCutDbContext : DbContext
             ("GpsLocation", "TEXT"),
             ("RotationDegrees", "INTEGER NOT NULL DEFAULT 0"),
             ("MetadataStatus", "TEXT NOT NULL DEFAULT 'not_requested'")
+        });
+
+        // Projects: perfil de automação editorial (F14.8). NULL = projeto antigo → tratado como "balanced" na leitura.
+        EnsureColumns(connection, "Projects", new (string Name, string Definition)[]
+        {
+            ("AutomationProfile", "TEXT NULL")
         });
 
         // MediaAssets: tags do usuário em JSON.

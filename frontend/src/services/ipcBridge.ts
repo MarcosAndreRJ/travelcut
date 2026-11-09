@@ -30,6 +30,8 @@ import {
   StartPipelineRequest,
   EditPlanDto,
   EditorialProfileDto,
+  AutomationProfile,
+  AutomationProfileDto,
   PlanAppliedCutDto,
   PlanClipDto,
   PlanIssueDto,
@@ -375,6 +377,8 @@ class IpcBridgeService {
   private mockAnalyzedMediaIds = new Set<string>();
   // DEMONSTRAÇÃO: revisões do plano editorial; cada plan.generate/plan.revert acrescenta uma revisão.
   private mockPlanRevisions: EditPlanDto[] = [];
+  // Perfil de automação do projeto mock (null = nunca escolhido → 'balanced', isDefault=true).
+  private mockAutomationProfile: AutomationProfile | null = null;
   private mockProfile: EditorialProfileDto = {
     profileId: 'demo-profile',
     version: 1,
@@ -873,6 +877,24 @@ class IpcBridgeService {
 
       case 'profile.get':
         return { ...this.mockProfile };
+
+      case 'automation.profile.get': {
+        this.assertMockProject(payload?.projectId);
+        return {
+          projectId: payload.projectId,
+          profile: this.mockAutomationProfile ?? 'balanced',
+          isDefault: this.mockAutomationProfile === null
+        } satisfies AutomationProfileDto;
+      }
+
+      case 'automation.profile.set': {
+        this.assertMockProject(payload?.projectId);
+        if (!['conservative', 'balanced', 'aggressive'].includes(payload?.profile)) {
+          throw new IpcError('Perfil de automação inválido (use conservative, balanced ou aggressive).', 'INVALID_ARGUMENT');
+        }
+        this.mockAutomationProfile = payload.profile as AutomationProfile;
+        return { projectId: payload.projectId, profile: this.mockAutomationProfile, isDefault: false } satisfies AutomationProfileDto;
+      }
 
       case 'system.openFolder':
         return { success: true, openedPath: payload?.path };
@@ -2338,6 +2360,16 @@ class IpcBridgeService {
 
   public async getEditorialProfile(): Promise<EditorialProfileDto> {
     return this.send<EditorialProfileDto>('profile.get');
+  }
+
+  /** F14.8: perfil de automação editorial persistido do projeto (padrão 'balanced', isDefault=true). */
+  public async getAutomationProfile(projectId: string): Promise<AutomationProfileDto> {
+    return this.send<AutomationProfileDto>('automation.profile.get', { projectId });
+  }
+
+  /** F14.8: define o perfil de automação do projeto. Erros: INVALID_ARGUMENT, PROJECT_NOT_FOUND. */
+  public async setAutomationProfile(projectId: string, profile: AutomationProfile): Promise<AutomationProfileDto> {
+    return this.send<AutomationProfileDto>('automation.profile.set', { projectId, profile });
   }
 
   // ---- Importação de mídia (Tela 07) — nomes conforme types/ipc.ts ----

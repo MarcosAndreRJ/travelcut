@@ -554,6 +554,28 @@ public class IpcDispatcher
                 case "profile.get":
                     return IpcResponse.Success(request.RequestId, _planning.GetProfile());
 
+                case "automation.profile.get":
+                {
+                    var req = DeserializePayload<GetAutomationProfileRequest>(request.Payload);
+                    if (req == null || req.ProjectId == Guid.Empty)
+                    {
+                        return IpcResponse.Fail(request.RequestId, "INVALID_ARGUMENT", "ID de projeto inválido.");
+                    }
+
+                    return PlanResponse(request.RequestId, await _planning.GetAutomationProfileAsync(req, ct));
+                }
+
+                case "automation.profile.set":
+                {
+                    var req = DeserializePayload<SetAutomationProfileRequest>(request.Payload);
+                    if (req == null || req.ProjectId == Guid.Empty)
+                    {
+                        return IpcResponse.Fail(request.RequestId, "INVALID_ARGUMENT", "ID de projeto inválido.");
+                    }
+
+                    return PlanResponse(request.RequestId, await _planning.SetAutomationProfileAsync(req, ct));
+                }
+
                 case "plan.generate":
                 {
                     var req = DeserializePayload<GeneratePlanRequest>(request.Payload);

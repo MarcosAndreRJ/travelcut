@@ -71,6 +71,18 @@ public static class AutoEditorialProfiles
         _ => Default,
     };
 
+    /// <summary>Parse estrito (sem diferenciar maiúsculas/espaços): só os três nomes do vocabulário; null/desconhecido → false.</summary>
+    public static bool TryParse(string? name, out AutoEditorialProfile profile)
+    {
+        switch (name?.Trim().ToLowerInvariant())
+        {
+            case "conservative": profile = AutoEditorialProfile.Conservative; return true;
+            case "balanced": profile = AutoEditorialProfile.Balanced; return true;
+            case "aggressive": profile = AutoEditorialProfile.Aggressive; return true;
+            default: profile = Default; return false;
+        }
+    }
+
     public static string ToName(AutoEditorialProfile profile) => profile switch
     {
         AutoEditorialProfile.Conservative => "conservative",
