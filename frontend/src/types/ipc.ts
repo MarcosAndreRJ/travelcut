@@ -607,6 +607,8 @@ export interface PipelineStatusDto {
   finishedAtUtc: string | null;
   /** Atividade dentro da mídia; ausente quando não há job ou no modo demonstração. */
   activity?: PipelineActivityDto | null;
+  /** F14.8: processamento automático pós-análise (plano + proxies); ausente no modo demonstração. */
+  postAnalysis?: PostAnalysisStatusDto | null;
 }
 
 /** Diagnóstico do worker Whisper (pipeline.diagnostics): caminhos locais, só por ação explícita do usuário. */
@@ -844,6 +846,44 @@ export interface AutomationProfileDto {
   projectId: string;
   profile: AutomationProfile;
   /** true = nunca escolhido pelo usuário (projeto novo/antigo): valor padrão 'balanced'. */
+  isDefault: boolean;
+}
+
+export type PostAnalysisState = 'idle' | 'running' | 'completed' | 'completed_with_issues' | 'failed' | 'skipped';
+
+/** Espelho de src/TravelCut.Contracts/Dtos/PostAnalysisDtos.cs (pipeline.status.postAnalysis). */
+export interface PostAnalysisStatusDto {
+  state: PostAnalysisState;
+  /** Etapa atual (apenas running): plan | proxy. */
+  stage: 'plan' | 'proxy' | null;
+  /** skipped: auto_process_disabled | no_analysis_results. */
+  reason: string | null;
+  autoCutsApplied: number;
+  pendingReview: number;
+  proxiesQueued: number;
+  failures: number;
+  /** Códigos estáveis (PLAN_FAILED:<code>, PROXY_FAILED:<n>, PROXY_FFMPEG_UNAVAILABLE, ...). */
+  issues: string[];
+  planRevision: number | null;
+  startedAtUtc: string | null;
+  finishedAtUtc: string | null;
+}
+
+// ---- Opções de automação por projeto (F14.8) — IPC: automation.options.get / automation.options.set ----
+export interface GetAutomationOptionsRequest {
+  projectId: string;
+}
+
+export interface SetAutomationOptionsRequest {
+  projectId: string;
+  autoProcess: boolean;
+}
+
+export interface AutomationOptionsDto {
+  projectId: string;
+  /** Gate do processamento automático pós-análise (padrão true). */
+  autoProcess: boolean;
+  /** true = nunca escolhido pelo usuário. */
   isDefault: boolean;
 }
 

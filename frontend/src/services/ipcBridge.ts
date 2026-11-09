@@ -32,6 +32,7 @@ import {
   EditorialProfileDto,
   AutomationProfile,
   AutomationProfileDto,
+  AutomationOptionsDto,
   PlanAppliedCutDto,
   PlanClipDto,
   PlanIssueDto,
@@ -379,6 +380,7 @@ class IpcBridgeService {
   private mockPlanRevisions: EditPlanDto[] = [];
   // Perfil de automação do projeto mock (null = nunca escolhido → 'balanced', isDefault=true).
   private mockAutomationProfile: AutomationProfile | null = null;
+  private mockAutoProcess: boolean | null = null;
   private mockProfile: EditorialProfileDto = {
     profileId: 'demo-profile',
     version: 1,
@@ -894,6 +896,24 @@ class IpcBridgeService {
         }
         this.mockAutomationProfile = payload.profile as AutomationProfile;
         return { projectId: payload.projectId, profile: this.mockAutomationProfile, isDefault: false } satisfies AutomationProfileDto;
+      }
+
+      case 'automation.options.get': {
+        this.assertMockProject(payload?.projectId);
+        return {
+          projectId: payload.projectId,
+          autoProcess: this.mockAutoProcess ?? true,
+          isDefault: this.mockAutoProcess === null
+        } satisfies AutomationOptionsDto;
+      }
+
+      case 'automation.options.set': {
+        this.assertMockProject(payload?.projectId);
+        if (typeof payload?.autoProcess !== 'boolean') {
+          throw new IpcError('autoProcess inválido (booleano).', 'INVALID_ARGUMENT');
+        }
+        this.mockAutoProcess = payload.autoProcess;
+        return { projectId: payload.projectId, autoProcess: this.mockAutoProcess, isDefault: false } satisfies AutomationOptionsDto;
       }
 
       case 'system.openFolder':
@@ -2370,6 +2390,16 @@ class IpcBridgeService {
   /** F14.8: define o perfil de automação do projeto. Erros: INVALID_ARGUMENT, PROJECT_NOT_FOUND. */
   public async setAutomationProfile(projectId: string, profile: AutomationProfile): Promise<AutomationProfileDto> {
     return this.send<AutomationProfileDto>('automation.profile.set', { projectId, profile });
+  }
+
+  /** F14.8: opções de automação do projeto (autoProcess padrão true). */
+  public async getAutomationOptions(projectId: string): Promise<AutomationOptionsDto> {
+    return this.send<AutomationOptionsDto>('automation.options.get', { projectId });
+  }
+
+  /** F14.8: liga/desliga o processamento automático pós-análise. Erros: INVALID_ARGUMENT, PROJECT_NOT_FOUND. */
+  public async setAutomationOptions(projectId: string, autoProcess: boolean): Promise<AutomationOptionsDto> {
+    return this.send<AutomationOptionsDto>('automation.options.set', { projectId, autoProcess });
   }
 
   // ---- Importação de mídia (Tela 07) — nomes conforme types/ipc.ts ----

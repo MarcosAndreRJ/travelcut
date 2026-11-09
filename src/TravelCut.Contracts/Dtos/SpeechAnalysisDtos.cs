@@ -119,7 +119,8 @@ public record PipelineStatusDto(
     [property: JsonPropertyName("environment")] AnalysisEnvironmentDto? Environment,
     [property: JsonPropertyName("startedAtUtc")] DateTime? StartedAtUtc,
     [property: JsonPropertyName("finishedAtUtc")] DateTime? FinishedAtUtc,
-    [property: JsonPropertyName("activity")] PipelineActivityDto? Activity = null
+    [property: JsonPropertyName("activity")] PipelineActivityDto? Activity = null,
+    [property: JsonPropertyName("postAnalysis")] PostAnalysisStatusDto? PostAnalysis = null   // F14.8: processamento automático pós-análise (null = sem orquestrador)
 );
 
 /// <summary>

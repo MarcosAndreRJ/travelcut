@@ -17,6 +17,9 @@ public class Project
     /// </summary>
     public string? AutomationProfile { get; set; }
 
+    /// <summary>Processamento automático pós-análise (plano + proxies). Null = nunca escolhido (coluna aditiva) = true.</summary>
+    public bool? AutoProcess { get; set; }
+
     public static readonly string[] RequiredFourFolders = ["1-Bruto", "2-Assets", "3-Trabalho", "4-Final"];
 
     public bool HasValidFourFoldersStructure(out string missingFolder)

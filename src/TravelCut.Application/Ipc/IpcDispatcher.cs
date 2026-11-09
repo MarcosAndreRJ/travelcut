@@ -576,6 +576,28 @@ public class IpcDispatcher
                     return PlanResponse(request.RequestId, await _planning.SetAutomationProfileAsync(req, ct));
                 }
 
+                case "automation.options.get":
+                {
+                    var req = DeserializePayload<GetAutomationOptionsRequest>(request.Payload);
+                    if (req == null || req.ProjectId == Guid.Empty)
+                    {
+                        return IpcResponse.Fail(request.RequestId, "INVALID_ARGUMENT", "ID de projeto inválido.");
+                    }
+
+                    return PlanResponse(request.RequestId, await _planning.GetAutomationOptionsAsync(req, ct));
+                }
+
+                case "automation.options.set":
+                {
+                    var req = DeserializePayload<SetAutomationOptionsRequest>(request.Payload);
+                    if (req == null || req.ProjectId == Guid.Empty)
+                    {
+                        return IpcResponse.Fail(request.RequestId, "INVALID_ARGUMENT", "ID de projeto inválido.");
+                    }
+
+                    return PlanResponse(request.RequestId, await _planning.SetAutomationOptionsAsync(req, ct));
+                }
+
                 case "plan.generate":
                 {
                     var req = DeserializePayload<GeneratePlanRequest>(request.Payload);
