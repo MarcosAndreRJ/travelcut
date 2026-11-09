@@ -216,6 +216,56 @@ public class PipelineJobManager : IPipelineJobManager
         return saved.Count;
     }
 
+    /// <summary>
+    /// P11: arquivo alterado (fingerprint novo, mesmo MediaId). Grava um marcador stale (sem resultados) na chave de cache do
+    /// novo fingerprint, remove a transcrição do conteúdo antigo e reenfileira a reanálise. A chave de cache muda com o
+    /// fingerprint, então nenhum resultado antigo é reutilizado. O plano dependente fica inválido por si: o fingerprint do
+    /// conjunto de mídias (PlanValidation.MediaSetFingerprintOf) muda e o pós-análise regenera o plano ao fim da reanálise.
+    /// </summary>
+    public async Task MarkMediaStaleAsync(Guid projectId, IReadOnlyList<Guid> mediaIds, CancellationToken ct = default)
+    {
+        if (mediaIds.Count == 0) return;
+
+        var reanalyze = new List<Guid>();
+        using (var scope = _scopeFactory.CreateScope())
+        {
+            var sp = scope.ServiceProvider;
+            var project = await sp.GetRequiredService<IProjectRepository>().GetByIdAsync(projectId, ct);
+            if (project is null || string.IsNullOrWhiteSpace(project.RootPath)) return;
+            string root = Path.GetFullPath(project.RootPath);
+
+            var cache = sp.GetRequiredService<IMediaCacheManager>();
+            var transcripts = sp.GetRequiredService<ITranscriptRepository>();
+            var mediaRepo = sp.GetRequiredService<IMediaRepository>();
+            foreach (var id in mediaIds.Distinct())
+            {
+                var asset = await mediaRepo.GetByIdAsync(id, ct);
+                if (asset is null || asset.ProjectId != projectId || asset.Kind is not (MediaKind.Video or MediaKind.Audio)) continue;
+
+                var stale = new MediaAnalysisDto(
+                    id, "not_run", "Arquivo alterado: análise anterior descartada; reanálise pendente.", null,
+                    "not_run", null, new List<VadSilenceSegmentDto>(), new List<HesitationCandidateDto>(), null,
+                    new List<EditSuggestionDto>(), DateTime.UtcNow, Stale: true);
+                await cache.WriteArtifactTextAsync(root, CacheCategory,
+                    AnalysisCacheKey(cache, asset, MediaAnalysisToolId), Serialize(stale), ct);
+                await transcripts.DeleteByMediaIdAsync(id, ct);
+                reanalyze.Add(id);
+            }
+        }
+
+        if (reanalyze.Count == 0) return;
+        _logger.LogInformation("Projeto {ProjectId}: {Count} mídia(s) alterada(s); análise marcada como stale e reenfileirada", projectId, reanalyze.Count);
+        try
+        {
+            await EnqueueAsync(new StartPipelineRequest(projectId, reanalyze, null, null, false), ct);
+        }
+        catch (InvalidOperationException ex)
+        {
+            // Sem Whisper/trava ocupada etc.: o marcador stale permanece e a retomada (P07) reenfileira ao abrir.
+            _logger.LogWarning("Reanálise de mídia alterada não enfileirada ({Code})", ex.Message);
+        }
+    }
+
     /// <summary>Adiciona/mescla um lote na fila do projeto. Chamar sob <see cref="_registry"/>.</summary>
     private PendingBatch MergeBatch(Guid projectId, List<string> stages, string language, bool force, List<Guid>? mediaIds)
     {
