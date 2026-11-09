@@ -113,6 +113,40 @@ public class PipelineResumeTests : IDisposable
         Assert.True(File.Exists(Path.Combine(_h.Root, media.RelativePath)));
     }
 
+    private sealed class FakeImports(bool active) : IMediaImportService
+    {
+        public Task<ImportStartResult> StartAsync(StartImportRequest request, CancellationToken ct = default) =>
+            throw new NotSupportedException();
+
+        public ImportJobStatusDto? GetStatus(Guid jobId) => null;
+
+        public CancelImportResponse Cancel(Guid jobId) => new(false);
+
+        public bool HasActiveImport(Guid projectId) => active;
+    }
+
+    [Theory]
+    [InlineData(true, 0, true)]
+    [InlineData(false, 1, false)]
+    public async Task Resume_keeps_old_tcpart_while_project_has_active_import(bool importActive, int expectedRemoved, bool partExists)
+    {
+        var project = _h.CreateProject();
+        var media = _h.AddMedia(project, "1-Bruto/a.mp4", fingerprint: "fa");
+        string part = Path.Combine(_h.Root, "1-Bruto", "grande.mp4.tcpart");
+        File.WriteAllBytes(part, new byte[8]);
+        File.SetLastWriteTimeUtc(part, DateTime.UtcNow.AddHours(-3)); // além do corte de 15 min
+        _h.Whisper.Available = false;
+
+        var resume = new PipelineResumeService(
+            _h.Services.GetRequiredService<IServiceScopeFactory>(), NewManager(), TimeProvider.System,
+            NullLogger<PipelineResumeService>.Instance, null, new FakeImports(importActive));
+        var outcome = await resume.ResumeProjectAsync(project.ProjectId);
+
+        Assert.Equal(expectedRemoved, outcome.PartialFilesRemoved);
+        Assert.Equal(partExists, File.Exists(part));
+        Assert.True(File.Exists(Path.Combine(_h.Root, media.RelativePath)));
+    }
+
     [Fact]
     public async Task Pending_queue_is_persisted_and_restored_by_a_new_manager()
     {

@@ -19,7 +19,8 @@ public sealed record PipelineResumeOutcome(
 
 /// <summary>
 /// P07 — retomada ao abrir o projeto. Política explícita:
-/// 1) remove <c>*.tcpart</c> órfãos (cópias parciais de importação interrompida) mais antigos que <see cref="PartialFileMinAge"/>;
+/// 1) remove <c>*.tcpart</c> órfãos (cópias parciais de importação interrompida) mais antigos que <see cref="PartialFileMinAge"/>,
+///    exceto quando o projeto tem importação ativa (a cópia em andamento não é órfã);
 /// 2) restaura a fila de lotes pendentes persistida e o pós-análise interrompido (ambos são pedidos já feitos pelo usuário/pipeline);
 /// 3) calcula mídias de vídeo/áudio cujo arquivo existe e cuja análise é inexistente, stale ou com transcrição/silêncio "not_run"
 ///    (inclui cancelamento parcial) e as enfileira pelo mesmo gerenciador. NÃO reenfileira falhas/indisponíveis/ignoradas
@@ -42,14 +43,17 @@ public sealed class PipelineResumeService
     private readonly IPostAnalysisOrchestrator? _postAnalysis;
     private readonly TimeProvider _clock;
     private readonly ILogger<PipelineResumeService> _logger;
+    private readonly IMediaImportService? _imports;
 
     public PipelineResumeService(
         IServiceScopeFactory scopeFactory,
         IPipelineJobManager pipeline,
         TimeProvider clock,
         ILogger<PipelineResumeService> logger,
-        IPostAnalysisOrchestrator? postAnalysis = null)
+        IPostAnalysisOrchestrator? postAnalysis = null,
+        IMediaImportService? imports = null)
     {
+        _imports = imports;
         _scopeFactory = scopeFactory;
         _pipeline = pipeline;
         _clock = clock;
@@ -90,7 +94,11 @@ public sealed class PipelineResumeService
         }
         string root = Path.GetFullPath(project.RootPath);
 
-        int removed = CleanOrphanPartials(root, _clock.GetUtcNow().UtcDateTime - PartialFileMinAge);
+        // Importação ativa do projeto: os *.tcpart são cópias em andamento (não órfãos), mesmo com mtime antigo
+        // (ex.: arquivo grande parado em I/O lento). Só varre quando não há importação ativa.
+        int removed = _imports?.HasActiveImport(projectId) == true
+            ? 0
+            : CleanOrphanPartials(root, _clock.GetUtcNow().UtcDateTime - PartialFileMinAge);
         bool postResumed = _postAnalysis is not null && await _postAnalysis.RestoreAsync(projectId, ct);
         int restored = await _pipeline.RestorePendingAsync(projectId, ct);
 

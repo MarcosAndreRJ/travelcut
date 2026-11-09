@@ -491,6 +491,8 @@ public class IpcDispatcherTests : IDisposable
         public ImportJobStatusDto? GetStatus(Guid jobId) => null;
 
         public CancelImportResponse Cancel(Guid jobId) => new(false);
+
+        public bool HasActiveImport(Guid projectId) => false;
     }
 
     [Fact]

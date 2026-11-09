@@ -188,6 +188,8 @@ public sealed class MediaImportService : IMediaImportService
     public CancelImportResponse Cancel(Guid jobId)
         => new(_jobs.TryGetValue(jobId, out var job) && job.RequestCancel());
 
+    public bool HasActiveImport(Guid projectId) => _activeJobByProject.ContainsKey(projectId);
+
     private async Task RunJobAsync(ImportJob job)
     {
         try
