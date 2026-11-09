@@ -8,8 +8,14 @@ import type { SourceWindow } from '../media/mediaTime';
 export type CompareMode = 'before' | 'after';
 
 /** Rótulo honesto do "Depois": só diz "plano vigente" quando o pulo vem do plano. */
-export const afterLabelOf = (source: 'plan' | 'candidate'): string =>
-  source === 'plan' ? 'Depois (plano vigente)' : 'Depois (só este corte)';
+/** 'original': o plano não aplicou este candidato, então o "Depois" é o próprio trecho original. */
+export type AfterSource = 'plan' | 'candidate' | 'original';
+
+export const afterLabelOf = (source: AfterSource): string => {
+  if (source === 'plan') return 'Depois (plano vigente)';
+  if (source === 'original') return 'Original';
+  return 'Depois (só este corte)';
+};
 
 interface BeforeAfterCompareProps {
   projectId: string;
@@ -32,7 +38,7 @@ interface BeforeAfterCompareProps {
   /** Trechos da fonte removidos no "Depois" (plano vigente da mídia). Ausente = só este corte. */
   removedIntervals?: SourceWindow[] | null;
   /** 'plan': "Depois" deriva do plano vigente. 'candidate': sem plano, só este corte. */
-  afterSource?: 'plan' | 'candidate';
+  afterSource?: AfterSource;
 }
 
 const MODE_OPTIONS: { value: CompareMode; label: string; hint: string }[] = [

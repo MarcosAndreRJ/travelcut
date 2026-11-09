@@ -33,6 +33,10 @@ interface ReviewQueueProps {
   batchBar?: React.ReactNode;
   /** Rodapé (legenda de atalhos). */
   footer?: React.ReactNode;
+  /** Desfazer/Restaurar por linha; o botão fica desabilitado quando o host não reporta canUndo/canRedo. */
+  onUndoItem?: (suggestionId: string) => void;
+  onRedoItem?: (suggestionId: string) => void;
+  actionsBusy?: boolean;
 }
 
 const STATUS_OPTIONS: { value: ReviewStatusFilter; label: string; count: (c: StatusCounts) => number }[] = [
@@ -76,7 +80,10 @@ export const ReviewQueue: React.FC<ReviewQueueProps> = ({
   onToggleAllVisible,
   mediaName,
   batchBar,
-  footer
+  footer,
+  onUndoItem,
+  onRedoItem,
+  actionsBusy = false
 }) => {
   const itemRefs = useRef(new Map<string, HTMLElement>());
 
@@ -289,6 +296,34 @@ export const ReviewQueue: React.FC<ReviewQueueProps> = ({
                     )}
                   </div>
                 </button>
+                {(onUndoItem || onRedoItem) && (
+                  <div className="flex flex-col gap-1 shrink-0">
+                    {onUndoItem && (
+                      <button
+                        type="button"
+                        onClick={() => onUndoItem(sug.suggestionId)}
+                        disabled={actionsBusy || sug.canUndo !== true}
+                        aria-label={`Desfazer decisão de ${label}`}
+                        title="Desfazer última decisão deste candidato"
+                        className="px-1.5 py-0.5 rounded border border-slate-700 text-[10px] font-semibold text-slate-300 hover:border-cyan-500 disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-400"
+                      >
+                        Desfazer
+                      </button>
+                    )}
+                    {onRedoItem && (
+                      <button
+                        type="button"
+                        onClick={() => onRedoItem(sug.suggestionId)}
+                        disabled={actionsBusy || sug.canRedo !== true}
+                        aria-label={`Restaurar decisão de ${label}`}
+                        title="Restaurar a decisão desfeita deste candidato"
+                        className="px-1.5 py-0.5 rounded border border-slate-700 text-[10px] font-semibold text-slate-300 hover:border-cyan-500 disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-400"
+                      >
+                        Restaurar
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             </article>
           );

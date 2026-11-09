@@ -8,7 +8,7 @@ import {
   formatSeconds,
   suggestedActionLabel
 } from '../analysis/analysisFormat';
-import { BeforeAfterCompare, type CompareMode } from './BeforeAfterCompare';
+import { BeforeAfterCompare, type AfterSource, type CompareMode } from './BeforeAfterCompare';
 import { DecisionActions } from './DecisionActions';
 import { ModifyEditor } from './ModifyEditor';
 import { TranscriptContext } from './TranscriptContext';
@@ -59,7 +59,7 @@ interface ReviewDetailProps {
   /** Aplica o zoom atual como decisão `approve` com parameters.zoom (ligado ao submitDecision pelo painel pai). */
   onApplyZoom?: (zoom: SmartZoomParametersDto) => void;
   /** "Depois" do plano vigente (intervalos removidos da mídia) ou só este corte quando não há plano. */
-  afterRemoved: { intervals: SourceWindow[]; source: 'plan' | 'candidate' };
+  afterRemoved: { intervals: SourceWindow[]; source: AfterSource };
 }
 
 const Field: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
