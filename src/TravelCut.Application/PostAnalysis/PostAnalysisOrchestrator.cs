@@ -27,6 +27,7 @@ public sealed class PostAnalysisOrchestrator : IPostAnalysisOrchestrator, IDispo
     public const string IssueProxyLimit = "PROXY_LIMIT_EXCEEDED";
     public const string IssueUnexpected = "POST_ANALYSIS_ERROR";
     public const string IssueZoomFailed = "ZOOM_SUGGESTIONS_FAILED";
+    public const string IssueTransitionFailed = "TRANSITION_SUGGESTIONS_FAILED";
 
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly TimeProvider _clock;
@@ -179,6 +180,30 @@ public sealed class PostAnalysisOrchestrator : IPostAnalysisOrchestrator, IDispo
                         revision = plan.Revision;
                         autoCuts = plan.Summary.AutoCutsApplied;
                         pending = plan.Summary.PendingSuggestions;
+
+                        // E05: sugestões de transição sobre as bordas reais dos clipes do plano (como o zoom). Se surgirem sugestões
+                        // novas, o plano é regerado para considerá-las (idempotente por fingerprint). Falha aqui não invalida o plano.
+                        try
+                        {
+                            var transitions = sp.GetService<Editorial.ITransitionSuggestionGenerator>();
+                            if (transitions is not null && await transitions.GenerateAsync(projectId, plan, ct) > 0)
+                            {
+                                var again = await sp.GetRequiredService<PlanningUseCases>()
+                                    .GenerateAsync(new GeneratePlanRequest(projectId, null, null), ct);
+                                if (again.Success && again.Value is { } next)
+                                {
+                                    revision = next.Revision;
+                                    autoCuts = next.Summary.AutoCutsApplied;
+                                    pending = next.Summary.PendingSuggestions;
+                                }
+                            }
+                        }
+                        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+                        catch (Exception ex)
+                        {
+                            issues.Add(IssueTransitionFailed);
+                            _logger.LogWarning(ex, "Projeto {ProjectId}: falha ao gerar sugestões de transição (plano segue)", projectId);
+                        }
                     }
                     else
                     {
