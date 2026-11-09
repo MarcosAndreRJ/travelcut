@@ -82,6 +82,7 @@ public static class TravelCutServiceCollectionExtensions
         // Editorial Services (F14.4)
         services.AddScoped<TravelCut.Application.Editorial.ISceneClassificationService, TravelCut.Application.Editorial.SceneClassificationService>();
         services.AddScoped<TravelCut.Application.Editorial.ISmartZoomRecommender, TravelCut.Application.Editorial.SmartZoomRecommender>();
+        services.AddScoped<TravelCut.Application.Editorial.IZoomSuggestionGenerator, TravelCut.Application.Editorial.ZoomSuggestionGenerator>();
         services.AddScoped<TravelCut.Application.Editorial.ITransitionRecommender, TravelCut.Application.Editorial.TransitionRecommender>();
         services.AddScoped<TravelCut.Application.Editorial.IEditorialEffectsService, TravelCut.Application.Editorial.EditorialEffectsService>();
         services.AddScoped<TravelCut.Application.Editorial.EditorialIpcHandler>();

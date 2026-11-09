@@ -26,6 +26,7 @@ public sealed class PostAnalysisOrchestrator : IPostAnalysisOrchestrator, IDispo
     public const string IssueProxyUnavailable = "PROXY_FFMPEG_UNAVAILABLE";
     public const string IssueProxyLimit = "PROXY_LIMIT_EXCEEDED";
     public const string IssueUnexpected = "POST_ANALYSIS_ERROR";
+    public const string IssueZoomFailed = "ZOOM_SUGGESTIONS_FAILED";
 
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly TimeProvider _clock;
@@ -154,6 +155,20 @@ public sealed class PostAnalysisOrchestrator : IPostAnalysisOrchestrator, IDispo
             bool hasInputs = await HasAnalysisResultsAsync(sp, projectId, ct);
             if (hasInputs)
             {
+                // E04b: sugestões de zoom pelo recomendador único (idempotente), ANTES do plano para que ele as considere.
+                // Falha aqui não impede o plano (cortes seguem valendo).
+                try
+                {
+                    var zooms = sp.GetService<Editorial.IZoomSuggestionGenerator>();
+                    if (zooms is not null) await zooms.GenerateAsync(projectId, ct);
+                }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+                catch (Exception ex)
+                {
+                    issues.Add(IssueZoomFailed);
+                    _logger.LogWarning(ex, "Projeto {ProjectId}: falha ao gerar sugestões de zoom (plano segue)", projectId);
+                }
+
                 try
                 {
                     var outcome = await sp.GetRequiredService<PlanningUseCases>()
