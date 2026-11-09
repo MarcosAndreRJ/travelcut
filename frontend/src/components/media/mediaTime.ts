@@ -101,6 +101,11 @@ export interface KeptSegment {
   end: number;
   rate: number;
   zoom: number | null;
+  /** Campos do zoom do clipe (só presentes quando zoom !== null). Foco null = centro; duração null = clipe inteiro. */
+  zoomFocalPointX?: number | null;
+  zoomFocalPointY?: number | null;
+  zoomDurationSeconds?: number | null;
+  zoomCurve?: string | null;
 }
 
 /** Trechos mantidos de uma mídia no plano, ordenados por início da fonte. Mídias de outros clipes são ignoradas. */
@@ -112,17 +117,32 @@ export const keptSegmentsFromPlan = (
     speedNum: number;
     speedDen: number;
     zoom?: number | null;
+    zoomFocalPointX?: number | null;
+    zoomFocalPointY?: number | null;
+    zoomDurationSeconds?: number | null;
+    zoomCurve?: string | null;
   }>,
   mediaId: string
 ): KeptSegment[] =>
   clips
     .filter((c) => c.mediaId === mediaId && Number.isFinite(c.sourceInUs) && Number.isFinite(c.sourceOutUs) && c.sourceOutUs > c.sourceInUs)
-    .map((c) => ({
-      start: c.sourceInUs / 1_000_000,
-      end: c.sourceOutUs / 1_000_000,
-      rate: c.speedNum > 0 && c.speedDen > 0 && Number.isFinite(c.speedNum / c.speedDen) ? c.speedNum / c.speedDen : 1,
-      zoom: typeof c.zoom === 'number' && Number.isFinite(c.zoom) && c.zoom > 1 ? c.zoom : null
-    }))
+    .map((c) => {
+      const zoom = typeof c.zoom === 'number' && Number.isFinite(c.zoom) && c.zoom > 1 ? c.zoom : null;
+      return {
+        start: c.sourceInUs / 1_000_000,
+        end: c.sourceOutUs / 1_000_000,
+        rate: c.speedNum > 0 && c.speedDen > 0 && Number.isFinite(c.speedNum / c.speedDen) ? c.speedNum / c.speedDen : 1,
+        zoom,
+        ...(zoom !== null
+          ? {
+              zoomFocalPointX: c.zoomFocalPointX ?? null,
+              zoomFocalPointY: c.zoomFocalPointY ?? null,
+              zoomDurationSeconds: c.zoomDurationSeconds ?? null,
+              zoomCurve: c.zoomCurve ?? null
+            }
+          : {})
+      };
+    })
     .sort((a, b) => a.start - b.start);
 
 /** Trecho mantido que contém o instante (fonte, segundos), ou null quando o instante está num trecho removido. */

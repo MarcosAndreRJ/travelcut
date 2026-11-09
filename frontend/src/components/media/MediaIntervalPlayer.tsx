@@ -12,6 +12,7 @@ import {
   keptSegmentAt,
   WINDOW_EDGE_EPSILON_S
 } from './mediaTime';
+import { planZoomActiveAt, zoomCurveLabel } from './zoomPresentation';
 import { ipc } from '../../services/ipcBridge';
 import { compatibilityHint, proxyIndicator, resolveClipNotice } from './mediaClipModel';
 import { PlaybackNoticeOverlay, ProxyButton, type ProxyControl } from './PlaybackNoticeOverlay';
@@ -82,14 +83,24 @@ export const MediaIntervalPlayer: React.FC<MediaIntervalPlayerProps> = ({
   // Modo "after" com plano: taxa e zoom vêm do trecho mantido sob o tempo atual (derivado, sem estado extra).
   const keptAfter = mode === 'after' && keptSegments ? keptSegments : null;
   const activeKept = keptAfter ? keptSegmentAt(current, keptAfter) : null;
-  const planZoomScale = activeKept?.zoom ?? null;
+  // Tempo decorrido no clipe (linha do tempo) = tempo da fonte desde o início do trecho / taxa.
+  const planZoom =
+    activeKept && activeKept.zoom !== null
+      ? planZoomActiveAt(
+          {
+            zoom: activeKept.zoom,
+            zoomFocalPointX: activeKept.zoomFocalPointX,
+            zoomFocalPointY: activeKept.zoomFocalPointY,
+            zoomDurationSeconds: activeKept.zoomDurationSeconds,
+            zoomCurve: activeKept.zoomCurve
+          },
+          (current - activeKept.start) / activeKept.rate
+        )
+      : null;
   // Zoom do plano é aproximado (CSS sobre o <video>); o zoom manual de enquadramento tem precedência.
-  const effectiveZoom =
-    zoomTransform && zoomTransform.scale > 1.0
-      ? zoomTransform
-      : planZoomScale !== null
-        ? { scale: planZoomScale, offsetX: 0, offsetY: 0 }
-        : zoomTransform;
+  const manualZoom = zoomTransform && zoomTransform.scale > 1.0 ? zoomTransform : null;
+  const effectiveZoom = manualZoom ?? (planZoom ? { scale: planZoom.scale, offsetX: 0, offsetY: 0 } : null);
+  const effectiveOrigin = manualZoom ? 'center center' : planZoom ? `${planZoom.originX}% ${planZoom.originY}%` : 'center center';
 
   const notify = useCallback((seconds: number, force = false) => {
     const last = lastNotifiedRef.current;
@@ -340,7 +351,7 @@ export const MediaIntervalPlayer: React.FC<MediaIntervalPlayerProps> = ({
             <span data-testid="plan-segment-approx" className="px-2 py-0.5 rounded bg-sky-950/60 border border-sky-700/50 text-[10px] text-sky-200">
               {activeKept.rate !== 1 ? `Velocidade do plano ${rateText(activeKept.rate)} (aproximada)` : ''}
               {activeKept.rate !== 1 && activeKept.zoom !== null ? ' · ' : ''}
-              {activeKept.zoom !== null ? `Zoom aproximado ${rateText(activeKept.zoom)} (CSS, não é o render)` : ''}
+              {activeKept.zoom !== null ? `Zoom ${rateText(activeKept.zoom)} ${zoomCurveLabel(activeKept.zoomCurve)}, não é o render` : ''}
             </span>
           )}
         </div>
@@ -374,7 +385,7 @@ export const MediaIntervalPlayer: React.FC<MediaIntervalPlayerProps> = ({
               effectiveZoom && effectiveZoom.scale > 1.0
                 ? `scale(${effectiveZoom.scale}) translate(${effectiveZoom.offsetX}%, ${effectiveZoom.offsetY}%)`
                 : undefined,
-            transformOrigin: 'center center',
+            transformOrigin: effectiveOrigin,
             transition: 'transform 0.15s ease-out'
           }}
           className={`absolute inset-0 w-full h-full object-contain ${showOverlay ? 'opacity-0' : 'opacity-100'}`}

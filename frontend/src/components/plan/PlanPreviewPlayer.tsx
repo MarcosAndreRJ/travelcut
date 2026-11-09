@@ -38,6 +38,7 @@ import { useProxyGeneration } from '../media/useProxyGeneration';
 import { WaveformStrip } from '../media/WaveformStrip';
 import { PreviewFidelityBadge } from '../media/PreviewFidelityBadge';
 import { formatSourceSeconds, mediaElementErrorText } from '../media/mediaTime';
+import { planZoomActiveAt, zoomCurveLabel } from '../media/zoomPresentation';
 
 interface PlanPreviewPlayerProps {
   plan: EditPlanDto | null;
@@ -129,6 +130,11 @@ export const PlanPreviewPlayer: React.FC<PlanPreviewPlayerProps> = ({ plan, sele
 
   const activeClip = timeBaseValid ? activeClipAt(clips, currentFrame) : null;
   const activeClipId = activeClip?.clipId ?? null;
+  // Zoom do clipe ativo (CSS aproximado): foco e duração do plano; ausente = centro e clipe inteiro.
+  const programZoom =
+    activeClip && timeBaseValid
+      ? planZoomActiveAt(activeClip, (currentFrame - activeClip.timelineStartFrame) * spf)
+      : null;
   const activeMediaId = activeClip?.mediaId ?? null;
   const activeKey = activeMediaId ? sourceKey(projectId, activeMediaId) : null;
 
@@ -571,8 +577,18 @@ export const PlanPreviewPlayer: React.FC<PlanPreviewPlayerProps> = ({ plan, sele
           aria-label="Prévia de programa (trilha V1)"
           onLoadedMetadata={handleLoadedMetadata}
           onError={handleVideoError}
+          style={{
+            transform: programZoom ? `scale(${programZoom.scale})` : undefined,
+            transformOrigin: programZoom ? `${programZoom.originX}% ${programZoom.originY}%` : 'center center',
+            transition: 'transform 0.15s ease-out'
+          }}
           className={`absolute inset-0 w-full h-full object-contain ${isLoadedMediaShown ? 'opacity-100' : 'opacity-0'}`}
         />
+        {programZoom && (
+          <span data-testid="program-zoom-approx" className="absolute top-2 left-2 px-2 py-0.5 rounded bg-sky-950/70 border border-sky-700/50 text-[10px] text-sky-200">
+            {`Zoom ${programZoom.scale.toFixed(2).replace('.', ',')}× ${zoomCurveLabel(activeClip?.zoomCurve)}`}
+          </span>
+        )}
         {overlay && (
           <div className="absolute inset-0 flex items-center justify-center">
             {overlay}

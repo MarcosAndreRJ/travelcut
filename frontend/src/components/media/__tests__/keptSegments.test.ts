@@ -30,7 +30,39 @@ describe('keptSegmentsFromPlan (F14.8 item 2)', () => {
       'm1'
     );
     expect(segs[0]).toEqual({ start: 10, end: 20, rate: 1, zoom: null });
-    expect(segs[1]).toEqual({ start: 30, end: 40, rate: 2, zoom: 1.2 });
+    expect(segs[1]).toEqual({
+      start: 30,
+      end: 40,
+      rate: 2,
+      zoom: 1.2,
+      zoomFocalPointX: null,
+      zoomFocalPointY: null,
+      zoomDurationSeconds: null,
+      zoomCurve: null
+    });
+  });
+
+  it('propaga foco, duração e curva do zoom do clipe', () => {
+    const segs = keptSegmentsFromPlan(
+      [
+        {
+          mediaId: 'm1',
+          sourceInUs: 10_000_000,
+          sourceOutUs: 20_000_000,
+          speedNum: 1,
+          speedDen: 1,
+          zoom: 1.08,
+          zoomFocalPointX: 0.3,
+          zoomFocalPointY: 0.2,
+          zoomDurationSeconds: 2,
+          zoomCurve: 'push_in'
+        }
+      ],
+      'm1'
+    );
+    expect(segs[0]).toEqual(
+      expect.objectContaining({ zoom: 1.08, zoomFocalPointX: 0.3, zoomFocalPointY: 0.2, zoomDurationSeconds: 2, zoomCurve: 'push_in' })
+    );
   });
 
   it('taxa inválida vira 1 e zoom não maior que 1 vira null', () => {
@@ -55,7 +87,7 @@ describe('keptSegmentAt (F14.8 item 2)', () => {
   );
 
   it('retorna o trecho mantido que contém o instante, com a velocidade 2x do segundo corte', () => {
-    expect(keptSegmentAt(35, segs)).toEqual({ start: 30, end: 40, rate: 2, zoom: 1.2 });
+    expect(keptSegmentAt(35, segs)).toEqual(expect.objectContaining({ start: 30, end: 40, rate: 2, zoom: 1.2 }));
     expect(keptSegmentAt(12, segs)?.rate).toBe(1);
   });
 
