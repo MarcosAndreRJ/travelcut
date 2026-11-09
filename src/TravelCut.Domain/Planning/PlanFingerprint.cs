@@ -91,6 +91,12 @@ public static class PlanFingerprint
             {
                 w.WriteStartObject(); w.WriteString("from", t.FromClipId.ToString("D")); w.WriteString("to", t.ToClipId.ToString("D"));
                 w.WriteString("kind", t.Kind); w.WriteNumber("dur", t.DurationFrames); w.WriteBoolean("review", t.NeedsHumanReview);
+                // Só quando há origem (transição materializada por sugestão): fingerprints de planos antigos permanecem idênticos.
+                if (t.Origin is not null)
+                {
+                    w.WriteString("origin", t.Origin);
+                    if (t.SuggestionId is Guid tsid) w.WriteString("sug", tsid.ToString("D"));
+                }
                 w.WriteEndObject();
             }
             w.WriteEndArray();

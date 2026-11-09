@@ -71,9 +71,14 @@ public record PlanClipDto(
 public record PlanTransitionDto(
     [property: JsonPropertyName("fromClipId")] Guid FromClipId,
     [property: JsonPropertyName("toClipId")] Guid ToClipId,
-    [property: JsonPropertyName("kind")] string Kind,          // cut | dissolve | fade
+    [property: JsonPropertyName("kind")] string Kind,          // cut | fade | dissolve | crossfade
     [property: JsonPropertyName("durationFrames")] long DurationFrames,
-    [property: JsonPropertyName("needsHumanReview")] bool NeedsHumanReview
+    [property: JsonPropertyName("needsHumanReview")] bool NeedsHumanReview,
+    // Aditivos (null em cortes secos e projetos antigos): origem auditável da transição materializada.
+    [property: JsonPropertyName("origin")] string? Origin = null,              // auto | human
+    [property: JsonPropertyName("suggestionId")] Guid? SuggestionId = null,    // sugestão "transition" que a originou
+    [property: JsonPropertyName("policyVersion")] string? PolicyVersion = null, // só origin "auto"
+    [property: JsonPropertyName("reason")] string? Reason = null               // só origin "auto"
 );
 
 public record PlanAppliedCutDto(
@@ -86,7 +91,7 @@ public record PlanAppliedCutDto(
 );
 
 /// <summary>
-/// F14.8 (aditivo): efeito aplicado pelo plano com origem auditável. kind: cut | zoom; origin: auto | human.
+/// F14.8 (aditivo): efeito aplicado pelo plano com origem auditável. kind: cut | zoom | transition; origin: auto | human.
 /// policyVersion/reason só em origin "auto". Fora do fingerprint do plano (informativo).
 /// </summary>
 public record PlanAppliedEffectDto(

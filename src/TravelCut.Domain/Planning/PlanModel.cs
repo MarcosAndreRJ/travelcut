@@ -15,7 +15,14 @@ public sealed record PlanClip(Guid ClipId, string TrackId, Guid MediaId, string 
     Guid? LinkedClipId, double? Zoom, string Rationale, IReadOnlyList<string> Evidence,
     IReadOnlyList<Guid> SuggestionIds, string ConfidenceBand, bool NeedsHumanReview);
 
-public sealed record PlanTransition(Guid FromClipId, Guid ToClipId, string Kind, long DurationFrames, bool NeedsHumanReview);
+/// <summary>
+/// Transição na fronteira from → to (saída do clipe from / entrada do clipe to). Kind: cut | fade | dissolve | crossfade.
+/// Campos opcionais (aditivos, null em projetos antigos e em cortes secos): Origin (auto | human), SuggestionId da sugestão
+/// que a materializou, PolicyVersion/Reason (só em auto; informativos, fora do fingerprint). Origin e SuggestionId entram no
+/// fingerprint apenas quando existem.
+/// </summary>
+public sealed record PlanTransition(Guid FromClipId, Guid ToClipId, string Kind, long DurationFrames, bool NeedsHumanReview,
+    string? Origin = null, Guid? SuggestionId = null, string? PolicyVersion = null, string? Reason = null);
 
 public sealed record PlanAppliedCut(Guid SuggestionId, Guid MediaId, long SourceInUs, long SourceOutUs, string Kind, string Origin);
 

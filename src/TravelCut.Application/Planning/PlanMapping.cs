@@ -30,7 +30,8 @@ public static class PlanMapping
                 c.TimelineStartFrame, c.DurationFrames, c.SpeedNum, c.SpeedDen, c.LinkedClipId, c.Zoom,
                 c.Rationale, c.Evidence.ToList(), c.SuggestionIds.ToList(), c.ConfidenceBand, c.NeedsHumanReview)).ToList(),
             Transitions: plan.Transitions.Select(t => new PlanTransitionDto(
-                t.FromClipId, t.ToClipId, t.Kind, t.DurationFrames, t.NeedsHumanReview)).ToList(),
+                t.FromClipId, t.ToClipId, t.Kind, t.DurationFrames, t.NeedsHumanReview,
+                t.Origin, t.SuggestionId, t.PolicyVersion, t.Reason)).ToList(),
             AppliedCuts: plan.AppliedCuts.Select(c => new PlanAppliedCutDto(
                 c.SuggestionId, c.MediaId, c.SourceInUs, c.SourceOutUs, c.Kind, c.Origin)).ToList(),
             Pending: plan.Pending.Select(p => new PlanPendingItemDto(p.SuggestionId, p.MediaId, p.Kind, p.Message, p.ClipId)).ToList(),
@@ -59,7 +60,8 @@ public static class PlanMapping
             c.TimelineStartFrame, c.DurationFrames, c.SpeedNum, c.SpeedDen, c.LinkedClipId, c.Zoom,
             c.Rationale, c.Evidence, c.SuggestionIds, c.ConfidenceBand, c.NeedsHumanReview)).ToList(),
         Transitions: dto.Transitions.Select(t => new PlanTransition(
-            t.FromClipId, t.ToClipId, t.Kind, t.DurationFrames, t.NeedsHumanReview)).ToList(),
+            t.FromClipId, t.ToClipId, t.Kind, t.DurationFrames, t.NeedsHumanReview,
+            t.Origin, t.SuggestionId, t.PolicyVersion, t.Reason)).ToList(),
         AppliedCuts: dto.AppliedCuts.Select(c => new PlanAppliedCut(
             c.SuggestionId, c.MediaId, c.SourceInUs, c.SourceOutUs, c.Kind, c.Origin)).ToList(),
         Pending: dto.Pending.Select(p => new PlanPendingItem(p.SuggestionId, p.MediaId, p.Kind, p.Message, p.ClipId)).ToList(),
