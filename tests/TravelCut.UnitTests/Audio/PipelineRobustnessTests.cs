@@ -167,6 +167,29 @@ public class PipelineRobustnessTests : IDisposable
         Assert.Equal(3, whisper.TranscribeCalls);
     }
 
+    // ---------------------------------------------------------------- P15
+
+    [Fact]
+    public async Task P15_FinishedJobs_AreEvicted_KeepingLatestOfProject()
+    {
+        var h = NewHarness(new FakeWhisperService { Outcome = Completed() }, new FakeSilenceService { FfmpegAvailable = false });
+        var project = h.CreateProject();
+        h.AddMedia(project, "1-Bruto/a.mp4", metadata: Metadata(2));
+
+        Guid last = Guid.Empty;
+        for (int i = 0; i < PipelineJobManager.MaxRetainedFinishedJobs + 6; i++)
+        {
+            last = await h.Manager.StartAsync(Start(project.ProjectId, stages: TranscriptionOnly));
+            await h.WaitForFinishAsync(project.ProjectId);
+            // Aguarda o slot liberar antes do próximo start (o estado final aparece depois da liberação, mas o finally ainda roda).
+            await Task.Delay(15);
+        }
+
+        Assert.True(h.Manager.TrackedJobCount <= PipelineJobManager.MaxRetainedFinishedJobs + 2, $"jobs retidos: {h.Manager.TrackedJobCount}");
+        var status = await h.Manager.GetStatusAsync(project.ProjectId);
+        Assert.Equal(last, status.JobId);
+    }
+
     // ---------------------------------------------------------------- P09
 
     [Fact]

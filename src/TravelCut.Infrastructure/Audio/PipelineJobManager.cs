@@ -313,6 +313,7 @@ public class PipelineJobManager : IPipelineJobManager
         lock (_registry)
         {
             _latestByProject[request.ProjectId] = job.JobId;
+            EvictFinishedJobs();
         }
 
         job.Completion = Task.Run(() => RunJobAsync(job));
@@ -320,6 +321,33 @@ public class PipelineJobManager : IPipelineJobManager
             job.JobId, job.ProjectId, job.Media.Count, string.Join(",", stages));
 
         return job.JobId;
+    }
+
+    /// <summary>Máximo de jobs finalizados retidos em memória além do mais recente de cada projeto (P15).</summary>
+    public const int MaxRetainedFinishedJobs = 20;
+
+    /// <summary>
+    /// P15: descarta jobs finalizados antigos (o mais recente de cada projeto é sempre mantido) e libera seus
+    /// CancellationTokenSource. Chamar sob <see cref="_registry"/>.
+    /// </summary>
+    private void EvictFinishedJobs()
+    {
+        var latest = _latestByProject.Values.ToHashSet();
+        var evictable = _jobs.Values
+            .Where(j => j.IsFinished && !latest.Contains(j.JobId))
+            .OrderBy(j => j.FinishedAtUtc ?? DateTime.MinValue)
+            .ToList();
+
+        for (int i = 0; i < evictable.Count - MaxRetainedFinishedJobs; i++)
+        {
+            _jobs.Remove(evictable[i].JobId);
+            evictable[i].Cts.Dispose();
+        }
+    }
+
+    public int TrackedJobCount
+    {
+        get { lock (_registry) { return _jobs.Count; } }
     }
 
     public async Task<PipelineStatusDto> GetStatusAsync(Guid projectId, CancellationToken ct = default)

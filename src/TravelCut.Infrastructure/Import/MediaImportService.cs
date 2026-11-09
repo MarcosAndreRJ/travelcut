@@ -30,8 +30,6 @@ public sealed class MediaImportOptions
 public sealed class MediaImportService : IMediaImportService
 {
     public const string PartialFileExtension = MediaFileExpander.PartialFileExtension;
-    private const string SpeechUnavailableNote =
-        "Análise de fala (F05) ainda não está conectada nesta versão: nada foi enfileirado.";
     private const int MaxNameAttempts = 10000;
 
     /// <summary>Estados de <c>speechAnalysis</c> (contrato com a UI).</summary>
