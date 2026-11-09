@@ -913,7 +913,7 @@ class IpcBridgeService {
           throw new IpcError('autoProcess inválido (booleano).', 'INVALID_ARGUMENT');
         }
         this.mockAutoProcess = payload.autoProcess;
-        return { projectId: payload.projectId, autoProcess: this.mockAutoProcess, isDefault: false } satisfies AutomationOptionsDto;
+        return { projectId: payload.projectId, autoProcess: payload.autoProcess, isDefault: false } satisfies AutomationOptionsDto;
       }
 
       case 'system.openFolder':
