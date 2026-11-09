@@ -65,7 +65,7 @@ export const speechAnalysisNotice = (
 };
 
 const POST_STATE_LABEL: Record<PostAnalysisState, string> = {
-  idle: 'Aguardando',
+  idle: 'Em transição',
   running: 'Em andamento',
   completed: 'Concluída',
   completed_with_issues: 'Concluída com pendências',

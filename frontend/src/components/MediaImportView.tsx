@@ -18,13 +18,13 @@ import type {
   AnalysisEnvironmentDto,
   ImportDestination,
   ImportJobStatusDto,
-  PostAnalysisStatusDto,
   ProjectSummary,
   StartImportRequest
 } from '../types/ipc';
 import { FileNavigator } from './import/FileNavigator';
 import { ImportFileTable } from './import/ImportFileTable';
 import { ImportProgressOverlay } from './import/ImportProgressOverlay';
+import { usePostAnalysisStatus } from './import/usePostAnalysisStatus';
 import { DestinationCard, OptionsCard, SummaryCard, TagsCard } from './import/ImportSidePanels';
 import {
   appendCandidates,
@@ -102,7 +102,6 @@ export const MediaImportView: React.FC<MediaImportViewProps> = ({
   const [environmentError, setEnvironmentError] = useState(false);
   // Escolha de automação persistida no host (AutoProcess). null = nunca escolhida: vale a recomendação.
   const [autoProcessChoice, setAutoProcessChoice] = useState<boolean | null>(null);
-  const [postAnalysis, setPostAnalysis] = useState<PostAnalysisStatusDto | null>(null);
   const [tags, setTags] = useState<string[]>([]);
   const [rows, setRows] = useState<ImportRow[]>([]);
   const [pendingInspections, setPendingInspections] = useState(0);
@@ -173,23 +172,12 @@ export const MediaImportView: React.FC<MediaImportViewProps> = ({
     saveLocalImportOptions(options);
   }, [options]);
 
-  // Resumo pós-análise: consultado quando a importação chega a estado terminal.
+  // Resumo pós-análise: acompanhado por polling leve após a importação chegar a estado terminal.
   const jobState = job?.state ?? null;
-  useEffect(() => {
-    if (jobId === null || jobState === null || !isTerminalJobState(jobState)) return;
-    let active = true;
-    ipc
-      .getPipelineStatus(projectId)
-      .then((status) => {
-        if (active) setPostAnalysis(status.postAnalysis ?? null);
-      })
-      .catch(() => {
-        if (active) setPostAnalysis(null);
-      });
-    return () => {
-      active = false;
-    };
-  }, [jobId, jobState, projectId]);
+  const postAnalysis = usePostAnalysisStatus(
+    projectId,
+    jobId !== null && jobState !== null && isTerminalJobState(jobState)
+  );
 
   // Polling do status de importação até estado terminal (ou erro de consulta).
   useEffect(() => {
@@ -384,7 +372,6 @@ export const MediaImportView: React.FC<MediaImportViewProps> = ({
     try {
       const res = await ipc.startImport(request);
       setJob(null);
-      setPostAnalysis(null);
       setOverlayError(null);
       setCancelRequested(false);
       setJobId(res.jobId);
