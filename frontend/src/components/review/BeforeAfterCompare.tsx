@@ -44,9 +44,22 @@ interface BeforeAfterCompareProps {
   afterSource?: AfterSource;
 }
 
-const MODE_OPTIONS: { value: CompareMode; label: string; hint: string }[] = [
+/** Dica do modo "Depois": quando a fonte é o original, nada é pulado, então a dica não pode descrever um pulo. */
+export const afterHintOf = (source: AfterSource): string =>
+  source === 'original'
+    ? 'Trecho original: o plano não aplicou este candidato, nada é pulado'
+    : 'Pula o intervalo, como ficaria com o corte';
+
+export interface CompareModeOption {
+  value: CompareMode;
+  label: string;
+  hint: string;
+}
+
+/** Opções do seletor Antes/Depois; rótulo e dica do "Depois" derivam sempre da fonte. */
+export const modeOptionsOf = (afterSource: AfterSource): CompareModeOption[] => [
   { value: 'before', label: 'Antes', hint: 'Trecho inteiro com contexto' },
-  { value: 'after', label: 'Depois', hint: 'Pula o intervalo, como ficaria com o corte' }
+  { value: 'after', label: afterLabelOf(afterSource), hint: afterHintOf(afterSource) }
 ];
 
 /** Antes/depois do candidato: player de intervalo + waveform sincronizado. Prévia de revisão, não frame-accurate. */
@@ -65,8 +78,8 @@ export const BeforeAfterCompare: React.FC<BeforeAfterCompareProps> = ({
   afterSource = 'candidate'
 }) => {
   const windowSeconds = playerWindowOf(interval);
-  // Rótulo honesto: sem plano, o "Depois" remove só o candidato aberto.
-  const afterLabel = afterLabelOf(afterSource);
+  // Rótulo e dica honestos: sem plano, o "Depois" remove só o candidato aberto; sem aplicação, é o original.
+  const modeOptions = modeOptionsOf(afterSource);
   // Altura limitada para vídeo, controles, intervalo e decisões caberem juntos; o usuário pode expandir.
   const [expanded, setExpanded] = useState(false);
 
@@ -85,7 +98,7 @@ export const BeforeAfterCompare: React.FC<BeforeAfterCompareProps> = ({
           {expanded ? 'Reduzir vídeo' : 'Expandir vídeo'}
         </button>
         <div role="group" aria-label="Modo de comparação" className="flex gap-1">
-          {MODE_OPTIONS.map((opt) => {
+          {modeOptions.map((opt) => {
             const pressed = mode === opt.value;
             return (
               <button
@@ -100,7 +113,7 @@ export const BeforeAfterCompare: React.FC<BeforeAfterCompareProps> = ({
                     : 'text-slate-400 border-slate-700 hover:text-white'
                 }`}
               >
-                {opt.value === 'after' ? afterLabel : opt.label}
+                {opt.label}
               </button>
             );
           })}
@@ -114,7 +127,7 @@ export const BeforeAfterCompare: React.FC<BeforeAfterCompareProps> = ({
           limitation={mode === 'after' && keptSegments?.length ? 'Velocidade e zoom do plano são aproximados; o render final é a referência.' : null}
         />
         <p className="text-[10px] text-slate-500">
-          {MODE_OPTIONS.find((o) => o.value === mode)?.hint} · contexto de {PLAYER_CONTEXT_SECONDS} s · prévia de revisão, não é frame-accurate nem a timeline do DaVinci.
+          {modeOptions.find((o) => o.value === mode)?.hint} · contexto de {PLAYER_CONTEXT_SECONDS} s · prévia de revisão, não é frame-accurate nem a timeline do DaVinci.
         </p>
       </div>
 
