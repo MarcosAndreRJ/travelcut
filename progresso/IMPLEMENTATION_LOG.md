@@ -535,6 +535,13 @@ Validação: dotnet test tests/TravelCut.UnitTests -> 1288 aprovados, 0 falhas (
 Observação: transicoes editoriais ainda nao chegam ao plano; I5/I6 pendentes (I6 bloqueado pela F14.7 ausente).
 Próximo: I5 (preview fiel e painel de pre-edicao).
 
+[2026-11-09] F14.8-pendencias-menores | Sonnet A | FEITO+TESTADO
+Ação: E10 (par de ênfase no fim da transcrição vira emphasis); teste instável do orquestrador pós-análise sem timing (TaskCompletionSource); MCP get/set_automation_profile; M1 (.tcpart preservado com importação ativa); M3 (job em voo com fingerprint antigo não regrava transcrição/candidatos); M4 (WaitTerminalAsync exige job novo).
+Arquivos: SilenceDetectionService.cs, PipelineJobManager.cs, PipelineJobRun.cs, PipelineResumeService.cs, IMediaImportService.cs, MediaImportService.cs, TravelCut.Mcp/{Facade,Tools,Program}, testes correspondentes.
+Validação: dotnet test TravelCutStudio.sln -> UnitTests 1361 aprovados, Mcp.Tests 122 aprovados, 0 falhas.
+Observação: OrchestratorThatThrows não reproduziu em 15 execuções isoladas; corrida confirmada por leitura (estado terminal publicado antes de ScheduleAsync). IMediaImportService ganhou HasActiveImport.
+Próximo: UI do perfil e postAnalysis por polling (itens restantes do prompt 06).
+
 ## Modelo de entrada (copiar preenchendo com dados reais)
 
 ```text
