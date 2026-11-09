@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using TravelCut.Application.Ports;
+using TravelCut.Application.Services;
 using TravelCut.Contracts.Dtos;
 using TravelCut.Domain.Entities.Editorial;
 
@@ -22,14 +23,17 @@ public sealed class TransitionRecommender : ITransitionRecommender
     private readonly IEditorialTransitionRepository _transitionRepo;
     private readonly ISceneClassificationService _sceneService;
     private readonly ILogger<TransitionRecommender> _logger;
+    private readonly IChronologyService _chronology;
 
     public TransitionRecommender(
         IMediaRepository mediaRepo,
         IEditPlanRepository planRepo,
         IEditorialTransitionRepository transitionRepo,
         ISceneClassificationService sceneService,
-        ILogger<TransitionRecommender> logger)
+        ILogger<TransitionRecommender> logger,
+        IChronologyService? chronology = null)
     {
+        _chronology = chronology ?? new ChronologyService();
         _mediaRepo = mediaRepo;
         _planRepo = planRepo;
         _transitionRepo = transitionRepo;
@@ -45,7 +49,9 @@ public sealed class TransitionRecommender : ITransitionRecommender
         var mediaList = await _mediaRepo.ListByProjectAsync(projectId, ct);
         if (mediaList.Count < 2) return Array.Empty<EditorialTransitionDto>();
 
-        var sorted = mediaList.OrderBy(m => m.LastWriteUtc).ThenBy(m => m.RelativePath).ToList();
+        // E05: ordem cronológica real (ChronologyService: creation_time, fallback documentado), nunca LastWriteUtc cru.
+        var sorted = OrderChronologically(mediaList);
+        if (sorted.Count < 2) return Array.Empty<EditorialTransitionDto>();
         var existing = await _transitionRepo.ListByProjectAsync(projectId, ct);
         var existingPairs = existing.Select(t => (t.MediaIdA, t.MediaIdB)).ToHashSet();
 
@@ -101,6 +107,19 @@ public sealed class TransitionRecommender : ITransitionRecommender
 
         var all = await _transitionRepo.ListByProjectAsync(projectId, ct);
         return all.Select(EditorialEffectsService.MapToDto).ToList();
+    }
+
+    private List<TravelCut.Domain.Entities.MediaAsset> OrderChronologically(List<TravelCut.Domain.Entities.MediaAsset> media)
+    {
+        var withMeta = media.Where(m => m.Metadata is not null).ToList();
+        var report = _chronology.BuildChronology(withMeta.Select(m => (Asset: m, Metadata: m.Metadata!)));
+        var byId = withMeta.ToDictionary(m => m.MediaId);
+        // Mídias sem metadados não têm cronologia confiável: ficam de fora (não se inventa ordem).
+        return report.Sessions.SelectMany(s => s.Clips)
+            .DistinctBy(c => c.MediaId)
+            .OrderBy(c => c.RecordedAtUtc).ThenBy(c => c.RelativePath, StringComparer.OrdinalIgnoreCase)
+            .Where(c => byId.ContainsKey(c.MediaId))
+            .Select(c => byId[c.MediaId]).ToList();
     }
 
     public async Task<bool> ValidateAdjacencyOnTimelineAsync(Guid transitionId, CancellationToken ct = default)

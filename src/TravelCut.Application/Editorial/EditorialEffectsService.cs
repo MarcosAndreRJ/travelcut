@@ -97,53 +97,109 @@ public sealed class EditorialEffectsService : IEditorialEffectsService
         return list.Select(MapToDto).ToList();
     }
 
+    /// <summary>
+    /// E05: validação real de handles. Dissolve/crossfade centrados no corte exigem metade da duração em CADA lado
+    /// (cauda do clipe A e cabeça do clipe B), medida na taxa de quadros real de cada mídia. Bordas ou taxa desconhecidas
+    /// nunca são presumidas: IsValid=false e HasEnoughHandles=false. Fades simples e corte não consomem handle.
+    /// </summary>
     public async Task<ValidateHandlesResultDto> ValidateHandlesAsync(ValidateHandlesRequest request, CancellationToken ct = default)
     {
-        double fps = 30.0;
-        int requiredFrames = (int)Math.Ceiling(request.DurationSeconds * fps);
+        var type = ParseType(request.Type);
+        bool needsOverlap = type is EditorialTransitionType.VideoDissolve or EditorialTransitionType.AudioCrossfade;
+        double duration = request.DurationSeconds;
+        var problems = new List<string>();
+
+        if (double.IsNaN(duration) || double.IsInfinity(duration) || duration < 0 || (needsOverlap && duration <= 0))
+        {
+            problems.Add("duração da transição inválida");
+            duration = 0;
+        }
+
+        if (!needsOverlap)
+        {
+            return new ValidateHandlesResultDto(
+                IsValid: problems.Count == 0, HasEnoughHandles: problems.Count == 0,
+                FramesAAvailable: 0, FramesBAvailable: 0, FramesRequired: 0,
+                WarningMessage: problems.Count == 0 ? null : string.Join("; ", problems) + ".",
+                AlternativeAction: null);
+        }
 
         Guid.TryParse(request.MediaIdA, out var mediaIdA);
         Guid.TryParse(request.MediaIdB, out var mediaIdB);
-
         var mediaA = mediaIdA != Guid.Empty ? await _mediaRepo.GetByIdAsync(mediaIdA, ct) : null;
         var mediaB = mediaIdB != Guid.Empty ? await _mediaRepo.GetByIdAsync(mediaIdB, ct) : null;
+        if (mediaA is null) problems.Add("mídia A não encontrada");
+        if (mediaB is null) problems.Add("mídia B não encontrada");
 
-        int framesA = 30;
-        int framesB = 30;
-
-        if (mediaA != null && request.ClipEndSecondsA.HasValue)
+        // Cauda de A: duração real do arquivo menos o ponto de saída do clipe. Cabeça de B: ponto de entrada do clipe.
+        double? tailA = null;
+        double? durationA = mediaA?.Metadata?.DurationSeconds;
+        if (mediaA is not null)
         {
-            double durationA = mediaA.Metadata?.DurationSeconds ?? 10.0;
-            double tailSeconds = Math.Max(0, durationA - request.ClipEndSecondsA.Value);
-            framesA = (int)Math.Floor(tailSeconds * fps);
+            if (request.ClipEndSecondsA is double endA && durationA is > 0 && endA >= 0 && endA <= durationA.Value + 1e-6)
+                tailA = Math.Max(0, durationA.Value - endA);
+            else
+                problems.Add("saída do clipe A ou duração da mídia A desconhecida");
+        }
+        double? headB = null;
+        if (mediaB is not null)
+        {
+            if (request.ClipStartSecondsB is double startB && startB >= 0 && !double.IsNaN(startB) && !double.IsInfinity(startB))
+                headB = startB;
+            else
+                problems.Add("entrada do clipe B desconhecida");
         }
 
-        if (mediaB != null && request.ClipStartSecondsB.HasValue)
+        bool audioOnly = type == EditorialTransitionType.AudioCrossfade;
+        double? fpsA = ValidFps(mediaA?.Metadata?.FrameRate);
+        double? fpsB = ValidFps(mediaB?.Metadata?.FrameRate);
+        if (!audioOnly)
         {
-            double headSeconds = Math.Max(0, request.ClipStartSecondsB.Value);
-            framesB = (int)Math.Floor(headSeconds * fps);
+            if (mediaA is not null && fpsA is null) problems.Add("taxa de quadros da mídia A desconhecida");
+            if (mediaB is not null && fpsB is null) problems.Add("taxa de quadros da mídia B desconhecida");
         }
 
-        bool hasEnough = (framesA + framesB) >= requiredFrames;
+        double perSide = duration / 2.0;
+        int reqA = fpsA is double fa ? (int)Math.Ceiling(perSide * fa - 1e-9) : 0;
+        int reqB = fpsB is double fb ? (int)Math.Ceiling(perSide * fb - 1e-9) : 0;
+        int availA = tailA is double ta && fpsA is double fa2 ? (int)Math.Floor(ta * fa2 + 1e-9) : 0;
+        int availB = headB is double hb && fpsB is double fb2 ? (int)Math.Floor(hb * fb2 + 1e-9) : 0;
+
+        bool measurable = problems.Count == 0;
+        bool enough = false;
+        if (measurable)
+        {
+            enough = audioOnly
+                ? tailA!.Value + 1e-9 >= perSide && headB!.Value + 1e-9 >= perSide
+                : availA >= reqA && availB >= reqB;
+        }
+
         string? warn = null;
         string? alt = null;
-
-        if (!hasEnough)
+        if (!measurable)
         {
-            warn = $"Material de sobreposicao insuficiente para dissolvencia de {request.DurationSeconds:0.00}s ({requiredFrames} frames necessarios, {framesA + framesB} disponiveis).";
-            alt = "Utilize corte seco ou transicao de fade-in/fade-out individual.";
+            warn = $"Handles não verificáveis: {string.Join("; ", problems)}.";
+            alt = "Informe as bordas dos clipes ou utilize corte seco / fade simples.";
+        }
+        else if (!enough)
+        {
+            warn = audioOnly
+                ? $"Material insuficiente para crossfade de {duration:0.00}s (necessário {perSide:0.00}s em cada lado; disponível {tailA!.Value:0.00}s em A e {headB!.Value:0.00}s em B)."
+                : $"Material de sobreposição insuficiente para dissolvência de {duration:0.00}s (necessário {reqA} quadro(s) em A e {reqB} em B; disponível {availA} em A e {availB} em B).";
+            alt = "Utilize corte seco ou transição de fade-in/fade-out individual.";
         }
 
         return new ValidateHandlesResultDto(
-            IsValid: true,
-            HasEnoughHandles: hasEnough,
-            FramesAAvailable: framesA,
-            FramesBAvailable: framesB,
-            FramesRequired: requiredFrames,
+            IsValid: measurable,
+            HasEnoughHandles: enough,
+            FramesAAvailable: availA,
+            FramesBAvailable: availB,
+            FramesRequired: reqA + reqB,
             WarningMessage: warn,
-            AlternativeAction: alt
-        );
+            AlternativeAction: alt);
     }
+
+    private static double? ValidFps(double? fps) => fps is > 0 and < 1000 ? fps : null;
 
     public IReadOnlyList<EffectPreviewStateDto> GetPreviewStates(Guid projectId)
     {
