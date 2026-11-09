@@ -56,6 +56,17 @@ public sealed class EndToEndCacheTests : IDisposable
         var rescan = await E2ESteps.ScanAsync(host, projectId);
         Assert.Equal(1, rescan.GetProperty("updatedAssets").GetInt32());
 
+        // P11: o scan que detecta o fingerprint novo já reenfileira a reanálise da mídia alterada (sem pedido explícito).
+        // O teste espera esse job automático terminar: só a mídia A é refeita, sem depender de uma corrida com pipeline.start.
+        var auto = await E2ESteps.WaitTerminalAsync(host, projectId);
+        Assert.Equal("completed", auto.GetProperty("state").GetString());
+        await E2ESteps.WaitPostAnalysisSettledAsync(host, projectId, auto);
+        Assert.Equal(2, fixtures.WhisperCalls(HappyClipA));
+        Assert.Equal(1, fixtures.WhisperCalls(HappyClipB));
+        Assert.Equal(2, fixtures.SilenceCalls(HappyClipA));
+        Assert.Equal(1, fixtures.SilenceCalls(HappyClipB));
+
+        // Análise explícita depois da reanálise automática: tudo já está em cache, nada é recalculado.
         Assert.Equal("completed", (await E2ESteps.AnalyzeAsync(host, projectId)).GetProperty("state").GetString());
         Assert.Equal(2, fixtures.WhisperCalls(HappyClipA));
         Assert.Equal(1, fixtures.WhisperCalls(HappyClipB));

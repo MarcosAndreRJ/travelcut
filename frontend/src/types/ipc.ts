@@ -637,6 +637,19 @@ export interface PipelineStatusDto {
   activity?: PipelineActivityDto | null;
   /** F14.8: processamento automático pós-análise (plano + proxies); ausente no modo demonstração. */
   postAnalysis?: PostAnalysisStatusDto | null;
+  /** P14: sinal de fim do ciclo completo (análise + lotes pendentes + pós-análise). Ausente = host antigo. */
+  completion?: PipelineCompletionDto | null;
+}
+
+/**
+ * P14: notificar quando `settled` e `token` mudar para um valor novo e não nulo (token null = nada rodou nesta sessão: não notificar
+ * ao abrir o app). `outcome` = pior resultado entre análise e pós-análise.
+ */
+export interface PipelineCompletionDto {
+  settled: boolean;
+  pendingBatches: number;
+  token: string | null;
+  outcome: 'completed' | 'completed_with_issues' | 'failed' | 'canceled' | null;
 }
 
 /** Diagnóstico do worker Whisper (pipeline.diagnostics): caminhos locais, só por ação explícita do usuário. */
@@ -836,6 +849,15 @@ export interface MediaAnalysisDto {
   scene: SceneClassificationDto | null;
   cutCandidates: EditSuggestion[];
   analyzedAtUtc: string | null;
+  /** P11: o arquivo mudou desde a análise; resultados antigos descartados e reanálise pendente. Ausente = false. */
+  stale?: boolean;
+}
+
+/** Resposta de pipeline.retryFailed (P12): "started" = job novo; "merged" = mídias entraram no lote pendente. */
+export interface RetryFailedPipelineResponse {
+  outcome: 'started' | 'merged';
+  jobId: string | null;
+  pendingMediaCount: number;
 }
 
 // ---- Plano editorial (F06) — espelho de src/TravelCut.Contracts/Dtos/PlanDtos.cs ----

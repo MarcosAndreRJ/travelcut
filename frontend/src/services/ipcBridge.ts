@@ -28,6 +28,7 @@ import {
   PipelineMediaStatusDto,
   StageState,
   StartPipelineRequest,
+  RetryFailedPipelineResponse,
   EditPlanDto,
   EditorialProfileDto,
   AutomationProfile,
@@ -2341,6 +2342,11 @@ class IpcBridgeService {
   /** Diagnóstico técnico do worker (contém caminhos locais): chamar só após ação explícita do usuário. */
   public async getPipelineDiagnostics(projectId: string): Promise<PipelineDiagnosticsDto> {
     return this.send<PipelineDiagnosticsDto>('pipeline.diagnostics', { projectId });
+  }
+
+  /** Reenfileira só as mídias com etapa falha/cancelada do último job. Erro NO_MEDIA_TO_ANALYZE se nada falhou. */
+  public async retryFailedPipeline(projectId: string): Promise<RetryFailedPipelineResponse> {
+    return this.send<RetryFailedPipelineResponse>('pipeline.retryFailed', { projectId });
   }
 
   public async cancelPipeline(jobId: string): Promise<{ canceled: boolean }> {
