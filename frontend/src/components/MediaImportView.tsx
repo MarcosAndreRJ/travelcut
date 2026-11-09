@@ -670,6 +670,8 @@ export const MediaImportView: React.FC<MediaImportViewProps> = ({
           onClose={closeOverlay}
           onOpenLibrary={handleOpenLibraryFromOverlay}
           postAnalysis={postAnalysis}
+          cpuFallback={capabilities.cpuFallback}
+          speechEnabled={viewOptions.detectSpeech}
         />
       )}
     </div>

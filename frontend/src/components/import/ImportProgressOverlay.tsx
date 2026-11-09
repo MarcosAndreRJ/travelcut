@@ -20,7 +20,17 @@ interface ImportProgressOverlayProps {
   onOpenLibrary: () => void;
   /** Resumo pós-análise (pipeline.status.postAnalysis); ausente quando não há automação. */
   postAnalysis?: PostAnalysisStatusDto | null;
+  /** Whisper em CPU (sem CUDA), vindo do ambiente de análise. */
+  cpuFallback?: boolean;
+  /** Detecção de fala habilitada para esta importação. */
+  speechEnabled?: boolean;
 }
+
+/** Aviso de transcrição lenta: só quando a fala está habilitada e o Whisper cairia em CPU. */
+export const shouldShowCpuSlowNotice = (cpuFallback: boolean | undefined, speechEnabled: boolean | undefined): boolean =>
+  cpuFallback === true && speechEnabled === true;
+
+export const CPU_SLOW_NOTICE_TEXT = 'Whisper usará a CPU (sem GPU CUDA disponível): a transcrição será mais lenta.';
 
 type NoteTone = 'info' | 'warn' | 'error' | 'success';
 
@@ -95,10 +105,13 @@ export const ImportProgressOverlay: React.FC<ImportProgressOverlayProps> = ({
   onCancel,
   onClose,
   onOpenLibrary,
-  postAnalysis = null
+  postAnalysis = null,
+  cpuFallback = false,
+  speechEnabled = false
 }) => {
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const speechNote = job ? speechAnalysisNotice(job.speechAnalysis) : null;
+  const showCpuNotice = shouldShowCpuSlowNotice(cpuFallback, speechEnabled);
   const SpeechNoteIcon: LucideIcon = speechNote ? NOTE_ICON[speechNote.tone] : Info;
   const terminal = job !== null && isTerminalJobState(job.state);
   const canClose = terminal || overlayError !== null;
@@ -183,6 +196,13 @@ export const ImportProgressOverlay: React.FC<ImportProgressOverlayProps> = ({
           {!job && !overlayError && (
             <div className="flex items-center gap-2 text-xs text-slate-400">
               <Loader2 className="w-4 h-4 animate-spin text-cyan-400" aria-hidden="true" /> Aguardando o host iniciar a importação…
+            </div>
+          )}
+
+          {showCpuNotice && (
+            <div role="note" className={`flex items-start gap-2 px-3 py-2 rounded-lg border text-xs ${NOTE_CLASS.warn}`}>
+              <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />
+              <span>{CPU_SLOW_NOTICE_TEXT}</span>
             </div>
           )}
 
