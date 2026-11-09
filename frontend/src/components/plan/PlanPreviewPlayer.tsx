@@ -13,7 +13,7 @@ import {
   SkipForward,
   Wrench
 } from 'lucide-react';
-import type { EditPlanDto, PlanClipDto, PlaybackSourceDto } from '../../types/ipc';
+import type { EditPlanDto, PlanClipDto, PlanTransitionDto, PlaybackSourceDto, TimelineTimeBaseDto } from '../../types/ipc';
 import { formatDuration, formatSpeed, formatTimecode, framesToSeconds, isValidTimeBase, nominalFps } from './planTime';
 import { basename } from './planFormat';
 import { clipEndFrame, timelineEndFrame } from './planModel';
@@ -84,6 +84,35 @@ const canPlayFrame = (
   if (!clip) return true; // lacuna: avanço por relógio, sem vídeo
   if (clipError?.clipId === clip.clipId) return false;
   return readyUrlOf(sources[sourceKey(projectId, clip.mediaId)]) !== null;
+};
+
+/**
+ * Transição com efeito (fade/dissolve/crossfade) que sai do clipe. Corte seco ('cut') e ausência retornam null.
+ * A prévia HTML5 não reproduz esses efeitos: a limitação é rotulada, nunca simulada em silêncio.
+ */
+export const effectTransitionAfter = (
+  transitions: readonly PlanTransitionDto[],
+  clipId: string | null
+): PlanTransitionDto | null => {
+  if (!clipId) return null;
+  return transitions.find((t) => t.fromClipId === clipId && t.kind !== 'cut') ?? null;
+};
+
+const TRANSITION_KIND_LABEL: Record<string, string> = { fade: 'fade', dissolve: 'dissolve', crossfade: 'crossfade' };
+
+const TransitionLimitationNote: React.FC<{ transition: PlanTransitionDto | null; timeBase: TimelineTimeBaseDto }> = ({ transition, timeBase }) => {
+  if (!transition) return null;
+  const label = TRANSITION_KIND_LABEL[transition.kind] ?? transition.kind;
+  return (
+    <span
+      role="note"
+      data-testid="program-transition-limitation"
+      className="px-2 py-0.5 rounded text-[10px] font-bold bg-sky-950 text-sky-200 border border-sky-700/50"
+      title="A prévia de programa não aplica efeitos de transição. O render final do plano é a referência."
+    >
+      Transição {label} ({formatTimecode(transition.durationFrames, timeBase)}) no plano · prévia mostra corte seco, efeito não reproduzido
+    </span>
+  );
 };
 
 export const PlanPreviewPlayer: React.FC<PlanPreviewPlayerProps> = ({ plan, selectedClip, currentFrame, onSeekFrame }) => {
@@ -569,6 +598,7 @@ export const PlanPreviewPlayer: React.FC<PlanPreviewPlayerProps> = ({ plan, sele
               <Scissors className="w-3 h-3" aria-hidden="true" /> Revisão humana indicada no plano
             </span>
           )}
+          <TransitionLimitationNote transition={effectTransitionAfter(plan?.transitions ?? [], activeClip.clipId)} timeBase={tb} />
         </div>
       ) : (
         <p className="text-center text-[11px] text-slate-500">Nenhum clipe de V1 sob a agulha.</p>

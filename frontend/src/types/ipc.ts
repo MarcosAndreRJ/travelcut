@@ -968,9 +968,16 @@ export interface PlanClipDto {
 export interface PlanTransitionDto {
   fromClipId: string;
   toClipId: string;
-  kind: 'cut' | 'dissolve' | 'fade' | string;
+  kind: 'cut' | 'fade' | 'dissolve' | 'crossfade' | string;
   durationFrames: number;
   needsHumanReview: boolean;
+  /** Aditivos (espelham PlanTransitionDto.cs): null em cortes secos e planos antigos. */
+  origin?: 'auto' | 'human' | null;
+  suggestionId?: string | null;
+  /** Só origin 'auto'. */
+  policyVersion?: string | null;
+  /** Só origin 'auto'. */
+  reason?: string | null;
 }
 
 export interface PlanAppliedCutDto {
