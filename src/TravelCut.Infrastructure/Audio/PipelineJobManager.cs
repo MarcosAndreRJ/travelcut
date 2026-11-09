@@ -29,6 +29,13 @@ public class PipelineJobManager : IPipelineJobManager
     public const string MediaAnalysisToolId = "travelcut-media-analysis";
     public const string DefaultLanguage = "pt";
 
+    /// <summary>Motivo registrado quando os metadados provam que a mídia não tem trilha de áudio (P08).</summary>
+    public const string NoAudioReason = "sem áudio";
+
+    /// <summary>Metadados ausentes ou não confiáveis = desconhecido (não pula); só AudioChannels==0 medido com sucesso pelo ffprobe conta como sem áudio.</summary>
+    internal static bool HasNoAudioTrack(MediaAsset asset) =>
+        asset.Metadata is { MetadataStatus: MediaMetadataStatus.Ok, AudioChannels: 0 };
+
     private static readonly TimeSpan EnvironmentCacheTtl = TimeSpan.FromSeconds(60);
     private static readonly SilenceDetectionOptions SilenceOptions = new();
     private static readonly Regex LanguagePattern = new(@"^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})?$", RegexOptions.Compiled);
@@ -598,6 +605,16 @@ public class PipelineJobManager : IPipelineJobManager
 
     private async Task RunTranscriptionAsync(PipelineJobRun job, PipelineMediaWork media, MediaAnalysisWork work, IServiceProvider sp, CancellationToken ct)
     {
+        // P08: sem trilha de áudio não há o que transcrever; nem inicia o worker Python.
+        if (HasNoAudioTrack(media.Asset))
+        {
+            work.Transcript = null;
+            work.TranscriptionStatus = StageStates.Skipped;
+            work.TranscriptionReason = NoAudioReason;
+            job.SetStage(media, PipelineStages.Transcription, StageStates.Skipped, NoAudioReason);
+            return;
+        }
+
         var cache = sp.GetRequiredService<IMediaCacheManager>();
         string toolId = $"whisper:{WhisperModel}:{job.Language}";
         string key = AnalysisCacheKey(cache, media.Asset, toolId);
@@ -651,6 +668,15 @@ public class PipelineJobManager : IPipelineJobManager
 
     private async Task RunSilenceAsync(PipelineJobRun job, PipelineMediaWork media, MediaAnalysisWork work, IServiceProvider sp, CancellationToken ct)
     {
+        if (HasNoAudioTrack(media.Asset))
+        {
+            work.Silences = new List<VadSilenceSegmentDto>();
+            work.SilenceStatus = StageStates.Skipped;
+            work.SilenceReason = NoAudioReason;
+            job.SetStage(media, PipelineStages.Silence, StageStates.Skipped, NoAudioReason);
+            return;
+        }
+
         var cache = sp.GetRequiredService<IMediaCacheManager>();
         string toolId = SilenceToolId(SilenceOptions);
         string key = AnalysisCacheKey(cache, media.Asset, toolId);
