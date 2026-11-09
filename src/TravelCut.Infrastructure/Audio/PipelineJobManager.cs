@@ -559,6 +559,11 @@ public class PipelineJobManager : IPipelineJobManager
             AnalysisCacheKey(cache, media.Asset, MediaAnalysisToolId), ct);
         var work = MediaAnalysisWork.From(Deserialize<MediaAnalysisDto>(previousJson));
 
+        // P06: etapas concluídas são gravadas no cache de análise mesmo se o job for cancelado no meio da mídia
+        // (a transcrição já persistida no banco não pode ficar como "not_run" em analysis.getMedia).
+        bool progressed = false;
+        try
+        {
         foreach (var stage in job.Stages)
         {
             ct.ThrowIfCancellationRequested();
@@ -594,13 +599,28 @@ public class PipelineJobManager : IPipelineJobManager
                 _logger.LogError(ex, "Etapa {Stage} falhou para mídia {MediaId} no job {JobId}", stage, media.MediaId, job.JobId);
                 job.SetStage(media, stage, StageStates.Failed, "Falha inesperada nesta etapa; detalhes no log.");
             }
+            progressed = true;
+        }
+        }
+        finally
+        {
+            if (progressed)
+            {
+                try
+                {
+                    // Sem o token de cancelamento: o resultado parcial precisa ser gravado justamente quando houve cancelamento.
+                    var analysis = work.ToDto(media.MediaId, DateTime.UtcNow);
+                    await cache.WriteArtifactTextAsync(job.ProjectRoot, CacheCategory,
+                        AnalysisCacheKey(cache, media.Asset, MediaAnalysisToolId), Serialize(analysis), CancellationToken.None);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Falha ao gravar o cache de análise da mídia {MediaId} no job {JobId}", media.MediaId, job.JobId);
+                }
+            }
         }
 
         ct.ThrowIfCancellationRequested();
-
-        var analysis = work.ToDto(media.MediaId, DateTime.UtcNow);
-        await cache.WriteArtifactTextAsync(job.ProjectRoot, CacheCategory,
-            AnalysisCacheKey(cache, media.Asset, MediaAnalysisToolId), Serialize(analysis), ct);
     }
 
     private async Task RunTranscriptionAsync(PipelineJobRun job, PipelineMediaWork media, MediaAnalysisWork work, IServiceProvider sp, CancellationToken ct)

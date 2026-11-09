@@ -43,6 +43,32 @@ public class PipelineRobustnessTests : IDisposable
             new List<TranscriptWordDto> { new(0, 0.5, 1.0, "cachoeira", 0.95), new(1, 3.4, 3.8, "olha", 0.9) }),
         null, "fake-whisper 1.0", "large-v3");
 
+    // ---------------------------------------------------------------- P06
+
+    [Fact]
+    public async Task P06_CancelMidMedia_PersistsCompletedStagesInAnalysisCache()
+    {
+        var whisper = new FakeWhisperService { Outcome = Completed() };
+        var silence = new FakeSilenceService { WaitForCancellation = true };
+        var h = NewHarness(whisper, silence);
+        var project = h.CreateProject();
+        var media = h.AddMedia(project, "1-Bruto/a.mp4", metadata: Metadata(2));
+
+        var jobId = await h.Manager.StartAsync(Start(project.ProjectId, stages: new List<string> { "transcription", "silence" }));
+        var deadline = DateTime.UtcNow.AddSeconds(20);
+        while (silence.DetectCalls < 1 && DateTime.UtcNow < deadline) await Task.Delay(20);
+        Assert.True(h.Manager.Cancel(jobId));
+        var status = await h.WaitForFinishAsync(project.ProjectId);
+
+        Assert.Equal("canceled", status.State);
+        Assert.Single(h.Db.Transcripts); // transcrição já persistida no banco
+        var analysis = await h.Manager.GetMediaAnalysisAsync(project.ProjectId, media.MediaId);
+        Assert.NotNull(analysis);
+        Assert.Equal("completed", analysis!.TranscriptionStatus);
+        Assert.NotNull(analysis.Transcript);
+        Assert.Equal("not_run", analysis.SilenceStatus);
+    }
+
     // ---------------------------------------------------------------- P09
 
     [Fact]

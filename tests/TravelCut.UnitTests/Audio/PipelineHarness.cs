@@ -115,7 +115,10 @@ public sealed class FakeSilenceService : ISilenceDetectionService
 
     public string? GetFfmpegVersion() => FfmpegAvailable ? "fake 7.0" : null;
 
-    public Task<SilenceDetectionOutcome> DetectSilenceAsync(
+    /// <summary>Bloqueia a detecção até o cancelamento (simula etapa longa para cancelar no meio da mídia).</summary>
+    public bool WaitForCancellation { get; set; }
+
+    public async Task<SilenceDetectionOutcome> DetectSilenceAsync(
         string mediaPath,
         SilenceDetectionOptions? options = null,
         CancellationToken ct = default)
@@ -123,9 +126,13 @@ public sealed class FakeSilenceService : ISilenceDetectionService
         Interlocked.Increment(ref _detectCalls);
         if (!FfmpegAvailable)
         {
-            return Task.FromResult(new SilenceDetectionOutcome("unavailable", new List<VadSilenceSegmentDto>(), "FFmpeg indisponível (teste)."));
+            return new SilenceDetectionOutcome("unavailable", new List<VadSilenceSegmentDto>(), "FFmpeg indisponível (teste).");
         }
-        return Task.FromResult(Outcome ?? new SilenceDetectionOutcome("failed", new List<VadSilenceSegmentDto>(), "Sem resultado configurado no fake."));
+        if (WaitForCancellation)
+        {
+            await Task.Delay(Timeout.Infinite, ct);
+        }
+        return Outcome ?? new SilenceDetectionOutcome("failed", new List<VadSilenceSegmentDto>(), "Sem resultado configurado no fake.");
     }
 
     public List<HesitationCandidateDto> DetectHesitationsAndFillers(TranscriptDto transcript, IReadOnlyList<VadSilenceSegmentDto> silences) =>
