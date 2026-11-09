@@ -141,6 +141,8 @@ public static class TravelCutServiceCollectionExtensions
         services.AddSingleton<ISceneClassifierService, SceneClassifierService>();
         services.AddSingleton<ICutCandidateService, CutCandidateService>();
         // Singleton: guarda jobs em memória e cria escopos próprios (DbContext) por mídia.
+        // F14.8/P01: orquestrador pós-análise (plano + proxies), singleton com escopo de DI próprio por execução.
+        services.AddSingleton<IPostAnalysisOrchestrator, TravelCut.Application.PostAnalysis.PostAnalysisOrchestrator>();
         services.AddSingleton<IPipelineJobManager, PipelineJobManager>();
 
         // Importação de mídia (Tela 07)

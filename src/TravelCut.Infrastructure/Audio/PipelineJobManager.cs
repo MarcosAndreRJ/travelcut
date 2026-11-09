@@ -65,6 +65,9 @@ public class PipelineJobManager : IPipelineJobManager
         public StartPipelineRequest ToRequest() => new(ProjectId, MediaIds, Stages, Language, Force);
     }
 
+    /// <summary>F14.8/P01: processamento automático (plano + proxies) acionado só em completed/completed_with_issues.</summary>
+    private readonly IPostAnalysisOrchestrator? _postAnalysis;
+
     private readonly SemaphoreSlim _environmentLock = new(1, 1);
     private AnalysisEnvironmentDto? _environment;
     private DateTime _environmentAtUtc = DateTime.MinValue;
@@ -77,8 +80,10 @@ public class PipelineJobManager : IPipelineJobManager
         ISilenceDetectionService silence,
         ISceneClassifierService scene,
         ICutCandidateService candidates,
-        IProjectOperationLock projectLocks)
+        IProjectOperationLock projectLocks,
+        IPostAnalysisOrchestrator? postAnalysis = null)
     {
+        _postAnalysis = postAnalysis;
         _logger = logger;
         _scopeFactory = scopeFactory;
         _whisper = whisper;
@@ -330,10 +335,11 @@ public class PipelineJobManager : IPipelineJobManager
                 CurrentMedia: null,
                 Environment: environment,
                 StartedAtUtc: null,
-                FinishedAtUtc: null);
+                FinishedAtUtc: null,
+                PostAnalysis: _postAnalysis?.GetStatus(projectId));
         }
 
-        return job.Snapshot(environment);
+        return job.Snapshot(environment) with { PostAnalysis = _postAnalysis?.GetStatus(projectId) };
     }
 
     public PipelineDiagnosticsDto GetDiagnostics(Guid projectId)
@@ -446,6 +452,7 @@ public class PipelineJobManager : IPipelineJobManager
             await ReleaseSlotAsync(job);
             job.Finish(forcedState: null);
             _logger.LogInformation("Análise {JobId} finalizada com estado {State}", job.JobId, job.State);
+            TriggerPostAnalysis(job);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -470,6 +477,25 @@ public class PipelineJobManager : IPipelineJobManager
             // Slot livre e job já finalizado: inicia o lote pendente (mídias importadas durante este pipeline) ou o descarta se cancelado.
             if (canceled) DropPending(job.ProjectId);
             else await DrainPendingAsync(job.ProjectId);
+        }
+    }
+
+    /// <summary>
+    /// Aciona o orquestrador pós-análise em segundo plano (sem bloquear o fim do job). Nunca em failed/canceled.
+    /// Falha do orquestrador é registrada e não altera o estado da análise.
+    /// </summary>
+    private void TriggerPostAnalysis(PipelineJobRun job)
+    {
+        if (_postAnalysis is null) return;
+        if (job.State is not ("completed" or "completed_with_issues")) return;
+
+        try
+        {
+            _ = _postAnalysis.ScheduleAsync(job.ProjectId, job.JobId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Falha ao acionar o processamento pós-análise do job {JobId}", job.JobId);
         }
     }
 
