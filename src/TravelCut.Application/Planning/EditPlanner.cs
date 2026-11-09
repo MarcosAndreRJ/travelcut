@@ -73,10 +73,12 @@ public static class EditPlanner
     private sealed record SpeedItem(Guid SuggestionId, long StartUs, long EndUs, int Factor);
 
     /// <summary>Sugestão de zoom (única origem de zoom: SmartZoomRecommender / revisão humana). Intervalo na base da mídia (µs).</summary>
-    private sealed record ZoomItem(Guid SuggestionId, long StartUs, long EndUs, SuggestionStatus Status, SmartZoomParametersDto? Params, bool Decided);
+    private sealed record ZoomItem(Guid SuggestionId, long StartUs, long EndUs, SuggestionStatus Status, SmartZoomParametersDto? Params, bool Decided,
+        SmartZoomParametersDto? Human = null);
 
     /// <summary>Zoom materializado em clip.zoom (Origin: approved_by_user | auto). Verdict só existe na origem auto.</summary>
-    private sealed record AppliedZoomItem(Guid SuggestionId, double Scale, string Origin, PolicyVerdict? Verdict, double Coverage);
+    private sealed record AppliedZoomItem(Guid SuggestionId, double Scale, string Origin, PolicyVerdict? Verdict, double Coverage,
+        SmartZoomParametersDto? Human = null);
 
     /// <summary>Escalas máximas por intensidade do perfil do projeto (config); "off" = nunca autoaplicar zoom.</summary>
     private const double SubtleZoomScale = 1.05;
@@ -322,8 +324,10 @@ public static class EditPlanner
 
                 case "zoom":
                     // E04: decidido depois do layout (precisa dos cortes/clipes). Aqui só se coleta; rejeitado já saiu acima.
+                    // F14.8: parâmetros da decisão humana ativa (zoom) vencem os do recomendador/política.
                     w.Zooms.Add(new ZoomItem(s.SuggestionId, a, b, status, ParseZoomParams(s.EvidenceRefs),
-                        input.Decisions.Any(d => d.SuggestionId == s.SuggestionId)));
+                        input.Decisions.Any(d => d.SuggestionId == s.SuggestionId),
+                        DecisionParameters.Parse(eff.ParametersJson)?.Zoom));
                     break;
 
                 default:
@@ -411,8 +415,9 @@ public static class EditPlanner
                     pending.Add(ZoomPending(z, target, w, "aprovado, mas sem clipe aplicável (intervalo fora dos clipes ou cobertura insuficiente)"));
                     continue;
                 }
-                double scale = Math.Clamp(z.Params?.Scale ?? SubtleZoomScale, 1.01, MaxZoomScale);
-                target.Zoom = new AppliedZoomItem(z.SuggestionId, scale, OriginApproved, null, coverage);
+                // Decisão humana vence a política: respeita a escala escolhida (limite 1,12x).
+                double scale = Math.Clamp(z.Human?.Scale ?? z.Params?.Scale ?? SubtleZoomScale, 1.01, MaxZoomScale);
+                target.Zoom = new AppliedZoomItem(z.SuggestionId, scale, OriginApproved, null, coverage, z.Human);
                 materializedStarts.Add(z.StartUs);
             }
 
@@ -580,6 +585,26 @@ public static class EditPlanner
             }
         }
 
+        // 15b) F14.8: efeitos aplicados com origem auditável (auto | human). Informativo: fora do fingerprint do plano.
+        var appliedEffects = new List<PlanAppliedEffect>();
+        foreach (var w in includedWorks)
+        {
+            foreach (var c in w.Cuts.Where(c => c.Origin is OriginApproved or OriginAuto).OrderBy(c => c.SuggestionId))
+            {
+                bool auto = c.Origin == OriginAuto;
+                appliedEffects.Add(new PlanAppliedEffect(c.SuggestionId, w.Media.MediaId, "cut", auto ? "auto" : "human",
+                    auto ? c.Verdict?.PolicyVersion : null, auto ? c.Verdict?.Reason : null));
+            }
+        }
+        foreach (var seg in segments.Where(s => s.Zoom is not null).OrderBy(s => s.Zoom!.SuggestionId))
+        {
+            var zm = seg.Zoom!;
+            bool auto = zm.Origin == OriginAuto;
+            appliedEffects.Add(new PlanAppliedEffect(zm.SuggestionId, seg.W.Media.MediaId, "zoom", auto ? "auto" : "human",
+                auto ? zm.Verdict?.PolicyVersion : null, auto ? zm.Verdict?.Reason : null,
+                zm.Scale, zm.Human?.FocalPointX, zm.Human?.FocalPointY));
+        }
+
         if (profile.MusicPolicy == "suggest_only" && sections.Count >= 1)
         {
             pending.Add(new PlanPendingItem(null, null, "music_suggestion", MusicSuggestionMessage));
@@ -607,7 +632,7 @@ public static class EditPlanner
         var domainPlan = new PlanRevision(
             ctx.PlanId, input.ProjectId, ctx.Revision, ctx.BaseRevision, ctx.CreatedAtUtc, ctx.Author,
             PlanMapping.ToProfileSnapshot(profile), timeBase, input.TimeZoneId, mediaSetFingerprint,
-            tracks, sections, clips, transitions, appliedCuts, pending);
+            tracks, sections, clips, transitions, appliedCuts, pending, appliedEffects);
 
         var planFingerprint = PlanFingerprint.ComputePlan(domainPlan);
         var issues = PlanValidation.Run(domainPlan, input.Media, input.Analyses);
@@ -788,7 +813,8 @@ public static class EditPlanner
         {
             if (zoom.Origin == OriginApproved)
             {
-                list.Add($"Zoom {ZoomLabel(zoom.Scale)}× aprovado pelo usuário (cobertura do clipe {(zoom.Coverage * 100).ToString("0", Inv)}%)");
+                list.Add($"Zoom {ZoomLabel(zoom.Scale)}× aprovado pelo usuário (cobertura do clipe {(zoom.Coverage * 100).ToString("0", Inv)}%)"
+                    + (zoom.Human is null ? string.Empty : "; parâmetros definidos pelo usuário"));
             }
             else if (zoom.Verdict is { } zv)
             {

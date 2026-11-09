@@ -15,7 +15,8 @@ public sealed record EffectiveSuggestion(
     long EndMs,
     bool Adjusted,
     bool CanUndo,
-    bool CanRedo);
+    bool CanRedo,
+    string? ParametersJson = null); // F14.8: parâmetros da decisão ativa (topo da pilha); null = nenhum
 
 /// <summary>
 /// Pilhas de decisões de uma sugestão (ADR-014). <see cref="Active"/>: decisões de usuário ativas, a última é o estado
@@ -136,7 +137,8 @@ public static class EffectiveSuggestionStatus
             result[s.SuggestionId] = new EffectiveSuggestion(
                 s.SuggestionId, status, startMs, endMs, adjusted,
                 CanUndo: stacks.Active.Count > 0,
-                CanRedo: stacks.Undone.Count > 0);
+                CanRedo: stacks.Undone.Count > 0,
+                ParametersJson: top?.ParametersJson);
         }
         return result;
     }

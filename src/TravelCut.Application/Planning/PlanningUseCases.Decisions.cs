@@ -65,7 +65,17 @@ public sealed partial class PlanningUseCases
         if (suggestion is null)
             return PlanOutcome<DecisionResultDto>.Fail(SuggestionNotFoundCode, "Sugestão não encontrada.");
 
+        // F14.8: parâmetros (zoom) só em approve/modify; ausentes = herda os efetivos atuais (como o intervalo).
+        bool mayCarryParameters = action is EffectiveSuggestionStatus.ActionApprove or EffectiveSuggestionStatus.ActionModify;
+        if (request.Parameters?.Zoom is not null && !mayCarryParameters)
+            return PlanOutcome<DecisionResultDto>.Fail("INVALID_ARGUMENT", "parameters só é aceito em approve ou modify.");
+        var (parametersJson, parametersError) = DecisionParameters.Normalize(request.Parameters, suggestion.SuggestedAction);
+        if (parametersError is not null)
+            return PlanOutcome<DecisionResultDto>.Fail("INVALID_ARGUMENT", parametersError);
+
         var media = await _media.GetByIdAsync(suggestion.MediaId, ct);
+        var currentState = await CurrentStateAsync(suggestion, ct);
+        parametersJson ??= currentState.ParametersJson;
         long startMs, endMs;
         if (action == EffectiveSuggestionStatus.ActionModify)
         {
@@ -78,14 +88,14 @@ public sealed partial class PlanningUseCases
         else
         {
             // approve/reject/defer gravam o intervalo efetivo atual (um modify anterior é preservado).
-            var current = await CurrentStateAsync(suggestion, ct);
-            startMs = current.StartMs;
-            endMs = current.EndMs;
+            startMs = currentState.StartMs;
+            endMs = currentState.EndMs;
         }
 
         var projectId = media?.ProjectId ?? Guid.Empty;
         var baseRevision = await CurrentBaseRevisionAsync(projectId, ct);
-        var decision = NewDecision(suggestion.SuggestionId, action, request.Reviewer, request.Notes, baseRevision, startMs, endMs);
+        var decision = NewDecision(suggestion.SuggestionId, action, request.Reviewer, request.Notes, baseRevision, startMs, endMs,
+            parametersJson: parametersJson);
         await _suggestionsAndDecisions.SaveDecisionsAtomicAsync([decision], ct);
 
         return await ReactAndRespondAsync(suggestion, projectId, decisionsRecorded: 1, ct);
@@ -138,7 +148,7 @@ public sealed partial class PlanningUseCases
             if (undone.Count == 0) return null;
             var target = undone[^1];
             return NewDecision(suggestion.SuggestionId, target.Action, UserReviewer, RedoNotes, baseRevision,
-                target.SourceStartMs, target.SourceEndMs, isRedo: true);
+                target.SourceStartMs, target.SourceEndMs, isRedo: true, parametersJson: target.ParametersJson);
         }, ct);
 
         if (saved is null)
@@ -187,19 +197,30 @@ public sealed partial class PlanningUseCases
             return PlanOutcome<DecisionResultDto>.Fail("INVALID_ARGUMENT", "Lote deve conter sugestões de um único projeto.");
         var projectId = projectIds.Single();
 
+        // F14.8: parâmetros em lote só com approve e apenas para sugestões de zoom (tudo ou nada).
+        if (request.Parameters?.Zoom is not null && action != EffectiveSuggestionStatus.ActionApprove)
+            return PlanOutcome<DecisionResultDto>.Fail("INVALID_ARGUMENT", "parameters em lote só é aceito com approve.");
+        foreach (var suggestion in existing)
+        {
+            var (_, batchParamError) = DecisionParameters.Normalize(request.Parameters, suggestion.SuggestedAction);
+            if (batchParamError is not null)
+                return PlanOutcome<DecisionResultDto>.Fail("INVALID_ARGUMENT", batchParamError);
+        }
+
         var baseRevision = await CurrentBaseRevisionAsync(projectId, ct);
         var decisions = new List<EditDecision>(existing.Count);
         foreach (var suggestion in existing)
         {
             var current = await CurrentStateAsync(suggestion, ct);
+            var (json, _) = DecisionParameters.Normalize(request.Parameters, suggestion.SuggestedAction);
             decisions.Add(NewDecision(suggestion.SuggestionId, action, request.Reviewer, request.Notes,
-                baseRevision, current.StartMs, current.EndMs));
+                baseRevision, current.StartMs, current.EndMs, parametersJson: json ?? current.ParametersJson));
         }
 
         await _suggestionsAndDecisions.SaveDecisionsAtomicAsync(decisions, ct);
 
         var reaction = await ReactToDecisionsAsync(projectId, ct);
-        var affected = await AffectedSuggestionsAsync(existing, ct);
+        var affected = await AffectedSuggestionsAsync(existing, projectId, ct);
         return PlanOutcome<DecisionResultDto>.Ok(new DecisionResultDto(
             affected, decisions.Count, missing, reaction.PlanRevision, reaction.PlanChanged, reaction.PlanError));
     }
@@ -211,9 +232,36 @@ public sealed partial class PlanningUseCases
         EditSuggestion suggestion, Guid projectId, int decisionsRecorded, CancellationToken ct)
     {
         var reaction = await ReactToDecisionsAsync(projectId, ct);
-        var affected = await AffectedSuggestionsAsync([suggestion], ct);
+        var affected = await AffectedSuggestionsAsync([suggestion], projectId, ct);
         return PlanOutcome<DecisionResultDto>.Ok(new DecisionResultDto(
             affected, decisionsRecorded, [], reaction.PlanRevision, reaction.PlanChanged, reaction.PlanError));
+    }
+
+    /// <summary>
+    /// F14.8: efeitos aplicados do plano vigente por sugestão (origem auto | human, política e razão). Leitura sem validação;
+    /// sem plano, plano ilegível ou erro: vazio (a origem "auto" simplesmente não aparece).
+    /// </summary>
+    public async Task<IReadOnlyDictionary<Guid, PlanAppliedEffectDto>> LoadAppliedEffectsAsync(Guid projectId, CancellationToken ct = default)
+    {
+        var empty = new Dictionary<Guid, PlanAppliedEffectDto>();
+        if (projectId == Guid.Empty) return empty;
+        try
+        {
+            var project = await _projects.GetByIdAsync(projectId, ct);
+            if (project is null) return empty;
+            var entry = await _revisions.GetLatestAsync(projectId, ct);
+            if (entry is null) return empty;
+            var read = await ReadPlanAsync(project.RootPath, entry, ct);
+            if (read.Plan?.AppliedEffects is not { } effects) return empty;
+            var map = new Dictionary<Guid, PlanAppliedEffectDto>();
+            foreach (var e in effects) map.TryAdd(e.SuggestionId, e);
+            return map;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Não foi possível ler os efeitos aplicados do plano (projeto {ProjectId})", projectId);
+            return empty;
+        }
     }
 
     /// <summary>
@@ -275,13 +323,15 @@ public sealed partial class PlanningUseCases
         return EffectiveSuggestionStatus.ResolveDetailed([suggestion], history)[suggestion.SuggestionId];
     }
 
-    private async Task<List<EditSuggestionDto>> AffectedSuggestionsAsync(IReadOnlyList<EditSuggestion> suggestions, CancellationToken ct)
+    private async Task<List<EditSuggestionDto>> AffectedSuggestionsAsync(IReadOnlyList<EditSuggestion> suggestions, Guid projectId, CancellationToken ct)
     {
         var dtos = new List<EditSuggestionDto>(suggestions.Count);
+        var effects = await LoadAppliedEffectsAsync(projectId, ct);
         foreach (var suggestion in suggestions)
         {
             var effective = await CurrentStateAsync(suggestion, ct);
-            dtos.Add(SuggestionEffectiveMapper.ToDto(suggestion, effective));
+            dtos.Add(SuggestionEffectiveMapper.ToDto(suggestion, effective,
+                effects.TryGetValue(suggestion.SuggestionId, out var fx) ? fx : null));
         }
         return dtos;
     }
@@ -294,7 +344,7 @@ public sealed partial class PlanningUseCases
 
     private EditDecision NewDecision(
         Guid suggestionId, string action, string? reviewer, string? notes, int? baseRevision, long? startMs, long? endMs,
-        bool isRedo = false) => new()
+        bool isRedo = false, string? parametersJson = null) => new()
     {
         DecisionId = Guid.NewGuid(),
         SuggestionId = suggestionId,
@@ -306,6 +356,7 @@ public sealed partial class PlanningUseCases
         SourceStartMs = startMs,
         SourceEndMs = endMs,
         IsRedo = isRedo,
+        ParametersJson = parametersJson,
     };
 
     /// <summary>Reviewer e notas dentro dos limites (INVALID_ARGUMENT). Null quando válido.</summary>

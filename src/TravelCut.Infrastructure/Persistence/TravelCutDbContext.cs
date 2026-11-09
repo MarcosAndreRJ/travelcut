@@ -486,7 +486,8 @@ public class TravelCutDbContext : DbContext
             ("BaseRevision", "INTEGER NULL"),
             ("SourceStartMs", "INTEGER NULL"),
             ("SourceEndMs", "INTEGER NULL"),
-            ("IsRedo", "INTEGER NOT NULL DEFAULT 0")
+            ("IsRedo", "INTEGER NOT NULL DEFAULT 0"),
+            ("ParametersJson", "TEXT NULL") // F14.8: parâmetros da decisão (zoom); NULL = nenhum
         });
 
         // 1) Version única primeiro: em bancos antigos todas as linhas têm Version=1, e o backfill depende da ordem real.

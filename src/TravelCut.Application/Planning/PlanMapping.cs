@@ -35,7 +35,9 @@ public static class PlanMapping
                 c.SuggestionId, c.MediaId, c.SourceInUs, c.SourceOutUs, c.Kind, c.Origin)).ToList(),
             Pending: plan.Pending.Select(p => new PlanPendingItemDto(p.SuggestionId, p.MediaId, p.Kind, p.Message, p.ClipId)).ToList(),
             Summary: summary,
-            Validation: validation);
+            Validation: validation,
+            AppliedEffects: plan.AppliedEffects?.Select(e => new PlanAppliedEffectDto(
+                e.SuggestionId, e.MediaId, e.Kind, e.Origin, e.PolicyVersion, e.Reason, e.Scale, e.FocalPointX, e.FocalPointY)).ToList());
 
     /// <summary>Reconstrói o modelo de domínio a partir do contrato (usado por plan.validate, revert e verificação de fingerprint).</summary>
     public static PlanRevision ToDomain(EditPlanDto dto) => new(
@@ -60,7 +62,9 @@ public static class PlanMapping
             t.FromClipId, t.ToClipId, t.Kind, t.DurationFrames, t.NeedsHumanReview)).ToList(),
         AppliedCuts: dto.AppliedCuts.Select(c => new PlanAppliedCut(
             c.SuggestionId, c.MediaId, c.SourceInUs, c.SourceOutUs, c.Kind, c.Origin)).ToList(),
-        Pending: dto.Pending.Select(p => new PlanPendingItem(p.SuggestionId, p.MediaId, p.Kind, p.Message, p.ClipId)).ToList());
+        Pending: dto.Pending.Select(p => new PlanPendingItem(p.SuggestionId, p.MediaId, p.Kind, p.Message, p.ClipId)).ToList(),
+        AppliedEffects: dto.AppliedEffects?.Select(e => new PlanAppliedEffect(
+            e.SuggestionId, e.MediaId, e.Kind, e.Origin, e.PolicyVersion, e.Reason, e.Scale, e.FocalPointX, e.FocalPointY)).ToList());
 
     public static PlanProfileSnapshot ToProfileSnapshot(EditorialProfileDto p) => new(
         p.ProfileId, p.Version, p.SilencePolicy, p.Pace, p.JokePreservation, p.ZoomStrength,

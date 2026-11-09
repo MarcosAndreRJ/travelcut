@@ -85,6 +85,22 @@ public record PlanAppliedCutDto(
     [property: JsonPropertyName("origin")] string Origin       // approved_by_user | auto_trivial | residual_sub_frame (trecho que arredonda para 0 quadros; suggestionId = corte/velocidade adjacente)
 );
 
+/// <summary>
+/// F14.8 (aditivo): efeito aplicado pelo plano com origem auditável. kind: cut | zoom; origin: auto | human.
+/// policyVersion/reason só em origin "auto". Fora do fingerprint do plano (informativo).
+/// </summary>
+public record PlanAppliedEffectDto(
+    [property: JsonPropertyName("suggestionId")] Guid SuggestionId,
+    [property: JsonPropertyName("mediaId")] Guid MediaId,
+    [property: JsonPropertyName("kind")] string Kind,
+    [property: JsonPropertyName("origin")] string Origin,
+    [property: JsonPropertyName("policyVersion")] string? PolicyVersion = null,
+    [property: JsonPropertyName("reason")] string? Reason = null,
+    [property: JsonPropertyName("scale")] double? Scale = null,
+    [property: JsonPropertyName("focalPointX")] double? FocalPointX = null,
+    [property: JsonPropertyName("focalPointY")] double? FocalPointY = null
+);
+
 public record PlanPendingItemDto(
     [property: JsonPropertyName("suggestionId")] Guid? SuggestionId,
     [property: JsonPropertyName("mediaId")] Guid? MediaId,
@@ -136,7 +152,8 @@ public record EditPlanDto(
     [property: JsonPropertyName("appliedCuts")] List<PlanAppliedCutDto> AppliedCuts,
     [property: JsonPropertyName("pending")] List<PlanPendingItemDto> Pending,
     [property: JsonPropertyName("summary")] PlanSummaryDto Summary,
-    [property: JsonPropertyName("validation")] PlanValidationDto Validation
+    [property: JsonPropertyName("validation")] PlanValidationDto Validation,
+    [property: JsonPropertyName("appliedEffects")] List<PlanAppliedEffectDto>? AppliedEffects = null // F14.8 (aditivo; null em planos antigos)
 );
 
 public record PlanRevisionInfoDto(
