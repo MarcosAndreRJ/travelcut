@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { CheckCheck, CheckCircle2, Clock, Scissors, XCircle } from 'lucide-react';
+import { CheckCheck, Scissors, XCircle } from 'lucide-react';
 import type { EditSuggestion } from '../types/ipc';
 import { ipc } from '../services/ipcBridge';
 import { isBatchApprovable } from './analysis/analysisFormat';
@@ -9,6 +9,8 @@ import { ReviewQueue } from './review/ReviewQueue';
 import { ReviewBatchBar, type PendingBatch } from './review/ReviewBatchBar';
 import { ReviewFeedback } from './review/ReviewFeedback';
 import { ShortcutLegend } from './review/ShortcutLegend';
+import { PreeditControlPanel } from './review/PreeditControlPanel';
+import { PREEDIT_OUTCOME_LABEL, derivePreeditSummary, outcomeOf } from './review/preeditSummary';
 import { useMediaAnalysis, useProjectMedia } from './review/useReviewData';
 import { usePlanSnapshot } from './review/usePlanRemoved';
 import type { EditPlanDto } from '../types/ipc';
@@ -19,7 +21,7 @@ import {
   effectiveInterval,
   filterSuggestions,
   kindOptionsOf,
-  planRemovedDetail,
+  prioritizePending,
   type ReviewDecisionAction,
   type ReviewErrorInfo,
   type ReviewFilters,
@@ -108,11 +110,22 @@ export const ReviewDecisionsView: React.FC<ReviewDecisionsViewProps> = ({
   const [seekTarget, setSeekTarget] = useState<number | null>(null);
 
   const media = useProjectMedia(projectId);
+  // Plano vigente (origem, tempo removido, zooms). Sem store próprio: lido do host a cada decisão.
+  const planSnapshot = usePlanSnapshot(projectId, suggestions);
+  const plan = planSnapshot.plan;
 
-  const items = useMemo(() => filterSuggestions(suggestions, filters), [suggestions, filters]);
-  const counts = useMemo(() => countByStatus(suggestions), [suggestions]);
+  const items = useMemo(() => {
+    const filtered = filterSuggestions(suggestions, filters, plan);
+    return filters.status === 'pending' ? prioritizePending(filtered) : filtered;
+  }, [suggestions, filters, plan]);
+  const counts = useMemo(() => countByStatus(suggestions, plan), [suggestions, plan]);
+  const summary = useMemo(() => derivePreeditSummary(suggestions, plan), [suggestions, plan]);
   const kindOptions = useMemo(() => kindOptionsOf(suggestions), [suggestions]);
-  const silenceIds = useMemo(() => suggestions.filter(isBatchApprovable).map((s) => s.suggestionId), [suggestions]);
+  // Lote só para pendentes elegíveis (decisão de elegibilidade do host); já aplicados ficam de fora.
+  const silenceIds = useMemo(
+    () => suggestions.filter((s) => isBatchApprovable(s) && outcomeOf(s, plan) === 'pending').map((s) => s.suggestionId),
+    [suggestions, plan]
+  );
 
   // Item ativo: permanece visível mesmo se os filtros o excluírem; sem escolha, o primeiro da fila.
   const activeItem: EditSuggestion | null =
@@ -297,11 +310,9 @@ export const ReviewDecisionsView: React.FC<ReviewDecisionsViewProps> = ({
 
   const hasSuggestions = suggestions.length > 0;
   // Tempo removido: sempre do plano do host (nunca somado localmente).
-  const planSnapshot = usePlanSnapshot(projectId, suggestions);
-  const planRemoved = planSnapshot.removed;
   const afterRemoved = useMemo(
-    () => (activeItem ? afterRemovedOf(planSnapshot.plan, activeItem) : NO_AFTER),
-    [planSnapshot.plan, activeItem]
+    () => (activeItem ? afterRemovedOf(plan, activeItem) : NO_AFTER),
+    [plan, activeItem]
   );
 
   let content: React.ReactNode;
@@ -364,6 +375,7 @@ export const ReviewDecisionsView: React.FC<ReviewDecisionsViewProps> = ({
         <ReviewQueue
           items={items}
           counts={counts}
+          outcomeLabelOf={(s) => PREEDIT_OUTCOME_LABEL[outcomeOf(s, plan)]}
           kindOptions={kindOptions}
           filters={filters}
           onFiltersChange={setFilters}
@@ -467,19 +479,13 @@ export const ReviewDecisionsView: React.FC<ReviewDecisionsViewProps> = ({
         </div>
       </div>
 
-      {/* Contadores reais */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 px-4 md:px-6 py-3 border-b border-slate-800 bg-[#080d1a] shrink-0">
-        <StatCard label="Candidatos" value={counts.all} tone="cyan" icon={<Scissors className="w-5 h-5 text-cyan-400/80" aria-hidden="true" />} />
-        <StatCard
-          label="Aprovados"
-          value={counts.approved}
-          detail={planRemovedDetail(planRemoved)}
-          tone="emerald"
-          icon={<CheckCircle2 className="w-5 h-5 text-emerald-400" aria-hidden="true" />}
-        />
-        <StatCard label="Pendentes" value={counts.pending} tone="amber" icon={<Clock className="w-5 h-5 text-amber-400" aria-hidden="true" />} />
-        <StatCard label="Rejeitados" value={counts.rejected} tone="rose" icon={<XCircle className="w-5 h-5 text-rose-400" aria-hidden="true" />} />
-      </div>
+      {/* Painel de controle da pré-edição: contagens reais do plano vigente + sugestões */}
+      <PreeditControlPanel
+        summary={summary}
+        hasPlan={plan !== null}
+        activeStatus={filters.status}
+        onSelectStatus={(status) => setFilters((f) => ({ ...f, status }))}
+      />
 
       <ReviewFeedback error={feedbackError} notice={notice} onDismiss={onClearFeedback} />
 
@@ -496,26 +502,3 @@ const EmptyState: React.FC<{ title: string; text: string; role?: 'status' }> = (
   </div>
 );
 
-const TONE: Record<'cyan' | 'emerald' | 'amber' | 'rose', string> = {
-  cyan: 'border-slate-800 text-slate-400',
-  emerald: 'border-emerald-500/30 text-emerald-400',
-  amber: 'border-amber-500/30 text-amber-400',
-  rose: 'border-rose-500/30 text-rose-400'
-};
-
-const StatCard: React.FC<{ label: string; value: number; detail?: string; tone: keyof typeof TONE; icon: React.ReactNode }> = ({
-  label,
-  value,
-  detail,
-  tone,
-  icon
-}) => (
-  <div className={`p-3 rounded-xl bg-[#0a1424] border flex items-center justify-between gap-2 ${TONE[tone]}`}>
-    <div className="min-w-0">
-      <span className="text-[10px] uppercase font-bold tracking-wider">{label}</span>
-      <div className="text-lg font-bold font-mono text-white mt-0.5">{value}</div>
-      {detail && <span className="text-[10px] text-emerald-300/90">{detail}</span>}
-    </div>
-    {icon}
-  </div>
-);
