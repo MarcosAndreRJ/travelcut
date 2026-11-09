@@ -652,9 +652,7 @@ public class PipelineJobManager : IPipelineJobManager
 
         if (outcome == null)
         {
-            outcome = await _whisper.TranscribeAsync(media.AbsolutePath!, media.MediaId, WhisperModel, job.Language, ct,
-                new SynchronousProgress<TranscriptionProgressUpdate>(job.ReportTranscriptionProgress),
-                job.BeginWhisperExecution(media));
+            outcome = await TranscribeWithRecoveryAsync(job, media, ct);
 
             // P09: duração do áudio transcrito muito diferente da dos metadados = possível truncamento. Não persiste nem cacheia.
             if (outcome.Status == "completed" && outcome.Transcript != null
@@ -698,6 +696,59 @@ public class PipelineJobManager : IPipelineJobManager
         work.TranscriptionStatus = state;
         work.TranscriptionReason = reason;
         job.SetStage(media, PipelineStages.Transcription, state, reason);
+    }
+
+    /// <summary>
+    /// P12: falha classificada como passageira ganha 1 retry automático; falta de memória da GPU faz 1 fallback para CPU
+    /// (mesmo modelo: nunca substitui large-v3). Cada tentativa tem seu registro de execução auditável.
+    /// </summary>
+    private async Task<TranscriptionOutcome> TranscribeWithRecoveryAsync(PipelineJobRun job, PipelineMediaWork media, CancellationToken ct)
+    {
+        var progress = new SynchronousProgress<TranscriptionProgressUpdate>(job.ReportTranscriptionProgress);
+        var outcome = await _whisper.TranscribeAsync(media.AbsolutePath!, media.MediaId, WhisperModel, job.Language, ct,
+            progress, job.BeginWhisperExecution(media));
+
+        if (outcome.Status != "failed") return outcome;
+
+        if (outcome.FailureCode == TranscriptionFailureCodes.CudaOutOfMemory)
+        {
+            _logger.LogWarning("GPU sem memória na mídia {MediaId}; repetindo em CPU com o mesmo modelo.", media.MediaId);
+            ct.ThrowIfCancellationRequested();
+            return await _whisper.TranscribeOnDeviceAsync(media.AbsolutePath!, media.MediaId, WhisperModel, job.Language, "cpu", ct,
+                progress, job.BeginWhisperExecution(media));
+        }
+
+        if (outcome.FailureCode == TranscriptionFailureCodes.Transient)
+        {
+            _logger.LogWarning("Falha passageira na transcrição da mídia {MediaId} ({Reason}); nova tentativa.", media.MediaId, outcome.Reason);
+            ct.ThrowIfCancellationRequested();
+            return await _whisper.TranscribeAsync(media.AbsolutePath!, media.MediaId, WhisperModel, job.Language, ct,
+                progress, job.BeginWhisperExecution(media));
+        }
+
+        return outcome;
+    }
+
+    /// <summary>
+    /// P12: reenfileira somente as mídias do último job do projeto com alguma etapa failed/canceled (etapas já concluídas
+    /// vêm do cache). Lança NO_MEDIA_TO_ANALYZE se nada falhou.
+    /// </summary>
+    public async Task<PipelineEnqueueResult> RetryFailedAsync(Guid projectId, CancellationToken ct = default)
+    {
+        PipelineJobRun? last;
+        lock (_registry)
+        {
+            last = _latestByProject.TryGetValue(projectId, out var id) && _jobs.TryGetValue(id, out var j) ? j : null;
+        }
+        if (last is null || !last.IsFinished) throw new InvalidOperationException("NO_MEDIA_TO_ANALYZE");
+
+        var failedIds = last.Snapshot(null).Media
+            .Where(m => m.StageStates.Values.Any(s => s is StageStates.Failed or StageStates.Canceled))
+            .Select(m => m.MediaId)
+            .ToList();
+        if (failedIds.Count == 0) throw new InvalidOperationException("NO_MEDIA_TO_ANALYZE");
+
+        return await EnqueueAsync(new StartPipelineRequest(projectId, failedIds, last.Stages.ToList(), last.Language, false), ct);
     }
 
     private async Task RunSilenceAsync(PipelineJobRun job, PipelineMediaWork media, MediaAnalysisWork work, IServiceProvider sp, CancellationToken ct)

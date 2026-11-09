@@ -253,7 +253,8 @@ def handle_transcribe(request_id, payload):
     try:
         telemetry.start()
         telemetry.report("loading_audio")
-        cuda = bool(torch.cuda.is_available())
+        # P12: payload.device == "cpu" força CPU (fallback após falta de memória da GPU); o modelo nunca muda.
+        cuda = bool(torch.cuda.is_available()) and payload.get("device") != "cpu"
         device = "cuda" if cuda else "cpu"
         lang = None if language in (None, "", "auto") else language
 
@@ -302,6 +303,9 @@ def handle_transcribe(request_id, payload):
     except Exception as exc:
         restore_hook()
         telemetry.stop()
+        if "out of memory" in str(exc).lower() or type(exc).__name__ == "OutOfMemoryError":
+            _err(request_id, "cuda_out_of_memory", f"{type(exc).__name__}: {str(exc)[:300]}")
+            return
         _err(request_id, "transcription_failed", f"{type(exc).__name__}: {str(exc)[:300]}")
 
 

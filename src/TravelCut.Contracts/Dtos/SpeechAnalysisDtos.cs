@@ -43,8 +43,18 @@ public record TranscriptionOutcome(
     [property: JsonPropertyName("transcript")] TranscriptDto? Transcript,
     [property: JsonPropertyName("reason")] string? Reason,
     [property: JsonPropertyName("engine")] string? Engine,            // ex.: "openai-whisper 20240930" (do worker), null se indisponível
-    [property: JsonPropertyName("modelId")] string? ModelId           // ex.: "large-v3"
+    [property: JsonPropertyName("modelId")] string? ModelId,          // ex.: "large-v3"
+    [property: JsonPropertyName("failureCode")] string? FailureCode = null // P12: ver TranscriptionFailureCodes; null = sem classificação
 );
+
+/// <summary>Classificação estável de falhas do worker Whisper (P12): guia retry e fallback de dispositivo.</summary>
+public static class TranscriptionFailureCodes
+{
+    /// <summary>Falha provavelmente passageira (worker sem resposta, processo encerrado): 1 retry automático.</summary>
+    public const string Transient = "transient";
+    /// <summary>Memória da GPU esgotada: fallback automático para CPU (nunca troca de modelo).</summary>
+    public const string CudaOutOfMemory = "cuda_out_of_memory";
+}
 
 public record SilenceDetectionOutcome(
     [property: JsonPropertyName("status")] string Status,             // completed | unavailable | failed | canceled

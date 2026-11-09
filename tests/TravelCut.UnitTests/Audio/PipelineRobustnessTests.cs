@@ -69,6 +69,104 @@ public class PipelineRobustnessTests : IDisposable
         Assert.Equal("not_run", analysis.SilenceStatus);
     }
 
+    // ---------------------------------------------------------------- P12
+
+    private static TranscriptionOutcome Failed(string? code) => new("failed", null, "falha de teste", null, "large-v3", code);
+
+    private static readonly List<string> TranscriptionOnly = new() { "transcription" };
+
+    [Fact]
+    public async Task P12_TransientFailure_IsRetriedOnce_AndRecovers()
+    {
+        var whisper = new FakeWhisperService();
+        whisper.ScriptedOutcomes.Enqueue(Failed(TranscriptionFailureCodes.Transient));
+        whisper.ScriptedOutcomes.Enqueue(Completed());
+        var h = NewHarness(whisper, new FakeSilenceService { FfmpegAvailable = false });
+        var project = h.CreateProject();
+        h.AddMedia(project, "1-Bruto/a.mp4", metadata: Metadata(2));
+
+        await h.Manager.StartAsync(Start(project.ProjectId, stages: TranscriptionOnly));
+        var status = await h.WaitForFinishAsync(project.ProjectId);
+
+        Assert.Equal("completed", status.State);
+        Assert.Equal(2, whisper.TranscribeCalls);
+        Assert.Empty(whisper.DeviceOverrides);
+    }
+
+    [Fact]
+    public async Task P12_PersistentTransientFailure_RetriesOnlyOnce_AndReportsReason()
+    {
+        var whisper = new FakeWhisperService { Outcome = Failed(TranscriptionFailureCodes.Transient) };
+        var h = NewHarness(whisper, new FakeSilenceService { FfmpegAvailable = false });
+        var project = h.CreateProject();
+        h.AddMedia(project, "1-Bruto/a.mp4", metadata: Metadata(2));
+
+        await h.Manager.StartAsync(Start(project.ProjectId, stages: TranscriptionOnly));
+        var status = await h.WaitForFinishAsync(project.ProjectId);
+
+        Assert.Equal("failed", status.State);
+        Assert.Equal(2, whisper.TranscribeCalls);
+        Assert.Contains("falha de teste", status.Media.Single().Message);
+    }
+
+    [Fact]
+    public async Task P12_NonTransientFailure_IsNotRetried()
+    {
+        var whisper = new FakeWhisperService { Outcome = Failed(null) };
+        var h = NewHarness(whisper, new FakeSilenceService { FfmpegAvailable = false });
+        var project = h.CreateProject();
+        h.AddMedia(project, "1-Bruto/a.mp4", metadata: Metadata(2));
+
+        await h.Manager.StartAsync(Start(project.ProjectId, stages: TranscriptionOnly));
+        await h.WaitForFinishAsync(project.ProjectId);
+
+        Assert.Equal(1, whisper.TranscribeCalls);
+    }
+
+    [Fact]
+    public async Task P12_CudaOutOfMemory_FallsBackToCpu_WithSameModel()
+    {
+        var whisper = new FakeWhisperService();
+        whisper.ScriptedOutcomes.Enqueue(Failed(TranscriptionFailureCodes.CudaOutOfMemory));
+        whisper.ScriptedOutcomes.Enqueue(Completed());
+        var h = NewHarness(whisper, new FakeSilenceService { FfmpegAvailable = false });
+        var project = h.CreateProject();
+        h.AddMedia(project, "1-Bruto/a.mp4", metadata: Metadata(2));
+
+        await h.Manager.StartAsync(Start(project.ProjectId, stages: TranscriptionOnly));
+        var status = await h.WaitForFinishAsync(project.ProjectId);
+
+        Assert.Equal("completed", status.State);
+        Assert.Equal(new[] { "cpu" }, whisper.DeviceOverrides);
+        Assert.Single(h.Db.Transcripts);
+    }
+
+    [Fact]
+    public async Task P12_RetryFailed_ReenqueuesOnlyFailedMedia()
+    {
+        var whisper = new FakeWhisperService { Outcome = Completed() };
+        bool failB = true;
+        whisper.OutcomeByPath = path => failB && path.EndsWith("b.mp4", StringComparison.OrdinalIgnoreCase) ? Failed(null) : null;
+        var h = NewHarness(whisper, new FakeSilenceService { FfmpegAvailable = false });
+        var project = h.CreateProject();
+        h.AddMedia(project, "1-Bruto/a.mp4", metadata: Metadata(2));
+        var bad = h.AddMedia(project, "1-Bruto/b.mp4", metadata: Metadata(2));
+
+        await h.Manager.StartAsync(Start(project.ProjectId, stages: TranscriptionOnly));
+        var first = await h.WaitForFinishAsync(project.ProjectId);
+        Assert.Equal("completed_with_issues", first.State);
+        Assert.Equal(2, whisper.TranscribeCalls);
+
+        failB = false;
+        var result = await h.Manager.RetryFailedAsync(project.ProjectId);
+        var status = await h.WaitForFinishAsync(project.ProjectId);
+
+        Assert.Equal(PipelineEnqueueResult.Started, result.Outcome);
+        Assert.Equal("completed", status.State);
+        Assert.Equal(bad.MediaId, Assert.Single(status.Media).MediaId);
+        Assert.Equal(3, whisper.TranscribeCalls);
+    }
+
     // ---------------------------------------------------------------- P09
 
     [Fact]

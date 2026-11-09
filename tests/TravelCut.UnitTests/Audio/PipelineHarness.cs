@@ -30,6 +30,21 @@ public sealed class FakeWhisperService : IWhisperTranscriptionService
     public List<TranscriptionProgressUpdate> ProgressScript { get; } = new();
     public TaskCompletionSource<bool>? ProgressDelivered { get; set; }
 
+    /// <summary>Respostas consumidas na ordem, uma por chamada; esgotada, vale <see cref="Outcome"/>.</summary>
+    public Queue<TranscriptionOutcome> ScriptedOutcomes { get; } = new();
+    /// <summary>Dispositivos forçados via TranscribeOnDeviceAsync.</summary>
+    public List<string> DeviceOverrides { get; } = new();
+    /// <summary>Resposta por caminho da mídia (null = usa Outcome).</summary>
+    public Func<string, TranscriptionOutcome?>? OutcomeByPath { get; set; }
+
+    public Task<TranscriptionOutcome> TranscribeOnDeviceAsync(
+        string mediaPath, Guid mediaId, string model, string language, string device,
+        CancellationToken ct = default, IProgress<TranscriptionProgressUpdate>? progress = null, IWhisperExecutionObserver? execution = null)
+    {
+        DeviceOverrides.Add(device);
+        return TranscribeAsync(mediaPath, mediaId, model, language, ct, progress, execution);
+    }
+
     public int TranscribeCalls => Volatile.Read(ref _transcribeCalls);
     public int InvalidateCalls { get; private set; }
 
@@ -94,7 +109,9 @@ public sealed class FakeWhisperService : IWhisperTranscriptionService
         {
             await Task.Delay(Timeout.Infinite, ct);
         }
-        var result = Outcome ?? new TranscriptionOutcome("failed", null, "Sem resultado configurado no fake.", null, null);
+        var result = ScriptedOutcomes.Count > 0
+            ? ScriptedOutcomes.Dequeue()
+            : OutcomeByPath?.Invoke(mediaPath) ?? Outcome ?? new TranscriptionOutcome("failed", null, "Sem resultado configurado no fake.", null, null);
         execution?.OnFinished(new WhisperExecutionResult(result.Status == "completed" ? "completed" : "failed", 0, result.Reason));
         return result;
     }

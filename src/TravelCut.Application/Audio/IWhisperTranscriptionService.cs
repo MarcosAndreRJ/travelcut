@@ -47,4 +47,19 @@ public interface IWhisperTranscriptionService
         IProgress<TranscriptionProgressUpdate>? progress = null,
         IWhisperExecutionObserver? execution = null
     );
+
+    /// <summary>
+    /// Transcreve forçando o dispositivo (ex.: "cpu" no fallback após falta de memória da GPU, P12). O modelo nunca muda.
+    /// Implementação padrão (sem controle de dispositivo): igual a <see cref="TranscribeAsync"/>.
+    /// </summary>
+    Task<TranscriptionOutcome> TranscribeOnDeviceAsync(
+        string mediaPath,
+        Guid mediaId,
+        string model,
+        string language,
+        string device,
+        CancellationToken ct = default,
+        IProgress<TranscriptionProgressUpdate>? progress = null,
+        IWhisperExecutionObserver? execution = null)
+        => TranscribeAsync(mediaPath, mediaId, model, language, ct, progress, execution);
 }

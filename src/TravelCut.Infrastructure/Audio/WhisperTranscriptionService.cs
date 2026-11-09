@@ -83,7 +83,7 @@ public class WhisperTranscriptionService : IWhisperTranscriptionService
         return env.Python?.FileName;
     }
 
-    public async Task<TranscriptionOutcome> TranscribeAsync(
+    public Task<TranscriptionOutcome> TranscribeAsync(
         string mediaPath,
         Guid mediaId,
         string model = DefaultModel,
@@ -91,6 +91,28 @@ public class WhisperTranscriptionService : IWhisperTranscriptionService
         CancellationToken ct = default,
         IProgress<TranscriptionProgressUpdate>? progress = null,
         IWhisperExecutionObserver? execution = null)
+        => TranscribeCoreAsync(mediaPath, mediaId, model, language, null, ct, progress, execution);
+
+    public Task<TranscriptionOutcome> TranscribeOnDeviceAsync(
+        string mediaPath,
+        Guid mediaId,
+        string model,
+        string language,
+        string device,
+        CancellationToken ct = default,
+        IProgress<TranscriptionProgressUpdate>? progress = null,
+        IWhisperExecutionObserver? execution = null)
+        => TranscribeCoreAsync(mediaPath, mediaId, model, language, device, ct, progress, execution);
+
+    private async Task<TranscriptionOutcome> TranscribeCoreAsync(
+        string mediaPath,
+        Guid mediaId,
+        string model,
+        string language,
+        string? device,
+        CancellationToken ct,
+        IProgress<TranscriptionProgressUpdate>? progress,
+        IWhisperExecutionObserver? execution)
     {
         var requestedModel = string.IsNullOrWhiteSpace(model) ? DefaultModel : model.Trim();
         var requestedLanguage = string.IsNullOrWhiteSpace(language) ? "pt" : language.Trim();
@@ -128,7 +150,8 @@ public class WhisperTranscriptionService : IWhisperTranscriptionService
                 {
                     mediaPath = Path.GetFullPath(mediaPath),
                     model = requestedModel,
-                    language = requestedLanguage
+                    language = requestedLanguage,
+                    device = string.Equals(device, "cpu", StringComparison.OrdinalIgnoreCase) ? "cpu" : null
                 }
             }) + "\n" + ExitLine;
 
@@ -476,14 +499,14 @@ public class WhisperTranscriptionService : IWhisperTranscriptionService
             case ProcessRunStatus.TimedOut:
                 return Failed("Tempo limite excedido na transcrição (worker Whisper).", model);
             case ProcessRunStatus.NotStarted:
-                return Failed("Não foi possível iniciar o worker Whisper.", model);
+                return Failed("Não foi possível iniciar o worker Whisper.", model, TranscriptionFailureCodes.Transient);
         }
 
         var response = FindResponse(run.StandardOutput, reqId);
         if (response is not { } root)
         {
             _logger.LogWarning("Worker Whisper sem resposta válida (código {ExitCode}).", run.ExitCode);
-            return Failed($"Worker Whisper não retornou resposta válida (código {run.ExitCode}).", model);
+            return Failed($"Worker Whisper não retornou resposta válida (código {run.ExitCode}).", model, TranscriptionFailureCodes.Transient);
         }
 
         var envelopeError = TranscriptValidator.ValidateEnvelope(GetString(root, "protocol"), GetInt(root, "version"));
@@ -506,6 +529,10 @@ public class WhisperTranscriptionService : IWhisperTranscriptionService
                 "whisper_not_installed" => Unavailable(
                     "openai-whisper não está instalado no ambiente Python do worker. Nenhuma transcrição foi estimada.",
                     model),
+                "cuda_out_of_memory" => Failed(
+                    "Memória da GPU insuficiente para o modelo (CUDA out of memory).",
+                    model, TranscriptionFailureCodes.CudaOutOfMemory),
+                "transcription_failed" => Failed($"Worker Whisper falhou (código de erro: {code}).", model, TranscriptionFailureCodes.Transient),
                 _ => Failed($"Worker Whisper falhou (código de erro: {code}).", model)
             };
         }
@@ -742,8 +769,8 @@ public class WhisperTranscriptionService : IWhisperTranscriptionService
     private static TranscriptionOutcome Unavailable(string reason, string model) =>
         new("unavailable", null, reason, null, model);
 
-    private static TranscriptionOutcome Failed(string reason, string model) =>
-        new("failed", null, reason, null, model);
+    private static TranscriptionOutcome Failed(string reason, string model, string? failureCode = null) =>
+        new("failed", null, reason, null, model, failureCode);
 
     private static TranscriptionOutcome Canceled(string model) =>
         new("canceled", null, "Transcrição cancelada.", null, model);
