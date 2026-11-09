@@ -50,7 +50,39 @@ public sealed record AutoEditCandidate(
     IReadOnlyList<PolicyWord> Words,
     bool UpstreamFlaggedReview,
     bool HasExplicitDecision,
-    ZoomFacts? Zoom = null);
+    ZoomFacts? Zoom = null,
+    TransitionFacts? Transition = null);
+
+/// <summary>Estado dos handles (material além do ponto de corte) na fronteira de uma transição.</summary>
+public enum TransitionHandleState
+{
+    /// <summary>Material suficiente (ou a transição não consome handle, como o fade simples com taxa de quadros conhecida).</summary>
+    Sufficient,
+    Insufficient,
+    /// <summary>Bordas, duração ou taxa de quadros não verificáveis: nunca se presume material.</summary>
+    Unknown,
+}
+
+/// <summary>
+/// Fatos objetivos de um candidato a transição (E05), calculados pelo planejador a partir das bordas reais dos clipes.
+/// </summary>
+/// <param name="Kind">fade | dissolve | crossfade.</param>
+/// <param name="DurationFrames">Duração pedida, em quadros da timeline.</param>
+/// <param name="Handles">Resultado da validação de handles (mesma regra de <c>ValidateHandlesAsync</c>).</param>
+/// <param name="CrossFile">A fronteira liga arquivos diferentes.</param>
+/// <param name="SourceGapUs">Mesmo arquivo: trecho removido entre os clipes (µs na fonte); entre arquivos, 0.</param>
+/// <param name="ShortestClipFrames">Menor duração (quadros) entre os dois clipes adjacentes.</param>
+/// <param name="SpeechAtEdge">Há palavra transcrita no fim do clipe de saída ou no começo do de entrada (a transição cortaria fala).</param>
+/// <param name="TransitionsInWindow">Outras transições não-corte já materializadas na janela de tempo da política.</param>
+public sealed record TransitionFacts(
+    string Kind,
+    long DurationFrames,
+    TransitionHandleState Handles,
+    bool CrossFile,
+    long SourceGapUs,
+    long ShortestClipFrames,
+    bool SpeechAtEdge,
+    int TransitionsInWindow);
 
 /// <summary>
 /// Fatos objetivos de um candidato a zoom (E04). Calculados pelo planejador; a política nunca os infere.
@@ -118,12 +150,89 @@ public static class AutoEditorialProfiles
 ///   hesitação / falso início / filler / prolongação / alinhamento incerto / sem transcrição → Review;
 ///   zoom (E04): Conservative nunca autoaplica; Balanced só zoom discreto (≤1,06x, ≥1,5 s, 1 por janela de 20 s); Aggressive mais amplo
 ///   (≤1,12x, ≥1 s, 2 por janela). Sempre exige enquadramento/ponto focal conhecido, sem sobrepor corte e cobertura do clipe; senão Review;
-///   transição e demais efeitos → Review (tratados em incremento próprio).
+///   transição (v3): fronteira sem handle verificável (dissolve/crossfade), clipe curto, fala na borda ou densidade acima do limite → Skip
+///   (preserva o corte seco, sem poluir a fila); Conservative, transição entre arquivos, dissolve/crossfade (complexas) ou fade acima da
+///   duração do perfil → Review; fade simples no mesmo arquivo sobre salto de fonte relevante (Balanced ≥ 2 s, Aggressive ≥ 1 s) → Apply.
+///   Demais efeitos → Review (tratados em incremento próprio).
 /// </summary>
 public sealed class AutoEditorialPolicy : IAutoEditorialPolicy
 {
     /// <summary>Versão do conjunto de regras; incrementar a cada mudança de limiar ou regra.</summary>
-    public const string Version = "auto-editorial-policy/2";
+    public const string Version = "auto-editorial-policy/3";
+
+    /// <summary>Janela (s da timeline), ±, em que se conta quantas transições já existem (evita transformar todo corte em animação).</summary>
+    public const double TransitionWindowSeconds = 30;
+
+    private sealed record TransitionThresholds(int MaxFadeFrames, long MinGapUs, int MaxPerWindow, bool MayApply);
+
+    private static TransitionThresholds TransitionFor(AutoEditorialProfile profile) => profile switch
+    {
+        AutoEditorialProfile.Conservative => new TransitionThresholds(0, long.MaxValue, 0, false),
+        AutoEditorialProfile.Aggressive => new TransitionThresholds(24, 1_000_000, 2, true),
+        _ => new TransitionThresholds(12, 2_000_000, 1, true),
+    };
+
+    /// <summary>Clipes precisam ter pelo menos este múltiplo da duração da transição (o validador exige 2x; folga para não engolir o clipe).</summary>
+    public const int TransitionMinClipMultiple = 4;
+
+    private PolicyVerdict EvaluateTransition(AutoEditCandidate c, AutoEditorialProfile profile)
+    {
+        var t = TransitionFor(profile);
+        var f = c.Transition;
+        if (f is null) return Verdict(PolicyAction.Review, profile, "transição sem fatos verificáveis (handles, bordas)", "fatos de transição ausentes");
+
+        bool needsOverlap = f.Kind is "dissolve" or "crossfade";
+        if (f.Kind is not ("fade" or "dissolve" or "crossfade") || f.DurationFrames <= 0)
+        {
+            return Verdict(PolicyAction.Review, profile, $"transição '{f.Kind}' com duração {f.DurationFrames} quadro(s) inválida", "tipo/duração fora do vocabulário");
+        }
+        if (f.Handles != TransitionHandleState.Sufficient)
+        {
+            string why = f.Handles == TransitionHandleState.Unknown ? "handles não verificáveis" : "handles insuficientes";
+            return Verdict(PolicyAction.Skip, profile, $"{why} na fronteira: corte seco preservado",
+                needsOverlap ? "dissolve/crossfade exigem metade da duração em cada lado" : "taxa de quadros desconhecida");
+        }
+        if (f.ShortestClipFrames < f.DurationFrames * TransitionMinClipMultiple)
+        {
+            return Verdict(PolicyAction.Skip, profile, $"clipe curto ({f.ShortestClipFrames} quadros) para transição de {f.DurationFrames}",
+                $"clipes >= {TransitionMinClipMultiple}x a duração da transição");
+        }
+        if (f.SpeechAtEdge)
+        {
+            return Verdict(PolicyAction.Skip, profile, "há fala na borda do clipe: a transição prejudicaria a continuidade",
+                "palavra transcrita junto ao ponto de corte");
+        }
+        if (!t.MayApply)
+        {
+            return Verdict(PolicyAction.Review, profile, $"perfil {AutoEditorialProfiles.ToName(profile)} nunca autoaplica transição; revisão humana",
+                "autoaplicação de transição: somente perfis balanced e aggressive");
+        }
+        if (f.CrossFile)
+        {
+            return Verdict(PolicyAction.Review, profile, "transição entre arquivos diferentes: revisão humana", "fronteira entre mídias distintas");
+        }
+        if (needsOverlap)
+        {
+            return Verdict(PolicyAction.Review, profile, $"{f.Kind} é transição complexa (sobreposição de material): revisão humana", "somente fade simples é autoaplicado");
+        }
+        if (f.DurationFrames > t.MaxFadeFrames)
+        {
+            return Verdict(PolicyAction.Review, profile, $"fade de {f.DurationFrames} quadros acima do limite do perfil ({t.MaxFadeFrames})", $"duração máxima do perfil: {t.MaxFadeFrames} quadros");
+        }
+        if (f.SourceGapUs < t.MinGapUs)
+        {
+            return Verdict(PolicyAction.Skip, profile, $"salto de fonte de {Sec(f.SourceGapUs)} s pequeno: um fade prejudicaria a continuidade",
+                $"salto mínimo do perfil: {Sec(t.MinGapUs)} s");
+        }
+        if (f.TransitionsInWindow >= t.MaxPerWindow)
+        {
+            return Verdict(PolicyAction.Skip, profile, $"já há {f.TransitionsInWindow} transição(ões) em ±{TransitionWindowSeconds:0} s (máx. {t.MaxPerWindow} no perfil)",
+                $"densidade máxima do perfil: {t.MaxPerWindow} por janela");
+        }
+        return Verdict(PolicyAction.Apply, profile, $"fade simples de {f.DurationFrames} quadros sobre salto de fonte de {Sec(f.SourceGapUs)} s",
+            "handles verificados na fronteira", $"salto de fonte {Sec(f.SourceGapUs)} s >= {Sec(t.MinGapUs)} s (perfil {AutoEditorialProfiles.ToName(profile)})",
+            "sem fala na borda", $"transições na janela {f.TransitionsInWindow} < {t.MaxPerWindow}");
+    }
 
     public static readonly AutoEditorialPolicy Instance = new();
 
@@ -178,6 +287,7 @@ public sealed class AutoEditorialPolicy : IAutoEditorialPolicy
         return c.Kind switch
         {
             "zoom" => EvaluateZoom(c, profile),
+            "transition" => EvaluateTransition(c, profile),
             "silence" => EvaluateSilence(c, profile),
             "pause" => EvaluatePause(c, profile),
             "repetition" => EvaluateRepetition(c, profile),
