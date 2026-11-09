@@ -188,6 +188,57 @@ public sealed class DecisionParametersTests : IDisposable
         Assert.NotEqual(Fp(a), Fp(b));
     }
 
+    // ------------------------------------------------------------------ "Sem zoom" explícito
+
+    private static DecisionParametersDto NoZoom(bool? none = true, double scale = 0) =>
+        new(new SmartZoomParametersDto(SmartZoomConstants.TypePunchIn, scale, 0.5, 0.5, 0, None: none));
+
+    [Fact]
+    public void Normalize_NoneOrScaleOne_IsExplicitNoZoom_AndConflictingScaleIsRejected()
+    {
+        var (jsonNone, errNone) = DecisionParameters.Normalize(NoZoom(), "zoom");
+        Assert.Null(errNone);
+        Assert.True(DecisionParameters.IsNone(DecisionParameters.Parse(jsonNone)!.Zoom));
+
+        var (jsonOne, errOne) = DecisionParameters.Normalize(Zoom(1.0), "zoom");
+        Assert.Null(errOne);
+        Assert.True(DecisionParameters.IsNone(DecisionParameters.Parse(jsonOne)!.Zoom));
+
+        // 1,005 continua sendo zoom ativo (mínimo 1,01); teto 1,12 permanece.
+        Assert.Equal(1.01, DecisionParameters.Parse(DecisionParameters.Normalize(Zoom(1.005), "zoom").Json)!.Zoom!.Scale);
+        Assert.Equal(1.12, DecisionParameters.Parse(DecisionParameters.Normalize(Zoom(1.5), "zoom").Json)!.Zoom!.Scale);
+        Assert.False(DecisionParameters.IsNone(DecisionParameters.Parse(DecisionParameters.Normalize(Zoom(1.05), "zoom").Json)!.Zoom));
+
+        Assert.NotNull(DecisionParameters.Normalize(NoZoom(scale: 1.08), "zoom").Error);
+        Assert.NotNull(DecisionParameters.Normalize(NoZoom(), "cut").Error);
+    }
+
+    [Fact]
+    public void Planner_ApprovedNoZoom_RemovesZoom_WithoutPendingOrAutoReapply()
+    {
+        var json = DecisionParameters.Normalize(NoZoom(), "zoom").Json;
+        var plan = ZoomPlan([PlannerDecision("approve", 1, json)]);
+
+        Assert.Null(V1Clip(plan).Zoom);
+        Assert.DoesNotContain(plan.AppliedEffects!, e => e.Kind == "zoom");
+        Assert.DoesNotContain(plan.Pending, p => p.SuggestionId == S(101));
+    }
+
+    [Fact]
+    public async Task Submit_NoZoom_KeepsApproved_ExposesNone_AndUndoRestoresPending()
+    {
+        var result = await _planning.SubmitDecisionAsync(
+            new SubmitDecisionRequest(S(101), "approve", "user", null, Parameters: NoZoom()));
+        Assert.True(result.Success, result.ErrorMessage);
+        var dto = Assert.Single(result.Value!.Suggestions);
+        Assert.Equal("Approved", dto.Status);
+        Assert.True(dto.Parameters!.Zoom!.None);
+
+        var undone = (await _planning.UndoDecisionAsync(new UndoDecisionRequest(S(101)))).Value!.Suggestions[0];
+        Assert.Equal("Proposed", undone.Status);
+        Assert.NotEqual(true, undone.Parameters?.Zoom?.None);
+    }
+
     // ------------------------------------------------------------------ Round-trip (SQLite real)
 
     [Fact]

@@ -430,6 +430,10 @@ public static class EditPlanner
 
             foreach (var z in zooms.Where(z => z.Status == SuggestionStatus.Approved))
             {
+                // "Sem zoom" explícito: a decisão humana vence a política; a sugestão segue aprovada e o clipe fica sem zoom
+                // (sem pendência e sem autoaplicação). Desfazer a decisão devolve a sugestão a pendente.
+                if (DecisionParameters.IsNone(z.Human)) continue;
+
                 var (target, coverage) = ZoomTarget(segs, z);
                 if (target is null || target.Zoom is not null || coverage < ApprovedZoomMinCoverage)
                 {

@@ -72,6 +72,8 @@ export interface SmartZoomParametersDto {
   endScale?: number;
   framing?: string | null;
   focalPointKnown?: boolean;
+  /** "Sem zoom" (aditivo): true remove o zoom do clipe sem rejeitar a sugestão; scale 1,0 também é aceito pelo host. */
+  none?: boolean | null;
 }
 
 /** Parâmetros opcionais da decisão (hoje só zoom). Decisão humana vence a política. */
