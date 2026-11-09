@@ -76,6 +76,7 @@ public sealed class EndToEndZoomAcceptanceTests : IDisposable
         var effect = Assert.Single(plan.GetProperty("appliedEffects").EnumerateArray(), e => e.GetProperty("kind").GetString() == "zoom");
         Assert.Equal("auto", effect.GetProperty("origin").GetString());
         Assert.Equal(zoomId, effect.GetProperty("suggestionId").GetGuid());
+        await AcceptanceMetrics.RecordAsync(_out, host, projectId, "J1-4 zoom auto balanced (estado inicial)", restored: 0);
         Assert.False(V1Covers(plan, mediaId, 1_700_000, 4_500_000));
         Assert.Equal(1, plan.GetProperty("summary").GetProperty("autoCutsApplied").GetInt32());
 

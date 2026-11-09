@@ -72,6 +72,7 @@ public sealed class EndToEndJ1ScenariosTests : IDisposable
         Assert.Contains(plan.GetProperty("clips").EnumerateArray(), c => c.GetProperty("sourceInUs").GetInt64() == 0 && c.GetProperty("sourceOutUs").GetInt64() >= 1_800_000);
         // O silêncio evidente vizinho continua sendo cortado (a política distingue os dois casos).
         Assert.Equal(1, plan.GetProperty("summary").GetProperty("autoCutsApplied").GetInt32());
+        await AcceptanceMetrics.RecordAsync(_out, host, projectId, "J1-2 repeticao Nao,nao foi isso", restored: 0);
     }
 
     [Fact]
@@ -111,6 +112,7 @@ public sealed class EndToEndJ1ScenariosTests : IDisposable
         Assert.True(V1Covers(after, mediaId, 3_100_000, 5_700_000), "A restauração manual sobrevive ao reprocessamento.");
         Assert.Equal(0, after.GetProperty("summary").GetProperty("autoCutsApplied").GetInt32());
         Assert.Empty(after.GetProperty("appliedCuts").EnumerateArray());
+        await AcceptanceMetrics.RecordAsync(_out, host, projectId, "J1-5 reprocesso (force) com restauracao manual", restored: 1);
     }
 
     [Fact]
@@ -156,6 +158,7 @@ public sealed class EndToEndJ1ScenariosTests : IDisposable
         Assert.Equal(okId, cut.GetProperty("mediaId").GetGuid());
         Assert.Equal("auto_trivial", cut.GetProperty("origin").GetString());
         Assert.False(V1Covers(plan, okId, 1_650_000, 4_350_000));
+        await AcceptanceMetrics.RecordAsync(_out, host, projectId, "J1-6 falha parcial (1 de 2 sem transcricao)", restored: 0);
         Assert.True(plan.GetProperty("validation").GetProperty("isValid").GetBoolean());
     }
 }

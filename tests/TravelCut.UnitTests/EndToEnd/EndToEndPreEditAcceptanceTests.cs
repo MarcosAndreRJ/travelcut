@@ -103,6 +103,7 @@ public sealed class EndToEndPreEditAcceptanceTests : IDisposable
             Assert.False(V1Covers(plan, mediaId, cutIn + 50_000, cutOut - 50_000), "Refazer remove o trecho de novo.");
             Assert.True(plan.GetProperty("validation").GetProperty("isValid").GetBoolean());
             fingerprintAfterRedo = plan.GetProperty("planFingerprint").GetString()!;
+            await AcceptanceMetrics.RecordAsync(_out, host, projectId, "G7-1 silencio auto + undo/redo", restored: 1);
         }
 
         // Reabrir: novo escopo de DI/DbContext sobre o mesmo banco.
