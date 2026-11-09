@@ -476,7 +476,7 @@ const handleApplyZoom = (suggestionId: string, zoom: SmartZoomParametersDto) => 
             )}
 
             {currentTab === 'settings' && (
-              <SettingsIntegrationsView editorCaps={editorCaps} onRefreshCaps={handleRefreshCaps} />
+              <SettingsIntegrationsView editorCaps={editorCaps} onRefreshCaps={handleRefreshCaps} projectId={projectId} />
             )}
 
             {currentTab === 'narrative' && (
