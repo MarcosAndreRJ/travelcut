@@ -543,6 +543,73 @@ public class HesitationDetectionTests
         Assert.Empty(Service().DetectHesitationsAndFillers(empty, new List<VadSilenceSegmentDto>()));
     }
 
+    // ---- Regressão E10: ênfase/negação duplicada vs. repetição removível ----
+
+    [Fact]
+    public void E10_NaoNao_WithContinuation_IsEmphasis_NotRemovableRepetition()
+    {
+        var result = Detect(Transcript(10,
+            ("não,", 0.0, 0.3), ("não", 0.4, 0.7), ("foi", 0.8, 1.0), ("isso", 1.1, 1.5)));
+
+        var h = Assert.Single(result);
+        Assert.Equal("emphasis", h.Type);
+        Assert.NotEqual("repetition", h.Type);
+        Assert.Equal("low", h.ConfidenceBand);
+        Assert.True(h.NeedsHumanReview);
+    }
+
+    [Fact]
+    public void E10_NaoNao_EvenWithLongPauseBetween_StaysLowAndNeverAutoApplicable()
+    {
+        // Pausa longa entre as duas palavras não pode promover ênfase a repetição de banda maior.
+        var silence = new VadSilenceSegmentDto(0.7, 1.9, 1.2, -30, "medium");
+        var result = Detect(
+            Transcript(10, ("não", 0.0, 0.7), ("não", 1.9, 2.3), ("foi", 2.4, 2.6), ("isso", 2.7, 3.0)),
+            silence);
+
+        Assert.DoesNotContain(result, c => c.Type == "repetition");
+        var h = Assert.Single(result, c => c.Type == "emphasis");
+        Assert.Equal("low", h.ConfidenceBand);
+        Assert.True(h.NeedsHumanReview);
+    }
+
+    [Fact]
+    public void E10_ArticleStutter_OO_Carro_RemainsRepetitionCandidate()
+    {
+        var result = Detect(Transcript(10,
+            ("o", 0.0, 0.2), ("o", 0.3, 0.5), ("carro", 0.6, 1.0)));
+
+        var h = Assert.Single(result);
+        Assert.Equal("repetition", h.Type);
+        Assert.Equal("o o", h.DetectedWord);
+        Assert.True(h.NeedsHumanReview);
+    }
+
+    [Fact]
+    public void E10_BomDiaBomDia_IsReviewOnly_NeverAutoCut()
+    {
+        var result = Detect(Transcript(10,
+            ("bom", 0.0, 0.3), ("dia,", 0.4, 0.7), ("bom", 0.8, 1.1), ("dia,", 1.2, 1.5), ("galera", 1.6, 2.0)));
+
+        var h = Assert.Single(result);
+        Assert.Equal("repetition", h.Type);
+        Assert.NotEqual("high", h.ConfidenceBand);
+        Assert.True(h.NeedsHumanReview);
+    }
+
+    [Fact]
+    public void E10_LongCommonWordRepetition_RemainsRepetitionCandidate()
+    {
+        var result = Detect(Transcript(10,
+            ("vamos", 0.0, 0.4), ("vamos", 0.5, 0.9), ("embora", 1.0, 1.5)));
+
+        var h = Assert.Single(result);
+        Assert.Equal("repetition", h.Type);
+        Assert.Equal("vamos vamos", h.DetectedWord);
+        Assert.NotEqual("emphasis", h.Type);
+        Assert.True(h.NeedsHumanReview);
+    }
+
     [Fact]
     public void NeedsHumanReview_IsTrue_ExceptForHighFiller()
     {
