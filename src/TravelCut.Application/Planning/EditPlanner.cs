@@ -68,7 +68,7 @@ public static class EditPlanner
 
     private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
 
-    private sealed record AppliedCutItem(Guid SuggestionId, long StartUs, long EndUs, string Kind, string Origin);
+    private sealed record AppliedCutItem(Guid SuggestionId, long StartUs, long EndUs, string Kind, string Origin, PolicyVerdict? Verdict = null);
 
     private sealed record SpeedItem(Guid SuggestionId, long StartUs, long EndUs, int Factor);
 
@@ -105,6 +105,8 @@ public static class EditPlanner
         public required bool HasAudioTrack { get; init; }
         public required bool SpeechKnown { get; init; }
         public required IReadOnlyList<(long StartUs, long EndUs)> Speech { get; init; }
+        /// <summary>Palavras alinhadas da transcrição (fatos da política editorial automática).</summary>
+        public IReadOnlyList<PolicyWord> Words { get; init; } = Array.Empty<PolicyWord>();
         public required bool SceneAnalyzed { get; init; }
         public required string SceneCategory { get; init; }
         public required bool SceneHypothesis { get; init; }
@@ -146,8 +148,10 @@ public static class EditPlanner
         }
     }
 
-    public static PlanBuildResult Build(PlanningInput input, PlanBuildContext ctx)
+    public static PlanBuildResult Build(PlanningInput input, PlanBuildContext ctx, IAutoEditorialPolicy? policy = null)
     {
+        policy ??= AutoEditorialPolicy.Instance;
+        var autoProfile = AutoEditorialProfiles.FromName(input.Profile.SilencePolicy);
         // Regra crítica do perfil: reviewAmbiguous é sempre true, mesmo que a entrada traga false.
         var profile = input.Profile with { ReviewAmbiguous = true };
         var zone = input.DisplayZone;
@@ -219,6 +223,11 @@ public static class EditPlanner
                 Speech = speechKnown
                     ? PlanEligibility.SpeechIntervals(analysis!.Transcript!)
                     : Array.Empty<(long StartUs, long EndUs)>(),
+                Words = speechKnown
+                    ? analysis!.Transcript!.Words
+                        .Select(x => new PolicyWord(x.Text, PlanEligibility.ToUs(x.StartSeconds), PlanEligibility.ToUs(x.EndSeconds)))
+                        .ToList()
+                    : Array.Empty<PolicyWord>(),
                 SceneAnalyzed = scene is not null,
                 SceneCategory = scene is not null ? scene.Category.ToLowerInvariant() : "indeterminado",
                 SceneHypothesis = scene?.IsHypothesis ?? true,
@@ -255,15 +264,30 @@ public static class EditPlanner
                     {
                         w.Cuts.Add(new AppliedCutItem(s.SuggestionId, a, b, kind, OriginApproved));
                     }
-                    else if (status == SuggestionStatus.Proposed && profile.AutoApplyTrivialCuts
-                             && kind == AutoCutKind && !s.NeedsHumanReview && s.ConfidenceBand == "high"
-                             && !input.Decisions.Any(d => d.SuggestionId == s.SuggestionId))
-                    {
-                        w.Cuts.Add(new AppliedCutItem(s.SuggestionId, a, b, kind, OriginAuto));
-                    }
                     else
                     {
-                        w.Pending.Add(SuggestionPending(s, CutPendingMessage(status, kind, a, b)));
+                        // Precedência (E07): decisão manual explícita > config do projeto (AutoApplyTrivialCuts) > política automática.
+                        // A política é a única fonte da autoaplicação (E13); nunca decide pela string de confiança.
+                        PolicyVerdict? verdict = null;
+                        bool decided = input.Decisions.Any(d => d.SuggestionId == s.SuggestionId);
+                        if (status == SuggestionStatus.Proposed && profile.AutoApplyTrivialCuts)
+                        {
+                            verdict = policy.Evaluate(
+                                new AutoEditCandidate(kind, a, b, w.SpeechKnown, w.Words, s.NeedsHumanReview,
+                                    HasExplicitDecision: decided),
+                                autoProfile);
+                        }
+
+                        if (verdict is { Action: PolicyAction.Apply })
+                        {
+                            w.Cuts.Add(new AppliedCutItem(s.SuggestionId, a, b, kind, OriginAuto, verdict));
+                        }
+                        else
+                        {
+                            // A razão de Review/Skip NÃO entra na mensagem: o plano deve ser idêntico antes de aprovar e depois de desfazer
+                            // (fingerprint estável). Só o corte autoaplicado carrega rastro (evidência do clipe).
+                            w.Pending.Add(SuggestionPending(s, CutPendingMessage(status, kind, a, b)));
+                        }
                     }
                     break;
 
@@ -374,7 +398,9 @@ public static class EditPlanner
             bool approvedSpeed = seg.ApprovedSpeedId is not null;
             bool automatic = autoCut || seg.ZoomSuggested;
             seg.Band = automatic ? "low" : (approvedCut || approvedSpeed) ? "medium" : "high";
-            seg.NeedsReview = seg.ZoomSuggested || seg.Residual || (profile.ReviewAmbiguous && seg.Band == "low");
+            // E06: corte automático NÃO força revisão; o rastro (origem, política, razão) fica na evidência do clipe.
+            // Revisão só por zoom sugerido ou trecho residual (ambíguos de fato).
+            seg.NeedsReview = seg.ZoomSuggested || seg.Residual;
         }
 
         for (int i = 0; i < segments.Count; i++)
@@ -700,6 +726,10 @@ public static class EditPlanner
         {
             var label = c.Origin == OriginApproved ? "Corte aprovado" : "Corte automático trivial";
             list.Add($"{label}: {KindLabel(c.Kind)} {Seconds(c.EndUs - c.StartUs, "0.0")} s");
+            if (c.Origin == OriginAuto && c.Verdict is { } v)
+            {
+                list.Add($"Aplicado automaticamente (origem=auto, {v.PolicyVersion}, perfil {AutoEditorialProfiles.ToName(v.Profile)}): {v.Reason}; {string.Join("; ", v.Evidence)}");
+            }
         }
         if (seg.SpeedLine is not null) list.Add(seg.SpeedLine);
         if (seg.ZoomSuggested) list.Add($"Zoom {ZoomLabel(seg.ZoomValue)}: jump cut em conversa (sugestão)");

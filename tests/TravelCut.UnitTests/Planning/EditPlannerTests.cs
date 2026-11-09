@@ -93,8 +93,8 @@ public class EditPlannerTests
     {
         var plan = Plan();
 
-        // 2,4 s (S1) + 0,5 s (S3) + 14,9 s (S7) = 17,8 s
-        Assert.Equal(17_800_000, plan.Summary.RemovedSourceUs);
+        // 2,4 s (S1) + 2,5 s (S3) + 14,9 s (S7) = 19,8 s
+        Assert.Equal(19_800_000, plan.Summary.RemovedSourceUs);
         Assert.Equal(2, plan.Summary.ApprovedCutsApplied);
         Assert.Equal(1, plan.Summary.AutoCutsApplied);
     }
@@ -128,7 +128,7 @@ public class EditPlannerTests
         Assert.DoesNotContain(plan.AppliedCuts, c => c.SuggestionId == S(3));
         Assert.Equal(0, plan.Summary.AutoCutsApplied);
         Assert.Contains(plan.Pending, p => p.SuggestionId == S(3) && p.Kind == "suggestion_pending");
-        Assert.Equal(2, V1Of(plan, 1).Count); // sem o corte de 40,0–40,5 s: dois trechos em vez de três
+        Assert.Equal(2, V1Of(plan, 1).Count); // sem o corte de 40,0–42,5 s: dois trechos em vez de três
     }
 
     [Fact]
@@ -441,7 +441,7 @@ public class EditPlannerTests
         Assert.Contains("Cronologia: 14/10 09:00 (creation_time)", first.Evidence);
         var afterApprovedCut = V1Of(plan, 1)[1];
         Assert.Contains("Corte aprovado: silêncio 2,4 s", afterApprovedCut.Evidence);
-        Assert.Contains("Corte automático trivial: silêncio 0,5 s", afterApprovedCut.Evidence);
+        Assert.Contains("Corte automático trivial: silêncio 2,5 s", afterApprovedCut.Evidence);
     }
 
     [Fact]

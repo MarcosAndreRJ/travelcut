@@ -134,7 +134,7 @@ public static class TravelFixture
         HasSpeech: null);
 
     /// <summary>
-    /// S1 approved silêncio 10,0–12,4 s · S2 rejected 30–33 · S3 proposed trivial 40,0–40,5 (auto) ·
+    /// S1 approved silêncio 10,0–12,4 s · S2 rejected 30–33 · S3 proposed trivial 40,0–42,5 (auto; 2,5 s para passar na política Balanced) ·
     /// S4 proposed hesitação 50–52 (revisão) · S5 deferred 2–3 · S6 approved speed2x 0–20 em M4 (sem transcrição) ·
     /// S7 approved silêncio 10,0–24,9 em M5 (deixa 0,1 s descartado).
     /// </summary>
@@ -145,7 +145,7 @@ public static class TravelFixture
         [
             Sug(1, 1, 10.0, 12.4, "silence", "cut", "high", false, t),
             Sug(2, 1, 30.0, 33.0, "silence", "cut", "high", false, t.AddSeconds(1)),
-            Sug(3, 1, 40.0, 40.5, "silence", "cut", "high", false, t.AddSeconds(2)),
+            Sug(3, 1, 40.0, 42.5, "silence", "cut", "high", false, t.AddSeconds(2)),
             Sug(4, 1, 50.0, 52.0, "hesitation", "cut", "medium", true, t.AddSeconds(3)),
             Sug(5, 2, 2.0, 3.0, "silence", "cut", "high", false, t.AddSeconds(4)),
             Sug(6, 4, 0.0, 20.0, "speed", "speed2x", "medium", true, t.AddSeconds(5)),

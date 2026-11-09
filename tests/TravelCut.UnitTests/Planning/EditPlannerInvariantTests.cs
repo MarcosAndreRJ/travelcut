@@ -27,7 +27,7 @@ public class EditPlannerInvariantTests
 
         long diff = plan.Summary.SourceDurationUs - plan.Summary.RemovedSourceUs - KeptSourceUs(plan);
         Assert.Equal(0, diff);
-        Assert.Equal(17_800_000, plan.Summary.RemovedSourceUs);
+        Assert.Equal(19_800_000, plan.Summary.RemovedSourceUs);
     }
 
     [Fact]
