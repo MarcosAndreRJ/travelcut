@@ -69,6 +69,33 @@ public class SmartZoomRecommendationTests
     }
 
     [Fact]
+    public void DialogueSegmentOf3000Ms_RecommendsZoomWithThreeSecondsDuration()
+    {
+        var mediaId = Guid.NewGuid();
+        var interval = new TimeRange(0, 3000); // TimeRange em ms: 3 s
+        var dialogue = new EditorialSceneClassificationDto(
+            EntryId: Guid.NewGuid().ToString(), ProjectId: Guid.NewGuid().ToString(), MediaId: mediaId.ToString(),
+            StartSeconds: 0, EndSeconds: 3, IsFullVideo: true,
+            Environment: SceneClassificationConstants.EnvInterior,
+            Interaction: SceneClassificationConstants.InteractionDialogue,
+            Framing: SceneClassificationConstants.FramingMedium,
+            Movement: SceneClassificationConstants.MovementStatic,
+            EditorialProfile: SceneClassificationConstants.ProfileNatural, Notes: null,
+            CreatedAtUtc: DateTime.UtcNow.ToString("O"), UpdatedAtUtc: DateTime.UtcNow.ToString("O"));
+
+        var suggestion = _recommender.RecommendZoomForSegment(mediaId, interval, dialogue, 1);
+
+        Assert.NotNull(suggestion);
+        var parameters = System.Text.Json.JsonSerializer.Deserialize<SmartZoomParametersDto>(suggestion!.EvidenceRefs!);
+        Assert.NotNull(parameters);
+        Assert.Equal(3.0, parameters!.DurationSeconds, 3);
+
+        // Segmento de 1000 ms (< 1,2 s) não recebe zoom: com a unidade errada passaria a valer 0,0001 s e também não, mas 1500 ms precisa valer.
+        Assert.NotNull(_recommender.RecommendZoomForSegment(mediaId, new TimeRange(0, 1500), dialogue, 1));
+        Assert.Null(_recommender.RecommendZoomForSegment(mediaId, new TimeRange(0, 1000), dialogue, 1));
+    }
+
+    [Fact]
     public void StaticDirectToCamera_RecommendsPunchInZoom_NeverAutoApproved()
     {
         var mediaId = Guid.NewGuid();

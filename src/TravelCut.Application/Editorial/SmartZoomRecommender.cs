@@ -24,6 +24,9 @@ public interface ISmartZoomRecommender
 
 public sealed class SmartZoomRecommender : ISmartZoomRecommender
 {
+    /// <summary>Unidade de <see cref="TimeRange"/> em sugestões: milissegundos.</summary>
+    private const double MillisecondsPerSecond = 1000.0;
+
     private readonly ILogger<SmartZoomRecommender> _logger;
 
     public SmartZoomRecommender(ILogger<SmartZoomRecommender> logger)
@@ -68,7 +71,8 @@ public sealed class SmartZoomRecommender : ISmartZoomRecommender
 
         if (segmentIndex % 2 != 1) return null;
 
-        double durationSeconds = (double)sourceInterval.DurationTicks / 10_000_000.0;
+        // E04a: TimeRange de sugestões editoriais está em MILISSEGUNDOS (não em ticks de 100 ns).
+        double durationSeconds = sourceInterval.DurationTicks / MillisecondsPerSecond;
         if (durationSeconds < 1.2) return null;
 
         double scale = Math.Clamp(profile.DefaultScale, profile.MinScale, profile.MaxScale);
