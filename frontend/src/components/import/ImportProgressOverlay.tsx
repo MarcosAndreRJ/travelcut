@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
-import { AlertTriangle, CircleCheck, CircleX, Info, Library, Loader2, X } from 'lucide-react';
-import type { ImportItemResult, ImportJobStatusDto } from '../../types/ipc';
+import { AlertTriangle, CircleCheck, CircleX, Info, Library, Loader2, X, type LucideIcon } from 'lucide-react';
+import type { ImportItemResult, ImportJobStatusDto, PostAnalysisState, PostAnalysisStatusDto } from '../../types/ipc';
 import {
   basenameOf,
   formatBytes,
@@ -18,7 +18,67 @@ interface ImportProgressOverlayProps {
   onCancel: () => void;
   onClose: () => void;
   onOpenLibrary: () => void;
+  /** Resumo pós-análise (pipeline.status.postAnalysis); ausente quando não há automação. */
+  postAnalysis?: PostAnalysisStatusDto | null;
 }
+
+type NoteTone = 'info' | 'warn' | 'error' | 'success';
+
+const NOTE_CLASS: Record<NoteTone, string> = {
+  info: 'bg-slate-800/60 border-slate-700 text-slate-300',
+  warn: 'bg-amber-500/10 border-amber-500/30 text-amber-200',
+  error: 'bg-rose-500/10 border-rose-500/30 text-rose-200',
+  success: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-200'
+};
+
+const NOTE_ICON: Record<NoteTone, LucideIcon> = {
+  info: Info,
+  warn: AlertTriangle,
+  error: CircleX,
+  success: CircleCheck
+};
+
+/** Texto honesto para o resultado da análise de fala; null quando não há o que comunicar. */
+export const speechAnalysisNotice = (
+  state: ImportJobStatusDto['speechAnalysis']
+): { tone: NoteTone; text: string } | null => {
+  switch (state) {
+    case 'merged':
+      return { tone: 'success', text: 'Transcrição e análise de fala concluídas e mescladas ao projeto.' };
+    case 'failed':
+      return {
+        tone: 'error',
+        text: 'A análise de fala falhou nesta importação. Nenhuma transcrição foi mesclada ao projeto.'
+      };
+    case 'skipped':
+      return { tone: 'info', text: 'Análise de fala ignorada nesta importação.' };
+    case 'unavailable':
+      return {
+        tone: 'warn',
+        text: 'Detecção de fala indisponível neste ambiente. Nenhuma análise de fala foi feita nesta importação.'
+      };
+    case 'queued':
+      return { tone: 'info', text: 'Detecção de fala em fila.' };
+    default:
+      return null;
+  }
+};
+
+const POST_STATE_LABEL: Record<PostAnalysisState, string> = {
+  idle: 'Aguardando',
+  running: 'Em andamento',
+  completed: 'Concluída',
+  completed_with_issues: 'Concluída com pendências',
+  failed: 'Falhou',
+  skipped: 'Ignorada'
+};
+
+const POST_STAGE_LABEL: Record<'plan' | 'proxy', string> = { plan: 'planejamento', proxy: 'proxies' };
+
+const POST_SKIP_LABEL: Record<string, string> = {
+  auto_process_disabled: 'processamento automático desligado',
+  no_analysis_results: 'nenhum resultado de análise disponível'
+};
 
 const resultTone = (result: ImportItemResult): string => {
   if (isSuccessfulResult(result)) return 'text-emerald-300';
@@ -34,9 +94,12 @@ export const ImportProgressOverlay: React.FC<ImportProgressOverlayProps> = ({
   cancelRequested,
   onCancel,
   onClose,
-  onOpenLibrary
+  onOpenLibrary,
+  postAnalysis = null
 }) => {
   const dialogRef = useRef<HTMLDivElement | null>(null);
+  const speechNote = job ? speechAnalysisNotice(job.speechAnalysis) : null;
+  const SpeechNoteIcon: LucideIcon = speechNote ? NOTE_ICON[speechNote.tone] : Info;
   const terminal = job !== null && isTerminalJobState(job.state);
   const canClose = terminal || overlayError !== null;
 
@@ -160,19 +223,70 @@ export const ImportProgressOverlay: React.FC<ImportProgressOverlayProps> = ({
                 )}
               </div>
 
-              {job.speechAnalysis === 'unavailable' && (
-                <div role="note" className="flex items-start gap-2 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-xs text-amber-200">
-                  <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-amber-400" aria-hidden="true" />
-                  <span>
-                    Detecção de fala indisponível neste ambiente. Nenhuma análise de fala foi feita nesta importação.
-                  </span>
+              {speechNote && (
+                <div
+                  role={speechNote.tone === 'error' ? 'alert' : 'note'}
+                  className={`flex items-start gap-2 px-3 py-2 rounded-lg border text-xs ${NOTE_CLASS[speechNote.tone]}`}
+                >
+                  <SpeechNoteIcon className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />
+                  <span>{speechNote.text}</span>
                 </div>
               )}
-              {job.speechAnalysis === 'queued' && (
-                <div role="note" className="flex items-start gap-2 px-3 py-2 rounded-lg bg-slate-800/60 border border-slate-700 text-xs text-slate-300">
-                  <Info className="w-4 h-4 mt-0.5 shrink-0 text-cyan-400" aria-hidden="true" />
-                  <span>Detecção de fala em fila.</span>
-                </div>
+
+              {postAnalysis && (
+                <section
+                  aria-labelledby="import-post-analysis-title"
+                  className="rounded-xl border border-slate-800 p-3 space-y-2"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <h3
+                      id="import-post-analysis-title"
+                      className="text-[11px] font-bold uppercase tracking-wider text-slate-400"
+                    >
+                      Pós-análise automática
+                    </h3>
+                    <span className="text-[11px] font-semibold text-slate-200">
+                      {POST_STATE_LABEL[postAnalysis.state]}
+                      {postAnalysis.state === 'running' && postAnalysis.stage
+                        ? ` (${POST_STAGE_LABEL[postAnalysis.stage]})`
+                        : ''}
+                    </span>
+                  </div>
+                  {postAnalysis.state === 'skipped' ? (
+                    <p className="text-[11px] text-slate-400">
+                      Motivo:{' '}
+                      {postAnalysis.reason ? (POST_SKIP_LABEL[postAnalysis.reason] ?? postAnalysis.reason) : 'não informado'}
+                    </p>
+                  ) : (
+                    <dl className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+                      {(
+                        [
+                          { label: 'Cortes aplicados', value: postAnalysis.autoCutsApplied },
+                          { label: 'Pendentes de revisão', value: postAnalysis.pendingReview },
+                          { label: 'Proxies na fila', value: postAnalysis.proxiesQueued },
+                          { label: 'Falhas', value: postAnalysis.failures }
+                        ] as const
+                      ).map((metric) => (
+                        <div key={metric.label} className="rounded-lg bg-slate-900/60 px-2.5 py-1.5">
+                          <dt className="text-slate-500">{metric.label}</dt>
+                          <dd className="font-mono text-white">{metric.value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  )}
+                  {postAnalysis.issues.length > 0 && (
+                    <ul aria-label="Pendências da pós-análise" className="flex flex-wrap gap-1.5">
+                      {postAnalysis.issues.map((code, index) => (
+                        <li
+                          key={`${index}-${code}`}
+                          className="px-2 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/30 font-mono text-[10px] text-amber-200"
+                        >
+                          {code}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </section>
               )}
 
               {failedMessage && (
