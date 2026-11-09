@@ -30,7 +30,7 @@ public sealed record PlanBuildResult(EditPlanDto? Plan, string? ErrorCode, strin
 /// <summary>
 /// Planejador determinístico do plano editorial (perfil "viagens" v1). Puro: mesmas entradas → mesmo conteúdo.
 /// Regras: cronologia real; cortes aprovados + triviais de alta evidência; velocidade só com velocidade APROVADA e sem fala
-/// (estrada gera apenas sugestão); zoom só como sugestão (pending, clip.zoom null); música apenas sugerida; V1/A1 vinculados;
+/// (estrada gera apenas sugestão); zoom (E04) só de sugestões "zoom": aprovado ou autoaplicado pela política vira clip.zoom, o resto é pendência; música apenas sugerida; V1/A1 vinculados;
 /// transições conservadoras; trechos curtos são mantidos com revisão humana, salvo os que arredondam para 0 quadros.
 /// Nada é enviado ao DaVinci nesta fase.
 /// </summary>
@@ -71,6 +71,20 @@ public static class EditPlanner
     private sealed record AppliedCutItem(Guid SuggestionId, long StartUs, long EndUs, string Kind, string Origin, PolicyVerdict? Verdict = null);
 
     private sealed record SpeedItem(Guid SuggestionId, long StartUs, long EndUs, int Factor);
+
+    /// <summary>Sugestão de zoom (única origem de zoom: SmartZoomRecommender / revisão humana). Intervalo na base da mídia (µs).</summary>
+    private sealed record ZoomItem(Guid SuggestionId, long StartUs, long EndUs, SuggestionStatus Status, SmartZoomParametersDto? Params, bool Decided);
+
+    /// <summary>Zoom materializado em clip.zoom (Origin: approved_by_user | auto). Verdict só existe na origem auto.</summary>
+    private sealed record AppliedZoomItem(Guid SuggestionId, double Scale, string Origin, PolicyVerdict? Verdict, double Coverage);
+
+    /// <summary>Escalas máximas por intensidade do perfil do projeto (config); "off" = nunca autoaplicar zoom.</summary>
+    private const double SubtleZoomScale = 1.05;
+    private const double MediumZoomScale = 1.10;
+    /// <summary>Teto do zoom v1 mesmo com aprovação humana (efeito discreto; o recomendador não passa de 1,12x).</summary>
+    private const double MaxZoomScale = 1.12;
+    /// <summary>Cobertura mínima do clipe para materializar zoom aprovado por humano (o zoom v1 vale para o clipe inteiro).</summary>
+    private const double ApprovedZoomMinCoverage = 0.5;
 
     /// <summary>União de cortes sobrepostos na fonte (um intervalo removido).</summary>
     private sealed class CutGroup
@@ -113,6 +127,7 @@ public static class EditPlanner
         public readonly List<AppliedCutItem> Cuts = [];
         public readonly List<AppliedCutItem> SubFrameRemovals = [];
         public readonly List<SpeedItem> Speeds = [];
+        public readonly List<ZoomItem> Zooms = [];
         public readonly List<CutGroup> Groups = [];
         /// <summary>Pendências desta mídia; só entram no plano se a mídia permanecer incluída.</summary>
         public readonly List<PlanPendingItem> Pending = [];
@@ -126,8 +141,7 @@ public static class EditPlanner
         public int SpeedDen { get; set; } = 1;
         public Guid? ApprovedSpeedId { get; set; }
         public string? SpeedLine { get; set; }
-        public bool ZoomSuggested { get; set; }
-        public double ZoomValue { get; set; }
+        public AppliedZoomItem? Zoom { get; set; }
         public bool Residual { get; set; }
         public string Band { get; set; } = "high";
         public bool NeedsReview { get; set; }
@@ -306,6 +320,12 @@ public static class EditPlanner
                     break;
                 }
 
+                case "zoom":
+                    // E04: decidido depois do layout (precisa dos cortes/clipes). Aqui só se coleta; rejeitado já saiu acima.
+                    w.Zooms.Add(new ZoomItem(s.SuggestionId, a, b, status, ParseZoomParams(s.EvidenceRefs),
+                        input.Decisions.Any(d => d.SuggestionId == s.SuggestionId)));
+                    break;
+
                 default:
                     w.Pending.Add(SuggestionPending(s, $"ação '{s.SuggestedAction}' ainda não é aplicada pelo plano v1."));
                     break;
@@ -319,7 +339,6 @@ public static class EditPlanner
 
         // 6) Trechos e velocidade. Velocidade ≠ 1 só com sugestão APROVADA e sem fala; estrada gera apenas sugestão.
         var segments = new List<Segment>();
-        double zoomFactor = profile.ZoomStrength switch { "subtle" => 1.05, "medium" => 1.10, _ => 0 };
 
         foreach (var w in works)
         {
@@ -373,18 +392,54 @@ public static class EditPlanner
             seg.P.GapBefore = sameMediaPrev ? segments[k - 1].P.Out != seg.P.In : seg.P.In > 0;
         }
 
-        // 10) Zoom: só sugestão. Segundo trecho de um jump cut em cena "conversa".
-        if (zoomFactor > 0)
+        // 10) Zoom (E04). Caminho ÚNICO: sugestões "zoom" (geradas pelo SmartZoomRecommender no pós-análise ou criadas pelo usuário).
+        // Precedência (E07): aprovado pelo usuário → materializa; senão, config do projeto (zoomStrength "off" = nunca autoaplicar);
+        // senão política automática. Não aplicado = pendência "zoom_suggestion" (com suggestionId, aprovável). Reversível: desfazer a
+        // decisão devolve a sugestão a "pendente" e a política NÃO reaplica (decisão explícita no histórico).
+        double zoomCap = profile.ZoomStrength switch { "subtle" => SubtleZoomScale, "medium" => MediumZoomScale, _ => 0 };
+        foreach (var w in includedWorks.Where(x => x.IsVideo && x.Zooms.Count > 0))
         {
-            for (int k = 1; k < segments.Count; k++)
+            var segs = segments.Where(s => ReferenceEquals(s.W, w)).ToList();
+            var zooms = w.Zooms.OrderBy(z => z.StartUs).ThenBy(z => z.SuggestionId).ToList();
+            var materializedStarts = new List<long>();
+
+            foreach (var z in zooms.Where(z => z.Status == SuggestionStatus.Approved))
             {
-                var cur = segments[k];
-                var prev = segments[k - 1];
-                if (cur.W.IsVideo && cur.W.SceneCategory == "conversa"
-                    && ReferenceEquals(prev.W, cur.W) && cur.P.GapBefore)
+                var (target, coverage) = ZoomTarget(segs, z);
+                if (target is null || target.Zoom is not null || coverage < ApprovedZoomMinCoverage)
                 {
-                    cur.ZoomSuggested = true;
-                    cur.ZoomValue = zoomFactor;
+                    pending.Add(ZoomPending(z, target, w, "aprovado, mas sem clipe aplicável (intervalo fora dos clipes ou cobertura insuficiente)"));
+                    continue;
+                }
+                double scale = Math.Clamp(z.Params?.Scale ?? SubtleZoomScale, 1.01, MaxZoomScale);
+                target.Zoom = new AppliedZoomItem(z.SuggestionId, scale, OriginApproved, null, coverage);
+                materializedStarts.Add(z.StartUs);
+            }
+
+            foreach (var z in zooms.Where(z => z.Status != SuggestionStatus.Approved))
+            {
+                var (target, coverage) = ZoomTarget(segs, z);
+                if (z.Status != SuggestionStatus.Proposed || zoomCap <= 0 || target is null || target.Zoom is not null)
+                {
+                    pending.Add(ZoomPending(z, target, w, DescribeZoomStatus(z.Status)));
+                    continue;
+                }
+
+                double scale = Math.Min(z.Params?.Scale ?? 0, zoomCap);
+                bool overlapsCut = w.Groups.Any(g => g.Start < z.EndUs && z.StartUs < g.End);
+                int inWindow = materializedStarts.Count(st => Math.Abs(st - z.StartUs) < AutoEditorialPolicy.ZoomWindowUs);
+                var verdict = policy.Evaluate(
+                    new AutoEditCandidate("zoom", z.StartUs, z.EndUs, w.SpeechKnown, w.Words, false, z.Decided,
+                        new ZoomFacts(scale, z.Params?.FocalPointKnown == true, overlapsCut, coverage, inWindow)),
+                    autoProfile);
+                if (verdict.Action == PolicyAction.Apply)
+                {
+                    target.Zoom = new AppliedZoomItem(z.SuggestionId, scale, OriginAuto, verdict, coverage);
+                    materializedStarts.Add(z.StartUs);
+                }
+                else
+                {
+                    pending.Add(ZoomPending(z, target, w, DescribeZoomStatus(z.Status)));
                 }
             }
         }
@@ -396,11 +451,12 @@ public static class EditPlanner
             bool autoCut = items.Any(c => c.Origin == OriginAuto);
             bool approvedCut = items.Any(c => c.Origin == OriginApproved);
             bool approvedSpeed = seg.ApprovedSpeedId is not null;
-            bool automatic = autoCut || seg.ZoomSuggested;
-            seg.Band = automatic ? "low" : (approvedCut || approvedSpeed) ? "medium" : "high";
-            // E06: corte automático NÃO força revisão; o rastro (origem, política, razão) fica na evidência do clipe.
-            // Revisão só por zoom sugerido ou trecho residual (ambíguos de fato).
-            seg.NeedsReview = seg.ZoomSuggested || seg.Residual;
+            bool automatic = autoCut || seg.Zoom?.Origin == OriginAuto;
+            bool approvedZoom = seg.Zoom?.Origin == OriginApproved;
+            seg.Band = automatic ? "low" : (approvedCut || approvedSpeed || approvedZoom) ? "medium" : "high";
+            // E06: corte/zoom automático NÃO força revisão; o rastro (origem, política, razão) fica na evidência do clipe.
+            // Revisão só por trecho residual (ambíguo de fato); zoom não aplicado vai para a fila de pendências.
+            seg.NeedsReview = seg.Residual;
         }
 
         for (int i = 0; i < segments.Count; i++)
@@ -461,6 +517,7 @@ public static class EditPlanner
             var suggestionIds = new List<Guid>();
             suggestionIds.AddRange(seg.CutItems.Select(c => c.SuggestionId));
             if (seg.ApprovedSpeedId is Guid speedId) suggestionIds.Add(speedId);
+            if (seg.Zoom is { } appliedZoom) suggestionIds.Add(appliedZoom.SuggestionId);
             suggestionIds = suggestionIds.Distinct().OrderBy(g => g).ToList();
 
             Guid? v1Id = w.IsVideo
@@ -472,11 +529,6 @@ public static class EditPlanner
             seg.V1Id = v1Id;
             seg.A1Id = a1Id;
 
-            if (seg.ZoomSuggested && v1Id is Guid zoomClip)
-            {
-                pending.Add(new PlanPendingItem(null, mediaId, ZoomSuggestionKind,
-                    $"Zoom {ZoomLabel(seg.ZoomValue)} ({profile.ZoomStrength}) sugerido: jump cut em conversa; revisar.", zoomClip));
-            }
             if (seg.Residual)
             {
                 pending.Add(new PlanPendingItem(null, mediaId, ResidualSegmentKind,
@@ -486,7 +538,7 @@ public static class EditPlanner
             if (v1Id is Guid v)
             {
                 clips.Add(new PlanClip(v, TrackV1, mediaId, w.Media.RelativePath, sectionId, p.In, p.Out,
-                    seg.StartFrame, seg.DurationFrames, seg.SpeedNum, seg.SpeedDen, a1Id, null,
+                    seg.StartFrame, seg.DurationFrames, seg.SpeedNum, seg.SpeedDen, a1Id, seg.Zoom?.Scale,
                     rationale, evidence, suggestionIds, seg.Band, seg.NeedsReview));
             }
             if (a1Id is Guid a)
@@ -732,7 +784,17 @@ public static class EditPlanner
             }
         }
         if (seg.SpeedLine is not null) list.Add(seg.SpeedLine);
-        if (seg.ZoomSuggested) list.Add($"Zoom {ZoomLabel(seg.ZoomValue)}: jump cut em conversa (sugestão)");
+        if (seg.Zoom is { } zoom)
+        {
+            if (zoom.Origin == OriginApproved)
+            {
+                list.Add($"Zoom {ZoomLabel(zoom.Scale)}× aprovado pelo usuário (cobertura do clipe {(zoom.Coverage * 100).ToString("0", Inv)}%)");
+            }
+            else if (zoom.Verdict is { } zv)
+            {
+                list.Add($"Zoom {ZoomLabel(zoom.Scale)}× aplicado automaticamente (origem=auto, {zv.PolicyVersion}, perfil {AutoEditorialProfiles.ToName(zv.Profile)}): {zv.Reason}; {string.Join("; ", zv.Evidence)}");
+            }
+        }
         if (seg.Residual) list.Add($"Trecho residual curto ({Seconds(seg.P.Out - seg.P.In, "0.000")} s) entre cortes");
         return list;
     }
@@ -744,7 +806,7 @@ public static class EditPlanner
         if (items.Any(c => c.Origin == OriginApproved)) parts.Add("após corte aprovado");
         if (items.Any(c => c.Origin == OriginAuto)) parts.Add("após corte automático trivial");
         if (seg.ApprovedSpeedId is not null) parts.Add($"velocidade {seg.SpeedNum}× aprovada");
-        if (seg.ZoomSuggested) parts.Add("zoom sutil sugerido (jump cut)");
+        if (seg.Zoom is { } zm) parts.Add(zm.Origin == OriginApproved ? "zoom sutil aprovado" : "zoom sutil automático");
         if (seg.Residual) parts.Add("trecho residual curto (revisão humana)");
         return string.Join("; ", parts) + ".";
     }
@@ -809,6 +871,47 @@ public static class EditPlanner
         "false_start" => "recomeço",
         "prolongation" => "prolongamento",
         _ => kind,
+    };
+
+    private static SmartZoomParametersDto? ParseZoomParams(string? evidenceRefs)
+    {
+        if (string.IsNullOrWhiteSpace(evidenceRefs)) return null;
+        try { return System.Text.Json.JsonSerializer.Deserialize<SmartZoomParametersDto>(evidenceRefs); }
+        catch (System.Text.Json.JsonException) { return null; }
+    }
+
+    /// <summary>Clipe V1 com maior sobreposição ao intervalo do zoom e a fração dele coberta (0 se não houver).</summary>
+    private static (Segment? Target, double Coverage) ZoomTarget(List<Segment> segs, ZoomItem z)
+    {
+        Segment? best = null;
+        long bestOverlap = 0;
+        foreach (var s in segs)
+        {
+            long overlap = Math.Min(s.P.Out, z.EndUs) - Math.Max(s.P.In, z.StartUs);
+            if (overlap > bestOverlap) { best = s; bestOverlap = overlap; }
+        }
+        if (best is null) return (null, 0);
+        long length = best.P.Out - best.P.In;
+        return (best, length <= 0 ? 0 : Math.Min(1.0, bestOverlap / (double)length));
+    }
+
+    private static PlanPendingItem ZoomPending(ZoomItem z, Segment? target, MediaWork w, string state)
+    {
+        Guid? clipId = target is not null && w.IsVideo
+            ? DeterministicIds.Create("clip", TrackV1, w.Media.MediaId.ToString("D"),
+                target.P.In.ToString(Inv), target.P.Out.ToString(Inv))
+            : null;
+        string scale = z.Params is { } p ? $" {ZoomLabel(p.Scale)}×" : string.Empty;
+        // Sem o motivo da política no texto: o plano deve ser idêntico antes de aprovar e depois de desfazer (fingerprint estável).
+        return new PlanPendingItem(z.SuggestionId, w.Media.MediaId, ZoomSuggestionKind,
+            $"Zoom{scale} ({Seconds(z.StartUs, "0.0")}–{Seconds(z.EndUs, "0.0")} s) {state}.", clipId);
+    }
+
+    private static string DescribeZoomStatus(SuggestionStatus status) => status switch
+    {
+        SuggestionStatus.Deferred => "adiado (aguardando decisão)",
+        SuggestionStatus.Modified => "modificado: revisar",
+        _ => "sugerido, aguardando decisão",
     };
 
     private static string ZoomLabel(double zoom) => zoom.ToString("0.00", CultureInfo.InvariantCulture).Replace('.', ',');

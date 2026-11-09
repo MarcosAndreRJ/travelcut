@@ -49,7 +49,18 @@ public sealed record AutoEditCandidate(
     bool TranscriptKnown,
     IReadOnlyList<PolicyWord> Words,
     bool UpstreamFlaggedReview,
-    bool HasExplicitDecision);
+    bool HasExplicitDecision,
+    ZoomFacts? Zoom = null);
+
+/// <summary>
+/// Fatos objetivos de um candidato a zoom (E04). Calculados pelo planejador; a política nunca os infere.
+/// </summary>
+/// <param name="Scale">Escala final que seria aplicada (já limitada pela intensidade do perfil do projeto).</param>
+/// <param name="FramingKnown">Enquadramento classificado e ponto focal conhecido (não apenas o centro por padrão).</param>
+/// <param name="OverlapsCut">O intervalo do zoom sobrepõe um corte aplicado (conteúdo removido).</param>
+/// <param name="ClipCoverage">Fração (0..1) do clipe-alvo coberta pelo intervalo; o zoom v1 vale para o clipe inteiro.</param>
+/// <param name="ZoomsInWindow">Outros zooms já materializados na mesma mídia dentro da janela de tempo da política.</param>
+public sealed record ZoomFacts(double Scale, bool FramingKnown, bool OverlapsCut, double ClipCoverage, int ZoomsInWindow);
 
 /// <summary>Política editorial central de aplicação automática (E13).</summary>
 public interface IAutoEditorialPolicy
@@ -105,12 +116,14 @@ public static class AutoEditorialProfiles
 ///   pausa curta expressiva (após "?"/"!"/reticências ou risada próxima) → Skip (preservar);
 ///   repetição → Apply só em Aggressive com evidência forte (palavras idênticas alinhadas, curtas, sem ênfase/negação); senão Review;
 ///   hesitação / falso início / filler / prolongação / alinhamento incerto / sem transcrição → Review;
-///   zoom, transição e demais efeitos → Review (tratados em incremento próprio).
+///   zoom (E04): Conservative nunca autoaplica; Balanced só zoom discreto (≤1,06x, ≥1,5 s, 1 por janela de 20 s); Aggressive mais amplo
+///   (≤1,12x, ≥1 s, 2 por janela). Sempre exige enquadramento/ponto focal conhecido, sem sobrepor corte e cobertura do clipe; senão Review;
+///   transição e demais efeitos → Review (tratados em incremento próprio).
 /// </summary>
 public sealed class AutoEditorialPolicy : IAutoEditorialPolicy
 {
     /// <summary>Versão do conjunto de regras; incrementar a cada mudança de limiar ou regra.</summary>
-    public const string Version = "auto-editorial-policy/1";
+    public const string Version = "auto-editorial-policy/2";
 
     public static readonly AutoEditorialPolicy Instance = new();
 
@@ -164,6 +177,7 @@ public sealed class AutoEditorialPolicy : IAutoEditorialPolicy
 
         return c.Kind switch
         {
+            "zoom" => EvaluateZoom(c, profile),
             "silence" => EvaluateSilence(c, profile),
             "pause" => EvaluatePause(c, profile),
             "repetition" => EvaluateRepetition(c, profile),
@@ -173,6 +187,65 @@ public sealed class AutoEditorialPolicy : IAutoEditorialPolicy
             _ => Verdict(PolicyAction.Review, profile, $"'{c.Kind}' não é elegível à autoaplicação nesta política",
                 "tipo de candidato fora da matriz (zoom/transição/outros tratados em incremento próprio)"),
         };
+    }
+
+    /// <summary>Janela (µs) em que se conta quantos zooms já existem (evita exagero); ±, centrada no início do candidato.</summary>
+    public const long ZoomWindowUs = 20_000_000;
+
+    private sealed record ZoomThresholds(bool MayApply, double MaxScale, long MinDurationUs, int MaxPerWindow, double MinCoverage);
+
+    private static ZoomThresholds ZoomFor(AutoEditorialProfile profile) => profile switch
+    {
+        // Conservative: nunca autoaplica zoom (só sugere).
+        AutoEditorialProfile.Conservative => new ZoomThresholds(false, 0, long.MaxValue, 0, 1.0),
+        // Aggressive: mais amplo (escala até 1,12; zoom curto; 2 por janela).
+        AutoEditorialProfile.Aggressive => new ZoomThresholds(true, 1.12, 1_000_000, 2, 0.8),
+        // Balanced: discreto (escala baixa, duração mínima, 1 por janela).
+        _ => new ZoomThresholds(true, 1.06, 1_500_000, 1, 0.8),
+    };
+
+    private PolicyVerdict EvaluateZoom(AutoEditCandidate c, AutoEditorialProfile profile)
+    {
+        var t = ZoomFor(profile);
+        var z = c.Zoom;
+        long duration = c.EndUs - c.StartUs;
+        if (z is null) return Verdict(PolicyAction.Review, profile, "zoom sem fatos verificáveis (escala, enquadramento, cortes)", "fatos de zoom ausentes");
+        if (!t.MayApply)
+        {
+            return Verdict(PolicyAction.Review, profile, $"perfil {AutoEditorialProfiles.ToName(profile)} nunca autoaplica zoom; revisão humana",
+                "autoaplicação de zoom: somente perfis balanced e aggressive");
+        }
+        if (duration < t.MinDurationUs)
+        {
+            return Verdict(PolicyAction.Review, profile, $"zoom curto demais ({Sec(duration)} s < {Sec(t.MinDurationUs)} s do perfil)", $"duração mínima do perfil: {Sec(t.MinDurationUs)} s");
+        }
+        if (z.Scale <= 1.0 || z.Scale > t.MaxScale)
+        {
+            return Verdict(PolicyAction.Review, profile, $"intensidade {z.Scale.ToString("0.00", Inv)}x fora do discreto do perfil (máx. {t.MaxScale.ToString("0.00", Inv)}x)",
+                $"intensidade máxima do perfil: {t.MaxScale.ToString("0.00", Inv)}x");
+        }
+        if (!z.FramingKnown)
+        {
+            return Verdict(PolicyAction.Review, profile, "enquadramento/ponto focal incerto", "enquadramento não classificado ou cena sem pessoa");
+        }
+        if (z.OverlapsCut)
+        {
+            return Verdict(PolicyAction.Review, profile, "zoom sobrepõe corte aplicado", "intervalo do zoom contém conteúdo removido");
+        }
+        if (z.ClipCoverage < t.MinCoverage)
+        {
+            return Verdict(PolicyAction.Review, profile, $"zoom cobre só {(z.ClipCoverage * 100).ToString("0", Inv)}% do clipe (o zoom v1 vale para o clipe inteiro)",
+                $"cobertura mínima do clipe: {(t.MinCoverage * 100).ToString("0", Inv)}%");
+        }
+        if (z.ZoomsInWindow >= t.MaxPerWindow)
+        {
+            return Verdict(PolicyAction.Review, profile, $"já há {z.ZoomsInWindow} zoom(s) em ±{Sec(ZoomWindowUs)} s (máx. {t.MaxPerWindow} no perfil)",
+                $"limite de zooms por janela: {t.MaxPerWindow}");
+        }
+        return Verdict(PolicyAction.Apply, profile, $"zoom discreto {z.Scale.ToString("0.00", Inv)}x de {Sec(duration)} s",
+            $"intensidade {z.Scale.ToString("0.00", Inv)}x <= {t.MaxScale.ToString("0.00", Inv)}x (perfil {AutoEditorialProfiles.ToName(profile)})",
+            "enquadramento e ponto focal conhecidos", "sem sobreposição com cortes",
+            $"cobertura do clipe {(z.ClipCoverage * 100).ToString("0", Inv)}%; zooms na janela {z.ZoomsInWindow} < {t.MaxPerWindow}");
     }
 
     private PolicyVerdict EvaluateSilence(AutoEditCandidate c, AutoEditorialProfile profile)

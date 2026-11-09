@@ -60,7 +60,7 @@ public record PlanClipDto(
     [property: JsonPropertyName("speedNum")] int SpeedNum,
     [property: JsonPropertyName("speedDen")] int SpeedDen,
     [property: JsonPropertyName("linkedClipId")] Guid? LinkedClipId, // A1 ↔ V1 da mesma tomada
-    [property: JsonPropertyName("zoom")] double? Zoom,               // SEMPRE null nesta versão; zoom é só sugestão em pending "zoom_suggestion" (clipId)
+    [property: JsonPropertyName("zoom")] double? Zoom,               // escala do zoom (ex.: 1.05) só em V1 quando aprovado pelo usuário ou autoaplicado pela política; senão null (pending "zoom_suggestion")
     [property: JsonPropertyName("rationale")] string Rationale,
     [property: JsonPropertyName("evidence")] List<string> Evidence,
     [property: JsonPropertyName("suggestionIds")] List<Guid> SuggestionIds, // sugestões que originaram este recorte
