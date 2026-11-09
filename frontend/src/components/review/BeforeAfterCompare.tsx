@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Maximize2, Minimize2 } from 'lucide-react';
 import { MediaIntervalPlayer } from '../media/MediaIntervalPlayer';
 import { WaveformStrip } from '../media/WaveformStrip';
+import { PreviewFidelityBadge } from '../media/PreviewFidelityBadge';
 import { formatDraft, playerWindowOf, PLAYER_CONTEXT_SECONDS, type Interval } from './reviewModel';
 import type { KeptSegment, SourceWindow } from '../media/mediaTime';
 
@@ -107,9 +108,15 @@ export const BeforeAfterCompare: React.FC<BeforeAfterCompareProps> = ({
         </div>
       </div>
 
-      <p className="text-[10px] text-slate-500">
-        {MODE_OPTIONS.find((o) => o.value === mode)?.hint} · contexto de {PLAYER_CONTEXT_SECONDS} s · prévia de revisão, não é frame-accurate nem a timeline do DaVinci.
-      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <PreviewFidelityBadge
+          fidelity="html5_approx"
+          limitation={mode === 'after' && keptSegments?.length ? 'Velocidade e zoom do plano são aproximados; o render final é a referência.' : null}
+        />
+        <p className="text-[10px] text-slate-500">
+          {MODE_OPTIONS.find((o) => o.value === mode)?.hint} · contexto de {PLAYER_CONTEXT_SECONDS} s · prévia de revisão, não é frame-accurate nem a timeline do DaVinci.
+        </p>
+      </div>
 
       <MediaIntervalPlayer
         projectId={projectId}

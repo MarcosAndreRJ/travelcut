@@ -36,6 +36,7 @@ import { getPlaybackSource, previewErrorMessage } from '../../services/previewAp
 import { isPlayableSource } from '../media/usePlaybackSource';
 import { useProxyGeneration } from '../media/useProxyGeneration';
 import { WaveformStrip } from '../media/WaveformStrip';
+import { PreviewFidelityBadge } from '../media/PreviewFidelityBadge';
 import { formatSourceSeconds, mediaElementErrorText } from '../media/mediaTime';
 
 interface PlanPreviewPlayerProps {
@@ -555,6 +556,10 @@ export const PlanPreviewPlayer: React.FC<PlanPreviewPlayerProps> = ({ plan, sele
           <span className="text-[10px] uppercase tracking-wider font-mono px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold">
             PRÉVIA DE PROGRAMA · V1
           </span>
+          <PreviewFidelityBadge
+            fidelity="html5_approx"
+            limitation={effectTransitionAfter(plan?.transitions ?? [], activeClipId)?.kind ? 'Efeitos de transição não são reproduzidos aqui.' : null}
+          />
         </div>
       </div>
 
