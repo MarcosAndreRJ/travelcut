@@ -130,7 +130,21 @@ public record PipelineStatusDto(
     [property: JsonPropertyName("startedAtUtc")] DateTime? StartedAtUtc,
     [property: JsonPropertyName("finishedAtUtc")] DateTime? FinishedAtUtc,
     [property: JsonPropertyName("activity")] PipelineActivityDto? Activity = null,
-    [property: JsonPropertyName("postAnalysis")] PostAnalysisStatusDto? PostAnalysis = null   // F14.8: processamento automático pós-análise (null = sem orquestrador)
+    [property: JsonPropertyName("postAnalysis")] PostAnalysisStatusDto? PostAnalysis = null,  // F14.8: processamento automático pós-análise (null = sem orquestrador)
+    [property: JsonPropertyName("completion")] PipelineCompletionDto? Completion = null        // P14: sinal único de "tudo terminou" para o shell notificar
+);
+
+/// <summary>
+/// P14: ciclo completo = análise + lotes pendentes + pós-análise. Settled=true quando nada está rodando/enfileirado e o pós-análise
+/// (se existir para o job) já deixou de ser idle/running. Token identifica o ciclo concluído (job + fim do pós-análise): a UI notifica
+/// uma vez por token novo, sem notificar na abertura do app (sem job nesta sessão, Token = null).
+/// Outcome: completed | completed_with_issues | failed | canceled (pior resultado entre análise e pós-análise); null sem job.
+/// </summary>
+public record PipelineCompletionDto(
+    [property: JsonPropertyName("settled")] bool Settled,
+    [property: JsonPropertyName("pendingBatches")] int PendingBatches,
+    [property: JsonPropertyName("token")] string? Token,
+    [property: JsonPropertyName("outcome")] string? Outcome
 );
 
 /// <summary>

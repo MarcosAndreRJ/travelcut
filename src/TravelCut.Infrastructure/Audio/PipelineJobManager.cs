@@ -519,6 +519,13 @@ public class PipelineJobManager : IPipelineJobManager
         }
 
         var environment = await GetEnvironmentAsync(ct);
+        var post = _postAnalysis?.GetStatus(projectId);
+        int pendingBatches;
+        lock (_registry)
+        {
+            pendingBatches = _pending.TryGetValue(projectId, out var batches) ? batches.Count : 0;
+        }
+
         if (job == null)
         {
             return new PipelineStatusDto(
@@ -531,10 +538,36 @@ public class PipelineJobManager : IPipelineJobManager
                 Environment: environment,
                 StartedAtUtc: null,
                 FinishedAtUtc: null,
-                PostAnalysis: _postAnalysis?.GetStatus(projectId));
+                PostAnalysis: post,
+                Completion: new PipelineCompletionDto(
+                    Settled: pendingBatches == 0 && post?.State != "running", PendingBatches: pendingBatches, Token: null, Outcome: null));
         }
 
-        return job.Snapshot(environment) with { PostAnalysis = _postAnalysis?.GetStatus(projectId) };
+        var snapshot = job.Snapshot(environment);
+        return snapshot with { PostAnalysis = post, Completion = BuildCompletion(snapshot, post, pendingBatches) };
+    }
+
+    /// <summary>
+    /// P14: fim do ciclo. Job concluído com orquestrador ainda "idle" = pós-análise prestes a iniciar (a agenda ocorre logo após
+    /// o Finish): ainda não assentado, para não notificar cedo. Outcome = pior resultado entre análise e pós-análise.
+    /// </summary>
+    internal PipelineCompletionDto BuildCompletion(PipelineStatusDto job, PostAnalysisStatusDto? post, int pendingBatches)
+    {
+        bool jobFinished = job.State is "completed" or "completed_with_issues" or "failed" or "canceled";
+        bool postWillRun = _postAnalysis is not null && job.State is "completed" or "completed_with_issues";
+        bool postBusy = post?.State == "running" || (postWillRun && post?.State == "idle");
+        bool settled = jobFinished && pendingBatches == 0 && !postBusy;
+        if (!settled) return new PipelineCompletionDto(false, pendingBatches, null, null);
+
+        string outcome = job.State;
+        if (post is not null && outcome is "completed" or "completed_with_issues")
+        {
+            if (post.State == "failed") outcome = "failed";
+            else if (post.State == "completed_with_issues") outcome = "completed_with_issues";
+        }
+
+        string token = $"{job.JobId:N}:{(post?.State is "idle" or null ? 0 : post.FinishedAtUtc?.Ticks ?? 0)}";
+        return new PipelineCompletionDto(true, 0, token, outcome);
     }
 
     public PipelineDiagnosticsDto GetDiagnostics(Guid projectId)
