@@ -78,6 +78,11 @@ public static class PlanFingerprint
                 w.WriteNumber("spN", c.SpeedNum); w.WriteNumber("spD", c.SpeedDen);
                 if (c.LinkedClipId is Guid lid) w.WriteString("link", lid.ToString("D")); else w.WriteNull("link");
                 if (c.Zoom is double z) w.WriteNumber("zoom", z); else w.WriteNull("zoom"); // double: menor round-trip, invariante
+                // Foco/duração/curva do zoom: só quando existem (planos antigos mantêm o mesmo fingerprint).
+                if (c.ZoomFocalPointX is double zfx) w.WriteNumber("zfx", zfx);
+                if (c.ZoomFocalPointY is double zfy) w.WriteNumber("zfy", zfy);
+                if (c.ZoomDurationSeconds is double zdur) w.WriteNumber("zdur", zdur);
+                if (c.ZoomCurve is string zcur) w.WriteString("zcur", zcur);
                 w.WriteString("rationale", c.Rationale);
                 w.WriteStartArray("evidence"); foreach (var e in c.Evidence) w.WriteStringValue(e); w.WriteEndArray();
                 w.WriteStartArray("suggestions"); foreach (var g in c.SuggestionIds.OrderBy(g => g)) w.WriteStringValue(g.ToString("D")); w.WriteEndArray();

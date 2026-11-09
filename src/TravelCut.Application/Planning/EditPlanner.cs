@@ -78,7 +78,15 @@ public static class EditPlanner
 
     /// <summary>Zoom materializado em clip.zoom (Origin: approved_by_user | auto). Verdict só existe na origem auto.</summary>
     private sealed record AppliedZoomItem(Guid SuggestionId, double Scale, string Origin, PolicyVerdict? Verdict, double Coverage,
-        SmartZoomParametersDto? Human = null);
+        SmartZoomParametersDto? Human = null, ZoomFocus? Focus = null);
+
+    /// <summary>Foco (0-1), duração (s, null = clipe inteiro) e curva (punch_in | push_in) materializados em clip.zoom*.</summary>
+    private sealed record ZoomFocus(double X, double Y, double? DurationSeconds, string Curve)
+    {
+        public static ZoomFocus From(SmartZoomParametersDto p) => new(
+            p.FocalPointX, p.FocalPointY, p.DurationSeconds > 0 ? p.DurationSeconds : null,
+            string.IsNullOrWhiteSpace(p.ZoomType) ? SmartZoomConstants.TypePunchIn : p.ZoomType);
+    }
 
     /// <summary>Escalas máximas por intensidade do perfil do projeto (config); "off" = nunca autoaplicar zoom.</summary>
     private const double SubtleZoomScale = 1.05;
@@ -442,7 +450,9 @@ public static class EditPlanner
                 }
                 // Decisão humana vence a política: respeita a escala escolhida (limite 1,12x).
                 double scale = Math.Clamp(z.Human?.Scale ?? z.Params?.Scale ?? SubtleZoomScale, 1.01, MaxZoomScale);
-                target.Zoom = new AppliedZoomItem(z.SuggestionId, scale, OriginApproved, null, coverage, z.Human);
+                // Foco/duração/curva só quando a decisão humana os informou (decisões legadas mantêm o plano idêntico).
+                target.Zoom = new AppliedZoomItem(z.SuggestionId, scale, OriginApproved, null, coverage, z.Human,
+                    z.Human is null ? null : ZoomFocus.From(z.Human));
                 materializedStarts.Add(z.StartUs);
             }
 
@@ -464,7 +474,9 @@ public static class EditPlanner
                     autoProfile);
                 if (verdict.Action == PolicyAction.Apply)
                 {
-                    target.Zoom = new AppliedZoomItem(z.SuggestionId, scale, OriginAuto, verdict, coverage);
+                    // Política automática: só o foco conhecido do recomendador (nunca o centro "por padrão").
+                    target.Zoom = new AppliedZoomItem(z.SuggestionId, scale, OriginAuto, verdict, coverage, null,
+                        z.Params is { FocalPointKnown: true } kp ? ZoomFocus.From(kp) : null);
                     materializedStarts.Add(z.StartUs);
                 }
                 else
@@ -569,7 +581,8 @@ public static class EditPlanner
             {
                 clips.Add(new PlanClip(v, TrackV1, mediaId, w.Media.RelativePath, sectionId, p.In, p.Out,
                     seg.StartFrame, seg.DurationFrames, seg.SpeedNum, seg.SpeedDen, a1Id, seg.Zoom?.Scale,
-                    rationale, evidence, suggestionIds, seg.Band, seg.NeedsReview));
+                    rationale, evidence, suggestionIds, seg.Band, seg.NeedsReview,
+                    seg.Zoom?.Focus?.X, seg.Zoom?.Focus?.Y, seg.Zoom?.Focus?.DurationSeconds, seg.Zoom?.Focus?.Curve));
             }
             if (a1Id is Guid a)
             {
@@ -704,7 +717,7 @@ public static class EditPlanner
             bool auto = zm.Origin == OriginAuto;
             appliedEffects.Add(new PlanAppliedEffect(zm.SuggestionId, seg.W.Media.MediaId, "zoom", auto ? "auto" : "human",
                 auto ? zm.Verdict?.PolicyVersion : null, auto ? zm.Verdict?.Reason : null,
-                zm.Scale, zm.Human?.FocalPointX, zm.Human?.FocalPointY));
+                zm.Scale, zm.Focus?.X, zm.Focus?.Y, zm.Focus?.DurationSeconds, zm.Focus?.Curve));
         }
 
         appliedEffects.AddRange(transitionEffects);

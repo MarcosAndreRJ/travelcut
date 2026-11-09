@@ -979,6 +979,11 @@ export interface PlanClipDto {
   speedDen: number;
   linkedClipId: string | null;
   zoom?: number | null;
+  // Aditivos do zoom (null/ausente quando foco/duração não são conhecidos)
+  zoomFocalPointX?: number | null;      // 0–1
+  zoomFocalPointY?: number | null;      // 0–1
+  zoomDurationSeconds?: number | null;  // null = clipe inteiro
+  zoomCurve?: 'punch_in' | 'push_in' | string | null;
   rationale?: string;
   evidence?: string[];
   suggestionIds?: string[];
@@ -1022,8 +1027,10 @@ export interface PlanAppliedEffectDto {
   policyVersion?: string | null; // só origin 'auto'
   reason?: string | null;        // só origin 'auto'
   scale?: number | null;         // zoom
-  focalPointX?: number | null;   // zoom (decisão humana)
+  focalPointX?: number | null;   // zoom (decisão humana ou foco conhecido do recomendador)
   focalPointY?: number | null;
+  durationSeconds?: number | null; // zoom (aditivo)
+  zoomCurve?: 'punch_in' | 'push_in' | string | null; // zoom (aditivo)
 }
 
 export interface PlanPendingItemDto {

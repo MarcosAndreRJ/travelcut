@@ -239,6 +239,58 @@ public sealed class DecisionParametersTests : IDisposable
         Assert.NotEqual(true, undone.Parameters?.Zoom?.None);
     }
 
+    // ------------------------------------------------------------------ Foco, duração e curva no clipe
+
+    [Fact]
+    public void Planner_HumanZoom_MaterializesFocusDurationAndCurve_InClipAndEffect()
+    {
+        var json = DecisionParameters.Normalize(Zoom(1.10, fx: 0.3, fy: 0.6, dur: 8), "zoom").Json;
+        var plan = ZoomPlan([PlannerDecision("approve", 1, json)]);
+
+        var clip = V1Clip(plan);
+        Assert.Equal(0.3, clip.ZoomFocalPointX);
+        Assert.Equal(0.6, clip.ZoomFocalPointY);
+        Assert.Equal(8, clip.ZoomDurationSeconds);
+        Assert.Equal(SmartZoomConstants.TypePunchIn, clip.ZoomCurve);
+        var fx = Assert.Single(plan.AppliedEffects!, e => e.Kind == "zoom");
+        Assert.Equal(8, fx.DurationSeconds);
+        Assert.Equal(SmartZoomConstants.TypePunchIn, fx.ZoomCurve);
+
+        // Round-trip DTO <-> domínio preserva os campos (fingerprint íntegro).
+        var back = PlanMapping.ToDomain(plan).Clips.Single(c => c.ClipId == clip.ClipId);
+        Assert.Equal(0.3, back.ZoomFocalPointX);
+        Assert.Equal(8, back.ZoomDurationSeconds);
+    }
+
+    [Fact]
+    public void Planner_LegacyApprovedZoom_HasNoFocus_AndSameFingerprintAsWithoutFocusFields()
+    {
+        var plan = ZoomPlan([PlannerDecision("approve", 1)]);
+        var clip = V1Clip(plan);
+        Assert.Null(clip.ZoomFocalPointX);
+        Assert.Null(clip.ZoomDurationSeconds);
+        Assert.Null(clip.ZoomCurve);
+
+        // O fingerprint só muda quando os campos existem.
+        var domain = PlanMapping.ToDomain(plan);
+        var withFocus = domain with
+        {
+            Clips = domain.Clips.Select(c => c.ClipId == clip.ClipId ? c with { ZoomFocalPointX = 0.4, ZoomFocalPointY = 0.4 } : c).ToList(),
+        };
+        Assert.Equal(plan.PlanFingerprint, TravelCut.Domain.Planning.PlanFingerprint.ComputePlan(domain));
+        Assert.NotEqual(plan.PlanFingerprint, TravelCut.Domain.Planning.PlanFingerprint.ComputePlan(withFocus));
+    }
+
+    [Fact]
+    public void Planner_AutoZoom_UsesRecommenderFocus_OnlyWhenKnown()
+    {
+        var known = V1Clip(ZoomPlan());
+        Assert.Equal(1.05, known.Zoom);
+        Assert.Equal(0.5, known.ZoomFocalPointX);
+        Assert.Equal(SmartZoomConstants.TypePunchIn, known.ZoomCurve);
+        Assert.NotNull(known.ZoomDurationSeconds);
+    }
+
     // ------------------------------------------------------------------ Round-trip (SQLite real)
 
     [Fact]

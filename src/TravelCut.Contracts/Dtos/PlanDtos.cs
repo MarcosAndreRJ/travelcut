@@ -65,7 +65,12 @@ public record PlanClipDto(
     [property: JsonPropertyName("evidence")] List<string> Evidence,
     [property: JsonPropertyName("suggestionIds")] List<Guid> SuggestionIds, // sugestões que originaram este recorte
     [property: JsonPropertyName("confidenceBand")] string ConfidenceBand,
-    [property: JsonPropertyName("needsHumanReview")] bool NeedsHumanReview
+    [property: JsonPropertyName("needsHumanReview")] bool NeedsHumanReview,
+    // Aditivos (null sem zoom ou quando foco/duração não são conhecidos): foco 0-1, duração (s) e curva (punch_in | push_in) do zoom.
+    [property: JsonPropertyName("zoomFocalPointX")] double? ZoomFocalPointX = null,
+    [property: JsonPropertyName("zoomFocalPointY")] double? ZoomFocalPointY = null,
+    [property: JsonPropertyName("zoomDurationSeconds")] double? ZoomDurationSeconds = null,
+    [property: JsonPropertyName("zoomCurve")] string? ZoomCurve = null
 );
 
 public record PlanTransitionDto(
@@ -103,7 +108,9 @@ public record PlanAppliedEffectDto(
     [property: JsonPropertyName("reason")] string? Reason = null,
     [property: JsonPropertyName("scale")] double? Scale = null,
     [property: JsonPropertyName("focalPointX")] double? FocalPointX = null,
-    [property: JsonPropertyName("focalPointY")] double? FocalPointY = null
+    [property: JsonPropertyName("focalPointY")] double? FocalPointY = null,
+    [property: JsonPropertyName("durationSeconds")] double? DurationSeconds = null, // zoom (aditivo)
+    [property: JsonPropertyName("zoomCurve")] string? ZoomCurve = null              // zoom: punch_in | push_in (aditivo)
 );
 
 public record PlanPendingItemDto(
