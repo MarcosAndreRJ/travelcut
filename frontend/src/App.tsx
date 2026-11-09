@@ -21,6 +21,7 @@ import { MontageOverviewView } from './components/MontageOverviewView';
 import { ResolveHubView } from './components/ResolveHubView';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ModelDownloadBanner } from './components/environment/ModelDownloadBanner';
+import { usePipelineCompletionNotifier } from './components/analysis/usePipelineCompletionNotifier';
 import { integrationStatusStore } from './services/integrationStatusStore';
 import { modelDownloadTracker } from './services/modelDownloadTracker';
 import { ipc } from './services/ipcBridge';
@@ -338,6 +339,9 @@ const handleApplyZoom = (suggestionId: string, zoom: SmartZoomParametersDto) => 
   };
 
   const reloadSuggestions = () => setSuggestionsReloadKey((k) => k + 1);
+
+  // Fim de ciclo do pipeline (análise + pós-análise) em qualquer tela: notificação única no shell.
+  usePipelineCompletionNotifier(projectId);
 
   // Download concluído em qualquer tela: reconsulta forçada para todas as telas verem o novo estado.
   useEffect(() => modelDownloadTracker.onSuccess(() => void integrationStatusStore.refresh()), []);
