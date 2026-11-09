@@ -16,4 +16,10 @@ public interface IPostAnalysisOrchestrator
 
     /// <summary>Estado atual do projeto (idle quando nunca executou).</summary>
     PostAnalysisStatusDto GetStatus(Guid projectId);
+
+    /// <summary>
+    /// P07: recarrega o último estado persistido do projeto. Se a execução foi interrompida (estado "running" gravado),
+    /// reagenda-a e devolve true.
+    /// </summary>
+    Task<bool> RestoreAsync(Guid projectId, CancellationToken ct = default) => Task.FromResult(false);
 }

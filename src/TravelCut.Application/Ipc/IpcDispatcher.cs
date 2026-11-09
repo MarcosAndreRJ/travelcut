@@ -36,6 +36,7 @@ public class IpcDispatcher
     private readonly IMediaImportService _importService;
     private readonly OpenFolderUseCase _openFolderUseCase;
     private readonly ILogger<IpcDispatcher> _logger;
+    private readonly TravelCut.Application.PostAnalysis.PipelineResumeService? _resume;
     private readonly IEnvironmentAssistantService? _envAssistant;
     private readonly ITravelCutSettingsService? _settingsService;
     private readonly TravelCut.Application.Editorial.EditorialIpcHandler? _editorial;
@@ -63,8 +64,10 @@ public class IpcDispatcher
         TravelCut.Application.Motion.MotionIpcHandler? motion = null,
         TravelCut.Application.Editorial.EditorialIpcHandler? editorial = null,
         IEnvironmentAssistantService? envAssistant = null,
-        ITravelCutSettingsService? settingsService = null)
+        ITravelCutSettingsService? settingsService = null,
+        TravelCut.Application.PostAnalysis.PipelineResumeService? resume = null)
     {
+        _resume = resume;
         _motion = motion;
         _planning = planning;
         _preview = preview;
@@ -146,6 +149,8 @@ public class IpcDispatcher
                         return IpcResponse.Fail(request.RequestId, outcome.ErrorCode ?? "OPEN_FAILED", outcome.ErrorMessage ?? "Falha ao abrir projeto.");
                     }
 
+                    // P07: retoma pendências (fila persistida, análise faltante, parciais órfãos) sem bloquear a abertura.
+                    _resume?.ResumeInBackground(outcome.Summary.ProjectId);
                     return IpcResponse.Success(request.RequestId, new OpenProjectResponse(outcome.Summary, outcome.Summary, "ready"));
                 }
 
@@ -393,6 +398,27 @@ public class IpcDispatcher
                         var jobId = await _pipelineJobs.StartAsync(req, ct);
                         _logger.LogInformation("Análise iniciada via IPC: job {JobId}", jobId);
                         return IpcResponse.Success(request.RequestId, new StartPipelineResponse(jobId));
+                    }
+                    catch (InvalidOperationException ex) when (IsKnownPipelineCode(ex.Message))
+                    {
+                        return IpcResponse.Fail(request.RequestId, ex.Message, PipelineErrorMessage(ex.Message));
+                    }
+                }
+
+                case "pipeline.retryFailed":
+                {
+                    // P12: reenfileira só as mídias com etapa falha/cancelada do último job (etapas concluídas vêm do cache).
+                    var req = DeserializePayload<ProjectRequest>(request.Payload);
+                    if (req == null || req.ProjectId == Guid.Empty)
+                    {
+                        return IpcResponse.Fail(request.RequestId, "INVALID_PROJECT_ID", "ID de projeto inválido.");
+                    }
+
+                    try
+                    {
+                        var result = await _pipelineJobs.RetryFailedAsync(req.ProjectId, ct);
+                        return IpcResponse.Success(request.RequestId,
+                            new RetryFailedPipelineResponse(result.Outcome, result.JobId, result.PendingMediaCount));
                     }
                     catch (InvalidOperationException ex) when (IsKnownPipelineCode(ex.Message))
                     {

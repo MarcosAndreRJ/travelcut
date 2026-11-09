@@ -211,5 +211,13 @@ public record MediaAnalysisDto(
     [property: JsonPropertyName("hesitations")] List<HesitationCandidateDto> Hesitations,
     [property: JsonPropertyName("scene")] SceneClassificationDto? Scene,
     [property: JsonPropertyName("cutCandidates")] List<EditSuggestionDto> CutCandidates,
-    [property: JsonPropertyName("analyzedAtUtc")] DateTime? AnalyzedAtUtc
+    [property: JsonPropertyName("analyzedAtUtc")] DateTime? AnalyzedAtUtc,
+    [property: JsonPropertyName("stale")] bool Stale = false   // P11: arquivo mudou desde a análise; resultados antigos descartados, reanálise pendente
+);
+
+/// <summary>Resposta de pipeline.retryFailed. Outcome: "started" | "merged" (ver <c>PipelineEnqueueResult</c>).</summary>
+public record RetryFailedPipelineResponse(
+    [property: JsonPropertyName("outcome")] string Outcome,
+    [property: JsonPropertyName("jobId")] Guid? JobId,
+    [property: JsonPropertyName("pendingMediaCount")] int PendingMediaCount
 );

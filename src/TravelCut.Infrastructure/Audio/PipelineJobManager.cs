@@ -75,6 +75,11 @@ public class PipelineJobManager : IPipelineJobManager
     /// <summary>F14.8/P01: processamento automático (plano + proxies) acionado só em completed/completed_with_issues.</summary>
     private readonly IPostAnalysisOrchestrator? _postAnalysis;
 
+    /// <summary>P07: persistência da fila pendente (null = só memória, como antes).</summary>
+    private readonly IPipelineStateStore? _stateStore;
+    private readonly Dictionary<Guid, string> _rootByProject = new();
+    private readonly object _persistGate = new();
+
     private readonly SemaphoreSlim _environmentLock = new(1, 1);
     private AnalysisEnvironmentDto? _environment;
     private DateTime _environmentAtUtc = DateTime.MinValue;
@@ -88,9 +93,11 @@ public class PipelineJobManager : IPipelineJobManager
         ISceneClassifierService scene,
         ICutCandidateService candidates,
         IProjectOperationLock projectLocks,
-        IPostAnalysisOrchestrator? postAnalysis = null)
+        IPostAnalysisOrchestrator? postAnalysis = null,
+        IPipelineStateStore? stateStore = null)
     {
         _postAnalysis = postAnalysis;
+        _stateStore = stateStore;
         _logger = logger;
         _scopeFactory = scopeFactory;
         _whisper = whisper;
@@ -108,7 +115,11 @@ public class PipelineJobManager : IPipelineJobManager
         var stages = NormalizeStages(request.Stages);
         var language = NormalizeLanguage(request.Language);
 
-        if (TryMergeIntoPending(request, stages, language) is { } merged) return merged;
+        if (TryMergeIntoPending(request, stages, language) is { } merged)
+        {
+            PersistPending(request.ProjectId);
+            return merged;
+        }
 
         try
         {
@@ -117,9 +128,129 @@ public class PipelineJobManager : IPipelineJobManager
         catch (InvalidOperationException ex) when (ex.Message == "PIPELINE_IN_PROGRESS")
         {
             // Corrida: outro start ocupou o slot entre a checagem e a reserva. Trava entre processos (sem job local): não há aviso de liberação → propaga.
-            if (TryMergeIntoPending(request, stages, language) is { } raced) return raced;
+            if (TryMergeIntoPending(request, stages, language) is { } raced)
+            {
+                PersistPending(request.ProjectId);
+                return raced;
+            }
             throw;
         }
+    }
+
+    /// <summary>P07: grava a fila pendente atual do projeto (snapshot sob trava; no máximo uma escrita por vez). Melhor esforço.</summary>
+    private void PersistPending(Guid projectId)
+    {
+        if (_stateStore is null) return;
+        lock (_persistGate)
+        {
+            string? root;
+            List<PersistedPendingBatch> snapshot;
+            lock (_registry)
+            {
+                if (!_rootByProject.TryGetValue(projectId, out root)) return;
+                snapshot = _pending.TryGetValue(projectId, out var list)
+                    ? list.Select(b => new PersistedPendingBatch(b.Stages.ToList(), b.Language, b.Force, b.MediaIds?.ToList())).ToList()
+                    : new List<PersistedPendingBatch>();
+            }
+
+            try
+            {
+                _stateStore.SavePending(root, snapshot);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Não foi possível persistir a fila pendente do projeto {ProjectId}", projectId);
+            }
+        }
+    }
+
+    public async Task<int> RestorePendingAsync(Guid projectId, CancellationToken ct = default)
+    {
+        if (_stateStore is null) return 0;
+
+        string? root;
+        using (var scope = _scopeFactory.CreateScope())
+        {
+            var project = await scope.ServiceProvider.GetRequiredService<IProjectRepository>().GetByIdAsync(projectId, ct);
+            root = string.IsNullOrWhiteSpace(project?.RootPath) ? null : Path.GetFullPath(project!.RootPath);
+        }
+        if (root is null) return 0;
+
+        IReadOnlyList<PersistedPendingBatch> saved;
+        try
+        {
+            saved = _stateStore.LoadPending(root);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Falha ao ler a fila pendente persistida do projeto {ProjectId}", projectId);
+            return 0;
+        }
+
+        lock (_registry)
+        {
+            _rootByProject[projectId] = root;
+            foreach (var b in saved)
+            {
+                // Estágios/idioma passam pela mesma validação de uma requisição nova; lote inválido é descartado.
+                try
+                {
+                    MergeBatch(projectId, NormalizeStages(b.Stages), NormalizeLanguage(b.Language), b.Force, b.MediaIds);
+                }
+                catch (InvalidOperationException)
+                {
+                    _logger.LogWarning("Lote pendente persistido inválido descartado no projeto {ProjectId}", projectId);
+                }
+            }
+        }
+
+        if (saved.Count > 0)
+        {
+            _logger.LogInformation("Projeto {ProjectId}: {Count} lote(s) pendente(s) restaurado(s) do disco", projectId, saved.Count);
+            _ = Task.Run(async () =>
+            {
+                await DrainPendingAsync(projectId);
+                PersistPending(projectId);
+            }, CancellationToken.None);
+        }
+        return saved.Count;
+    }
+
+    /// <summary>Adiciona/mescla um lote na fila do projeto. Chamar sob <see cref="_registry"/>.</summary>
+    private PendingBatch MergeBatch(Guid projectId, List<string> stages, string language, bool force, List<Guid>? mediaIds)
+    {
+        if (!_pending.TryGetValue(projectId, out var batches))
+        {
+            batches = new List<PendingBatch>();
+            _pending[projectId] = batches;
+        }
+
+        var batch = batches.FirstOrDefault(b => b.Force == force && b.Language == language && b.Stages.SequenceEqual(stages));
+        if (batch == null)
+        {
+            batch = new PendingBatch
+            {
+                ProjectId = projectId,
+                Stages = stages,
+                Language = language,
+                Force = force,
+                MediaIds = mediaIds == null ? null : new List<Guid>()
+            };
+            batches.Add(batch);
+        }
+
+        if (mediaIds == null)
+        {
+            batch.MediaIds = null; // "todas" absorve qualquer lista
+        }
+        else if (batch.MediaIds != null)
+        {
+            foreach (var id in mediaIds)
+            {
+                if (!batch.MediaIds.Contains(id)) batch.MediaIds.Add(id);
+            }
+        }
+        return batch;
     }
 
     private PipelineEnqueueResult? TryMergeIntoPending(StartPipelineRequest request, List<string> stages, string language)
@@ -128,37 +259,7 @@ public class PipelineJobManager : IPipelineJobManager
         {
             if (!_activeByProject.TryGetValue(request.ProjectId, out var activeJobId)) return null;
 
-            if (!_pending.TryGetValue(request.ProjectId, out var batches))
-            {
-                batches = new List<PendingBatch>();
-                _pending[request.ProjectId] = batches;
-            }
-
-            var batch = batches.FirstOrDefault(b => b.Force == request.Force && b.Language == language && b.Stages.SequenceEqual(stages));
-            if (batch == null)
-            {
-                batch = new PendingBatch
-                {
-                    ProjectId = request.ProjectId,
-                    Stages = stages,
-                    Language = language,
-                    Force = request.Force,
-                    MediaIds = request.MediaIds == null ? null : new List<Guid>()
-                };
-                batches.Add(batch);
-            }
-
-            if (request.MediaIds == null)
-            {
-                batch.MediaIds = null; // "todas" absorve qualquer lista
-            }
-            else if (batch.MediaIds != null)
-            {
-                foreach (var id in request.MediaIds)
-                {
-                    if (!batch.MediaIds.Contains(id)) batch.MediaIds.Add(id);
-                }
-            }
+            var batch = MergeBatch(request.ProjectId, stages, language, request.Force, request.MediaIds);
 
             _logger.LogInformation("Pipeline do projeto {ProjectId} em andamento ({JobId}): mídias mescladas ao lote pendente ({Count})",
                 request.ProjectId, activeJobId, batch.MediaIds?.Count ?? -1);
@@ -183,6 +284,7 @@ public class PipelineJobManager : IPipelineJobManager
                     list.RemoveAt(0);
                     if (list.Count == 0) _pending.Remove(projectId);
                 }
+                PersistPending(projectId);
 
                 try
                 {
@@ -192,6 +294,7 @@ public class PipelineJobManager : IPipelineJobManager
                 }
                 catch (InvalidOperationException ex) when (ex.Message == "PIPELINE_IN_PROGRESS")
                 {
+                    bool reinserted = false;
                     lock (_registry)
                     {
                         if (_activeByProject.ContainsKey(projectId))
@@ -199,8 +302,13 @@ public class PipelineJobManager : IPipelineJobManager
                             // Outro job tomou o slot: devolve o lote ao início da fila; ele drena ao terminar.
                             if (!_pending.TryGetValue(projectId, out var list)) { list = new List<PendingBatch>(); _pending[projectId] = list; }
                             list.Insert(0, batch);
-                            return;
+                            reinserted = true;
                         }
+                    }
+                    if (reinserted)
+                    {
+                        PersistPending(projectId);
+                        return;
                     }
                     _logger.LogError("Lote pendente do projeto {ProjectId} descartado: a trava de análise entre processos está ocupada.", projectId);
                 }
@@ -227,6 +335,7 @@ public class PipelineJobManager : IPipelineJobManager
                 _logger.LogWarning("Análise cancelada: {Count} lote(s) pendente(s) do projeto {ProjectId} descartado(s).", dropped.Count, projectId);
             }
         }
+        PersistPending(projectId);
     }
 
     public async Task<Guid> StartAsync(StartPipelineRequest request, CancellationToken ct = default)
@@ -284,6 +393,7 @@ public class PipelineJobManager : IPipelineJobManager
             job.SetAnalysisLock(analysisLock);
 
             job.ProjectRoot = root;
+            lock (_registry) { _rootByProject[request.ProjectId] = root; }
             job.InitializeMedia(selected.Select(a => CreateWork(root, a)));
         }
         catch

@@ -28,4 +28,14 @@ public interface IPipelineJobManager
     /// <summary>Execuções do worker no job mais recente do projeto (caminhos locais: só por pedido explícito).</summary>
     PipelineDiagnosticsDto GetDiagnostics(Guid projectId) => new(null, new List<WhisperExecutionDto>());
     Task<MediaAnalysisDto?> GetMediaAnalysisAsync(Guid projectId, Guid mediaId, CancellationToken ct = default);
+
+    /// <summary>P07: recarrega os lotes pendentes persistidos do projeto e inicia o primeiro se o slot estiver livre. Devolve quantos lotes foram restaurados.</summary>
+    Task<int> RestorePendingAsync(Guid projectId, CancellationToken ct = default) => Task.FromResult(0);
+
+    /// <summary>P12: reenfileira as mídias com etapa falha/cancelada do último job. Padrão: nada a refazer (NO_MEDIA_TO_ANALYZE).</summary>
+    Task<PipelineEnqueueResult> RetryFailedAsync(Guid projectId, CancellationToken ct = default)
+        => throw new InvalidOperationException("NO_MEDIA_TO_ANALYZE");
+
+    /// <summary>P11: o arquivo das mídias mudou (fingerprint novo): marca a análise como stale, remove a transcrição antiga e reenfileira a reanálise.</summary>
+    Task MarkMediaStaleAsync(Guid projectId, IReadOnlyList<Guid> mediaIds, CancellationToken ct = default) => Task.CompletedTask;
 }
