@@ -16,6 +16,7 @@ interface PipelineQueuePanelProps {
   status: PipelineStatusDto | null;
   statusError: string | null;
   actionError: string | null;
+  actionNotice?: string | null;
   isStarting: boolean;
   isCanceling: boolean;
   hasMedia: boolean;
@@ -86,6 +87,7 @@ export const PipelineQueuePanel: React.FC<PipelineQueuePanelProps> = ({
   status,
   statusError,
   actionError,
+  actionNotice = null,
   isStarting,
   isCanceling,
   hasMedia,
@@ -175,6 +177,12 @@ export const PipelineQueuePanel: React.FC<PipelineQueuePanelProps> = ({
       {actionError && (
         <p role="alert" className="text-[11px] text-rose-300 mb-2">
           {actionError}
+        </p>
+      )}
+
+      {actionNotice && !actionError && (
+        <p role="status" className="text-[11px] text-cyan-300 mb-2">
+          {actionNotice}
         </p>
       )}
 

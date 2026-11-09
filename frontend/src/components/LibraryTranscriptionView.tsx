@@ -937,6 +937,7 @@ export const LibraryTranscriptionView: React.FC<LibraryTranscriptionViewProps> =
             status={pipeline.status}
             statusError={pipeline.statusError}
             actionError={pipeline.actionError}
+            actionNotice={pipeline.actionNotice}
             isStarting={pipeline.isStarting}
             isCanceling={pipeline.isCanceling}
             hasMedia={assets.length > 0}
