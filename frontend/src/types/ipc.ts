@@ -137,6 +137,8 @@ export interface EditSuggestion {
   policyVersion?: string | null;          // só origin 'auto'
   policyReason?: string | null;           // só origin 'auto'
   parameters?: DecisionParametersDto | null; // efetivos (decisão humana, senão os da própria sugestão de zoom)
+  // Elegibilidade do lote calculada pelo host (aditivo). Ausente = o frontend usa a regra local de isBatchApprovable.
+  batchApprovable?: boolean | null;
 }
 
 // ---- Prévia (F07) — espelho de src/TravelCut.Contracts/Dtos/PreviewDtos.cs ----
