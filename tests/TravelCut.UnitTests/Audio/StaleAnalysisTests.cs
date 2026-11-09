@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using TravelCut.Application.Planning;
 using TravelCut.Contracts.Dtos;
 using Xunit;
@@ -52,6 +53,41 @@ public class StaleAnalysisTests : IDisposable
         var after = await _h.Manager.GetMediaAnalysisAsync(project.ProjectId, media.MediaId);
         Assert.False(after!.Stale);
         Assert.Equal("completed", after.TranscriptionStatus);
+    }
+
+    [Fact]
+    public async Task InFlightJob_ForOldFingerprint_DoesNotRewriteTranscriptAfterMarkStale()
+    {
+        var project = _h.CreateProject();
+        var media = _h.AddMedia(project, "1-Bruto/a.mp4", fingerprint: "old");
+        var oldTranscript = new TranscriptDto(Guid.NewGuid(), media.MediaId, "large-v3", "pt", "conteudo antigo", 5.0,
+            new List<TranscriptWordDto> { new(0, 0.0, 0.5, "antigo", 0.9) });
+        // 1ª chamada (job em voo, conteúdo antigo) devolve transcrição; as seguintes (reanálise) falham: nada novo para gravar.
+        _h.Whisper.ScriptedOutcomes.Enqueue(new TranscriptionOutcome("completed", oldTranscript, null, "fake", "large-v3"));
+        _h.Whisper.Outcome = new TranscriptionOutcome("failed", null, "sem resultado na reanálise", null, null);
+        _h.Silence.Outcome = new SilenceDetectionOutcome("completed", new List<VadSilenceSegmentDto>(), null);
+        var gate = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _h.Whisper.TranscribeGate = gate;
+
+        await _h.Manager.StartAsync(new StartPipelineRequest(project.ProjectId, null, null, null, false));
+        await WaitUntilAsync(() => Task.FromResult(_h.Whisper.TranscribeCalls >= 1)); // o job transcreve o conteúdo antigo
+
+        // O arquivo muda enquanto a transcrição antiga está em voo.
+        media.Fingerprint = "new";
+        _h.Db.SaveChanges();
+        await _h.Manager.MarkMediaStaleAsync(project.ProjectId, new List<Guid> { media.MediaId });
+        gate.SetResult(true); // a transcrição do conteúdo antigo chega agora
+
+        await WaitUntilAsync(async () =>
+        {
+            var s = await _h.Manager.GetStatusAsync(project.ProjectId);
+            return _h.Whisper.TranscribeCalls >= 2 && s.Completion is { Settled: true };
+        });
+
+        using var scope = _h.Services.CreateScope();
+        var stored = await scope.ServiceProvider.GetRequiredService<TravelCut.Application.Ports.ITranscriptRepository>()
+            .GetByMediaIdAsync(media.MediaId);
+        Assert.Null(stored); // sem a guarda, "conteudo antigo" ficaria no banco sob o fingerprint novo
     }
 
     [Fact]

@@ -961,6 +961,20 @@ public class PipelineJobManager : IPipelineJobManager
 
         if (outcome.Status == "completed" && outcome.Transcript != null)
         {
+            // M3: o arquivo pode ter mudado (fingerprint novo + MarkMediaStaleAsync) enquanto este job transcrevia o conteúdo
+            // antigo. Nunca regrava no banco uma transcrição do fingerprint antigo; a reanálise pendente produz a nova.
+            if (await IsMediaContentChangedAsync(sp, media, ct))
+            {
+                const string superseded = "Arquivo alterado durante a análise: resultado descartado; reanálise pendente.";
+                _logger.LogInformation("Mídia {MediaId} mudou durante o job {JobId}; transcrição do conteúdo antigo descartada", media.MediaId, job.JobId);
+                work.Superseded = true;
+                work.Transcript = null;
+                work.TranscriptionStatus = StageStates.Skipped;
+                work.TranscriptionReason = superseded;
+                job.SetStage(media, PipelineStages.Transcription, StageStates.Skipped, superseded);
+                return;
+            }
+
             var transcript = outcome.Transcript with { MediaId = media.MediaId };
             await PersistTranscriptAsync(sp, transcript, ct);
 
@@ -1141,6 +1155,15 @@ public class PipelineJobManager : IPipelineJobManager
 
     private async Task RunCandidatesAsync(PipelineJobRun job, PipelineMediaWork media, MediaAnalysisWork work, IServiceProvider sp, CancellationToken ct)
     {
+        if (work.Superseded || await IsMediaContentChangedAsync(sp, media, ct))
+        {
+            // M3: candidatos do conteúdo antigo não podem substituir as sugestões da mídia alterada.
+            work.Superseded = true;
+            job.SetStage(media, PipelineStages.Candidates, StageStates.Skipped,
+                "Arquivo alterado durante a análise: candidatos descartados; reanálise pendente.");
+            return;
+        }
+
         bool hasSilence = work.SilenceStatus == "completed";
         bool hasTranscript = work.TranscriptionStatus == "completed" && work.Transcript != null;
 
@@ -1174,6 +1197,20 @@ public class PipelineJobManager : IPipelineJobManager
     }
 
     // ---------------------------------------------------------------- Persistência
+
+    /// <summary>
+    /// true quando o fingerprint atual da mídia no banco difere do usado por este job (conteúdo trocado durante a execução).
+    /// Leitura sem rastreamento: o DbContext do escopo não pode devolver a entidade antiga em cache.
+    /// </summary>
+    private static async Task<bool> IsMediaContentChangedAsync(IServiceProvider sp, PipelineMediaWork media, CancellationToken ct)
+    {
+        var db = sp.GetRequiredService<TravelCutDbContext>();
+        var current = await db.MediaAssets.AsNoTracking()
+            .Where(m => m.MediaId == media.MediaId)
+            .Select(m => m.Fingerprint)
+            .FirstOrDefaultAsync(ct);
+        return current is not null && !string.Equals(current, media.Asset.Fingerprint, StringComparison.Ordinal);
+    }
 
     private static async Task PersistTranscriptAsync(IServiceProvider sp, TranscriptDto dto, CancellationToken ct)
     {

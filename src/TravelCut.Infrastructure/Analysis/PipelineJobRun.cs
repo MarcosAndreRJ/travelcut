@@ -388,6 +388,9 @@ public sealed class MediaAnalysisWork
     public SceneClassificationDto? Scene { get; set; }
     public List<EditSuggestionDto> CutCandidates { get; set; } = new();
 
+    /// <summary>O conteúdo da mídia mudou durante o job: nada do fingerprint antigo é persistido no banco.</summary>
+    public bool Superseded { get; set; }
+
     public static MediaAnalysisWork From(MediaAnalysisDto? previous)
     {
         if (previous == null) return new MediaAnalysisWork();
