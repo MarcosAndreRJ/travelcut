@@ -17,10 +17,10 @@ public sealed class McpStdioSmokeTests : IDisposable
     private static readonly string[] ReadOnlyTools =
     [
         "list_projects", "get_inventory", "get_transcript", "get_suggestions",
-        "get_edit_plan", "job_status", "get_editor_capabilities", "get_motion_capabilities",
+        "get_edit_plan", "job_status", "get_editor_capabilities", "get_motion_capabilities", "get_automation_profile",
     ];
 
-    private static readonly string[] MutationTools = ["submit_review", "queue_analysis", "apply_plan"];
+    private static readonly string[] MutationTools = ["submit_review", "queue_analysis", "apply_plan", "set_automation_profile"];
 
     private readonly string _root = Path.Combine(Path.GetTempPath(), "tc_stdio_" + Guid.NewGuid().ToString("N"));
 

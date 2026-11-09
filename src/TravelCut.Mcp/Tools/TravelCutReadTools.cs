@@ -47,6 +47,22 @@ public sealed class TravelCutReadTools(TravelCutMcpFacade facade)
         return ToolResults.From(outcome);
     }
 
+    [McpServerTool(Name = "get_automation_profile", ReadOnly = true, Idempotent = true, OpenWorld = false)]
+    [Description("Perfil de automação editorial do projeto (conservative, balanced ou aggressive) e isDefault (true = nunca escolhido; balanced é o padrão). Mesmo contrato de automation.profile.get da UI. Somente leitura.")]
+    public async Task<CallToolResult> GetAutomationProfile(
+        [Description("GUID do projeto autorizado.")] string projectId,
+        CancellationToken cancellationToken = default)
+    {
+        var outcome = await facade.ExecuteReadAsync("get_automation_profile", async ct =>
+        {
+            var pid = facade.RequireAuthorizedProject(projectId);
+            var response = await facade.DispatchAsync(
+                TravelCutMcpFacade.IpcTypes.AutomationProfileGet, new GetAutomationProfileRequest(pid), ct);
+            return McpOutcome.FromResponse(response);
+        }, cancellationToken);
+        return ToolResults.From(outcome);
+    }
+
     [McpServerTool(Name = "get_transcript", ReadOnly = true, Idempotent = true, OpenWorld = false)]
     [Description("Transcrição de uma mídia do projeto: status, motivo e palavras com tempos em segundos da fonte. Somente leitura. Conteúdo sensível: não copie para logs.")]
     public async Task<CallToolResult> GetTranscript(
