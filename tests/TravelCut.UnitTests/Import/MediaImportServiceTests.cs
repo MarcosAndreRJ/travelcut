@@ -504,31 +504,56 @@ public class MediaImportServiceTests
     }
 
     [Fact]
-    public async Task DetectSpeechWhenPipelineAlreadyRunningNotesExistingJob()
+    public async Task DetectSpeech_SlowEnvironmentProbe_DoesNotBlockStart_AndIsDecidedInsideJob()
     {
         using var tmp = new TempDirectory();
         string root = Path.Combine(tmp.Path, "Projeto");
         using var h = new ImportHarness(registerPipeline: true);
         var project = h.CreateProject(root);
-        h.PipelineJobs!.CurrentStatus = new PipelineStatusDto(
-            JobId: Guid.NewGuid(),
-            ProjectId: project.ProjectId,
-            State: "running",
-            Stages: new List<PipelineStageStatusDto>(),
-            Media: new List<PipelineMediaStatusDto>(),
-            CurrentMedia: "1-Bruto/clipe.mp4",
-            Environment: null,
-            StartedAtUtc: DateTime.UtcNow,
-            FinishedAtUtc: null);
+        var gate = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        h.PipelineJobs!.ProbeGate = gate; // probe de ambiente/status "trava" até liberarmos
+        string source = TestFiles.WriteSource(Path.Combine(tmp.Path, "origem", "fala.mp4"), TestFiles.RandomBytes(2048));
 
-        string source = TestFiles.WriteSource(Path.Combine(tmp.Path, "origem", "clipe.mp4"), TestFiles.RandomBytes(2048));
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         var start = await h.Service.StartAsync(ImportHarness.Request(project.ProjectId, new[] { source }, detectSpeech: true));
+        sw.Stop();
+
+        Assert.True(start.Success);
+        Assert.True(sw.ElapsedMilliseconds < 200, $"StartAsync levou {sw.ElapsedMilliseconds} ms com probe lento");
+
+        // Job ainda não terminou: aguarda a decisão da fala (probe em segundo plano).
+        await Task.Delay(300);
+        Assert.False(h.Service.GetStatus(start.JobId!.Value)!.State is "completed" or "completed_with_errors" or "failed");
+        Assert.Empty(h.PipelineJobs.StartedRequests);
+
+        gate.SetResult(true);
         var status = await ImportHarness.WaitForFinalAsync(h.Service, start.JobId!.Value);
 
         Assert.Equal("completed", status.State);
         Assert.Equal("queued", status.SpeechAnalysis);
-        Assert.Contains("já está em andamento", status.Message);
-        Assert.Contains("já está em andamento", status.Message);
+        Assert.Single(h.PipelineJobs.StartedRequests);
+    }
+
+    [Fact]
+    public async Task DetectSpeech_CachedEnvironmentWithoutWhisper_IsUnavailableImmediately_WithoutProbe()
+    {
+        using var tmp = new TempDirectory();
+        string root = Path.Combine(tmp.Path, "Projeto");
+        using var h = new ImportHarness(registerPipeline: true);
+        var project = h.CreateProject(root);
+        h.PipelineJobs!.CachedEnvironment = new AnalysisEnvironmentDto(
+            true, "7.1", true, false, null, "large-v3", true, new List<string>(),
+            Device: "cuda", ModelCached: false, CpuFallback: false,
+            WhisperUnavailableReason: "Modelo Whisper large-v3 não está no cache local.");
+        string source = TestFiles.WriteSource(Path.Combine(tmp.Path, "origem", "fala.mp4"), TestFiles.RandomBytes(2048));
+
+        var start = await h.Service.StartAsync(ImportHarness.Request(project.ProjectId, new[] { source }, detectSpeech: true));
+        var status = await ImportHarness.WaitForFinalAsync(h.Service, start.JobId!.Value);
+
+        Assert.Equal("unavailable", status.SpeechAnalysis);
+        Assert.Contains("cache local", status.Message);
+        Assert.Empty(h.PipelineJobs.StartedRequests);
+        Assert.Equal(0, h.PipelineJobs.EnvironmentCalls);
     }
 
     [Fact]

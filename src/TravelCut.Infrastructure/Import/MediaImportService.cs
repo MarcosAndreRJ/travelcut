@@ -33,6 +33,20 @@ public sealed class MediaImportService : IMediaImportService
     private const string SpeechUnavailableNote =
         "Análise de fala (F05) ainda não está conectada nesta versão: nada foi enfileirado.";
     private const int MaxNameAttempts = 10000;
+
+    /// <summary>Estados de <c>speechAnalysis</c> (contrato com a UI).</summary>
+    private static class SpeechStates
+    {
+        public const string Queued = "queued";
+        public const string Unavailable = "unavailable";
+    }
+
+    private static string DescribeWhisperUnavailable(AnalysisEnvironmentDto env)
+    {
+        if (!string.IsNullOrWhiteSpace(env.WhisperUnavailableReason)) return env.WhisperUnavailableReason!;
+        var reasons = env.Reasons.Where(r => !string.IsNullOrWhiteSpace(r)).ToList();
+        return reasons.Count > 0 ? string.Join("; ", reasons) : "Whisper indisponível neste ambiente.";
+    }
     private const long GiB = 1L << 30;
 
     private readonly IServiceScopeFactory _scopeFactory;
@@ -129,62 +143,32 @@ public sealed class MediaImportService : IMediaImportService
         _jobs[jobId] = job;
         if (request.DetectSpeech)
         {
+            // Nunca bloqueia o chamador (IPC): sem probe aqui. Só o cache do ambiente (se válido) antecipa um "indisponível";
+            // a decisão real (probe, enfileirar ou mesclar) acontece dentro do job, em segundo plano.
             var pipeline = ResolvePipelineJobManager();
             if (pipeline == null)
             {
                 job.Mutate(j =>
                 {
-                    j.SpeechAnalysis = "unavailable";
+                    j.SpeechAnalysis = SpeechStates.Unavailable;
                     j.AddNote("Detecção de fala indisponível: pipeline não está registrado neste host (serviço de análise audiovisual não configurado); nada foi enfileirado.");
+                });
+            }
+            else if (pipeline.PeekEnvironment() is { WhisperAvailable: false } cachedEnv)
+            {
+                job.Mutate(j =>
+                {
+                    j.SpeechAnalysis = SpeechStates.Unavailable;
+                    j.AddNote($"Detecção de fala indisponível ({DescribeWhisperUnavailable(cachedEnv)}): nada foi enfileirado.");
                 });
             }
             else
             {
-                try
+                job.Mutate(j =>
                 {
-                    var status = await pipeline.GetStatusAsync(project.ProjectId, ct);
-                    if (status != null && status.State is "running" or "queued")
-                    {
-                        job.Mutate(j =>
-                        {
-                            j.SpeechAnalysis = "queued";
-                            j.AddNote("Detecção de fala solicitada: um pipeline já está em andamento para este projeto.");
-                        });
-                    }
-                    else
-                    {
-                        var env = await pipeline.GetEnvironmentAsync(ct);
-                        if (env != null && !env.WhisperAvailable)
-                        {
-                            var reasons = env.Reasons.Where(r => !string.IsNullOrWhiteSpace(r)).ToList();
-                            string reason = reasons.Count > 0
-                                ? string.Join("; ", reasons)
-                                : "Whisper indisponível neste ambiente.";
-                            job.Mutate(j =>
-                            {
-                                j.SpeechAnalysis = "unavailable";
-                                j.AddNote($"Detecção de fala indisponível ({reason}): nada foi enfileirado.");
-                            });
-                        }
-                        else
-                        {
-                            job.Mutate(j =>
-                            {
-                                j.SpeechAnalysis = "queued";
-                                j.AddNote("Detecção de fala agendada para após a importação.");
-                            });
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Falha ao verificar ambiente de análise de fala para o job {JobId}", job.JobId);
-                    job.Mutate(j =>
-                    {
-                        j.SpeechAnalysis = "unavailable";
-                        j.AddNote("Falha ao consultar dependências de fala: análise indisponível; nada foi enfileirado.");
-                    });
-                }
+                    j.SpeechAnalysis = SpeechStates.Queued;
+                    j.AddNote("Detecção de fala agendada para após a importação (dependências verificadas em segundo plano).");
+                });
             }
         }
 
@@ -474,6 +458,42 @@ public sealed class MediaImportService : IMediaImportService
                 j.AddNote("Detecção de fala: gerenciador de pipeline de análise indisponível.");
             });
             return;
+        }
+
+        // Decisão da fala em segundo plano: o probe de ambiente pode demorar (até o timeout do worker) sem travar o IPC.
+        AnalysisEnvironmentDto? env = null;
+        try
+        {
+            env = await pipeline.GetEnvironmentAsync(ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Falha ao verificar ambiente de análise de fala para o job {JobId}", job.JobId);
+            job.Mutate(j =>
+            {
+                j.SpeechAnalysis = "unavailable";
+                j.AddNote("Falha ao consultar dependências de fala: análise indisponível; nada foi enfileirado.");
+            });
+            return;
+        }
+
+        if (env is { WhisperAvailable: false })
+        {
+            job.Mutate(j =>
+            {
+                j.SpeechAnalysis = "unavailable";
+                j.AddNote($"Detecção de fala indisponível ({DescribeWhisperUnavailable(env)}): nada foi enfileirado.");
+            });
+            return;
+        }
+
+        if (env is { CpuFallback: true })
+        {
+            job.Mutate(j => j.AddNote("Aviso: sem CUDA, a transcrição Whisper roda em CPU e será muito lenta."));
         }
 
         try

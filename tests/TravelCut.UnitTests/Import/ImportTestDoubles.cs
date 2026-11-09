@@ -120,6 +120,15 @@ internal sealed class FakePipelineJobManager : IPipelineJobManager
     public string? FailReason { get; set; }
     public PipelineStatusDto? CurrentStatus { get; set; }
 
+    /// <summary>Quando definido, GetStatusAsync/GetEnvironmentAsync só completam depois que o gate for liberado (probe lento).</summary>
+    public TaskCompletionSource<bool>? ProbeGate { get; set; }
+    public int EnvironmentCalls => Volatile.Read(ref _environmentCalls);
+    private int _environmentCalls;
+    /// <summary>Ambiente em cache simulado: devolvido por PeekEnvironment (sem probe).</summary>
+    public AnalysisEnvironmentDto? CachedEnvironment { get; set; }
+
+    public AnalysisEnvironmentDto? PeekEnvironment() => CachedEnvironment;
+
     public Task<Guid> StartAsync(StartPipelineRequest request, CancellationToken ct = default)
     {
         lock (_sync)
@@ -133,9 +142,10 @@ internal sealed class FakePipelineJobManager : IPipelineJobManager
         }
     }
 
-    public Task<PipelineStatusDto> GetStatusAsync(Guid projectId, CancellationToken ct = default)
+    public async Task<PipelineStatusDto> GetStatusAsync(Guid projectId, CancellationToken ct = default)
     {
-        return Task.FromResult(CurrentStatus ?? new PipelineStatusDto(
+        if (ProbeGate != null) await ProbeGate.Task.WaitAsync(ct);
+        return (CurrentStatus ?? new PipelineStatusDto(
             JobId: NextJobId,
             ProjectId: projectId,
             State: "completed",
@@ -149,9 +159,11 @@ internal sealed class FakePipelineJobManager : IPipelineJobManager
 
     public bool Cancel(Guid jobId) => true;
 
-    public Task<AnalysisEnvironmentDto> GetEnvironmentAsync(CancellationToken ct = default, bool forceRefresh = false)
+    public async Task<AnalysisEnvironmentDto> GetEnvironmentAsync(CancellationToken ct = default, bool forceRefresh = false)
     {
-        return Task.FromResult(new AnalysisEnvironmentDto(
+        Interlocked.Increment(ref _environmentCalls);
+        if (ProbeGate != null) await ProbeGate.Task.WaitAsync(ct);
+        return (new AnalysisEnvironmentDto(
             FfmpegAvailable: FfmpegAvailable,
             FfmpegVersion: "7.1",
             PythonAvailable: true,
