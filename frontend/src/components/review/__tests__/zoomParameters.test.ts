@@ -17,8 +17,30 @@ const zoomFromHost: SmartZoomParametersDto = {
 };
 
 describe('mapeamento config de zoom -> parameters.zoom', () => {
-  it('sem zoom (1.0x) não gera parameters', () => {
-    expect(zoomConfigToParameters(DEFAULT_ZOOM_CONFIG, 4)).toEqual({ parameters: null, scaleClamped: false });
+  it('sem zoom (1.0x) envia parameters.zoom.none = true com escala 1.0', () => {
+    expect(zoomConfigToParameters(DEFAULT_ZOOM_CONFIG, 4)).toEqual({
+      parameters: {
+        zoomType: 'punch_in',
+        scale: 1.0,
+        focalPointX: 0.5,
+        focalPointY: 0.5,
+        durationSeconds: 0,
+        focalPointKnown: true,
+        none: true
+      },
+      none: true,
+      scaleClamped: false
+    });
+  });
+
+  it('presets do intervalo do host (1,01–1,12) não são limitados', () => {
+    for (const scale of [1.04, 1.08, 1.12]) {
+      const { parameters, scaleClamped, none } = zoomConfigToParameters({ ...DEFAULT_ZOOM_CONFIG, scale }, 2);
+      expect(parameters.scale).toBe(scale);
+      expect(scaleClamped).toBe(false);
+      expect(none).toBe(false);
+      expect(parameters.none).toBeUndefined();
+    }
   });
 
   it('converte escala, offsets em foco 0..1 e duração do intervalo', () => {
@@ -37,16 +59,16 @@ describe('mapeamento config de zoom -> parameters.zoom', () => {
     });
   });
 
-  it('limita presets acima de 1.12 à faixa do host e sinaliza', () => {
+  it('limita escalas acima de 1.12 à faixa do host e sinaliza', () => {
     const { parameters, scaleClamped } = zoomConfigToParameters({ ...DEFAULT_ZOOM_CONFIG, scale: 1.25 }, 2);
-    expect(parameters?.scale).toBe(1.12);
+    expect(parameters.scale).toBe(1.12);
     expect(scaleClamped).toBe(true);
   });
 
   it('mantém foco dentro de 0..1 mesmo com offsets extremos', () => {
     const { parameters } = zoomConfigToParameters({ ...DEFAULT_ZOOM_CONFIG, scale: 1.05, offsetX: 50, offsetY: -50 }, 1);
-    expect(parameters?.focalPointX).toBe(1);
-    expect(parameters?.focalPointY).toBe(0);
+    expect(parameters.focalPointX).toBe(1);
+    expect(parameters.focalPointY).toBe(0);
   });
 });
 
@@ -54,6 +76,11 @@ describe('inicialização do controle a partir de suggestion.parameters.zoom', (
   it('ausente = sem zoom (DEFAULT)', () => {
     expect(zoomConfigFromParameters(undefined)).toEqual(DEFAULT_ZOOM_CONFIG);
     expect(zoomConfigFromParameters(null)).toEqual(DEFAULT_ZOOM_CONFIG);
+  });
+
+  it('none = true ou escala 1.0 do host = sem zoom explícito', () => {
+    expect(zoomConfigFromParameters({ ...zoomFromHost, scale: 1.0, none: true })).toEqual(DEFAULT_ZOOM_CONFIG);
+    expect(zoomConfigFromParameters({ ...zoomFromHost, scale: 1.0 })).toEqual(DEFAULT_ZOOM_CONFIG);
   });
 
   it('reflete escala e âncora terço superior do host', () => {

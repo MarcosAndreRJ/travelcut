@@ -25,17 +25,33 @@ export const HOST_ZOOM_SCALE_MIN = 1.01;
 export const HOST_ZOOM_SCALE_MAX = 1.12;
 
 export interface ZoomParametersMapping {
-  /** null quando não há zoom (escala 1.0): o contrato atual não consegue expressar "sem zoom". */
-  parameters: SmartZoomParametersDto | null;
+  /** Sempre enviável: "sem zoom" (escala 1.0) vira parameters.zoom.none = true. */
+  parameters: SmartZoomParametersDto;
+  /** true quando o usuário escolheu "Sem zoom" (escala 1.0). */
+  none: boolean;
   /** true quando a escala da UI foi limitada à faixa do host. */
   scaleClamped: boolean;
 }
 
 const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
 
-/** Config da UI -> parameters.zoom. offsetX/Y (-50..50 %) viram focal 0..1 centrado em 0.5. */
+/** Config da UI -> parameters.zoom. offsetX/Y (-50..50 %) viram focal 0..1 centrado em 0.5. Escala 1.0 = sem zoom explícito. */
 export function zoomConfigToParameters(config: EditorialZoomConfig, durationSeconds: number): ZoomParametersMapping {
-  if (config.scale <= 1.0) return { parameters: null, scaleClamped: false };
+  if (config.scale <= 1.0) {
+    return {
+      parameters: {
+        zoomType: 'punch_in',
+        scale: 1.0,
+        focalPointX: 0.5,
+        focalPointY: 0.5,
+        durationSeconds: 0,
+        focalPointKnown: true,
+        none: true
+      },
+      none: true,
+      scaleClamped: false
+    };
+  }
   const scale = Math.min(HOST_ZOOM_SCALE_MAX, Math.max(HOST_ZOOM_SCALE_MIN, config.scale));
   return {
     parameters: {
@@ -46,13 +62,14 @@ export function zoomConfigToParameters(config: EditorialZoomConfig, durationSeco
       durationSeconds: Math.max(0, durationSeconds),
       focalPointKnown: true
     },
+    none: false,
     scaleClamped: scale !== config.scale
   };
 }
 
-/** parameters.zoom efetivo -> config da UI. Ausente = sem zoom. */
+/** parameters.zoom efetivo -> config da UI. Ausente, none ou escala 1.0 = sem zoom. */
 export function zoomConfigFromParameters(zoom: SmartZoomParametersDto | null | undefined): EditorialZoomConfig {
-  if (!zoom) return DEFAULT_ZOOM_CONFIG;
+  if (!zoom || zoom.none === true || zoom.scale <= 1.0) return DEFAULT_ZOOM_CONFIG;
   const offsetX = Math.round((zoom.focalPointX - 0.5) * 100);
   const offsetY = Math.round((zoom.focalPointY - 0.5) * 100);
   const anchor: EditorialZoomConfig['anchor'] =
@@ -75,12 +92,12 @@ interface EditorialZoomControlsProps {
   disabled?: boolean;
 }
 
+/** Presets dentro da faixa do host (1,01–1,12). 1.0 = "Sem zoom", enviado como parameters.zoom.none = true. */
 export const PRESET_SCALES = [
-  { label: '1.0× (Original)', value: 1.0, desc: 'Sem enquadramento' },
-  { label: '1.10× (Suave)', value: 1.1, desc: 'Jump cut sutil' },
-  { label: '1.15× (Ênfase)', value: 1.15, desc: 'Aproximação moderada' },
-  { label: '1.20× (Foco)', value: 1.2, desc: 'Destaque no rosto' },
-  { label: '1.25× (Close)', value: 1.25, desc: 'Close-up editorial' }
+  { label: 'Sem zoom', value: 1.0, desc: 'Remove o zoom desta sugestão (parameters.zoom.none)' },
+  { label: '1.04× (Suave)', value: 1.04, desc: 'Jump cut sutil' },
+  { label: '1.08× (Ênfase)', value: 1.08, desc: 'Aproximação moderada' },
+  { label: '1.12× (Foco)', value: 1.12, desc: 'Máximo aceito pelo host' }
 ];
 
 export const EditorialZoomControls: React.FC<EditorialZoomControlsProps> = ({
