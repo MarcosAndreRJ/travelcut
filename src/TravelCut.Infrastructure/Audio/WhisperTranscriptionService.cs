@@ -10,7 +10,9 @@ public sealed record WhisperServiceOptions(
     string? PythonPath = null,          // padrão: variável TRAVELCUT_PYTHON_PATH
     string? WorkerScriptPath = null,    // padrão: procura workers/whisper_worker.py subindo a partir de AppContext.BaseDirectory
     TimeSpan? ProbeTimeout = null,      // padrão: 120 s (import de torch pode ser lento)
-    TimeSpan? TranscribeTimeout = null  // padrão: 4 h (large-v3 em CPU é lento)
+    TimeSpan? TranscribeTimeout = null, // padrão: 4 h (large-v3 em CPU é lento)
+    TimeSpan? EnvironmentRetryTtl = null, // padrão: 60 s (ambiente incompleto é reconsultado após esse prazo)
+    TimeProvider? Clock = null            // padrão: TimeProvider.System (gancho de teste)
 );
 
 // Serviço Whisper via worker Python isolado (protocolo "travelcut.whisper" v1, stdin/stdout NDJSON).
@@ -35,7 +37,7 @@ public class WhisperTranscriptionService : IWhisperTranscriptionService
     private static readonly TimeSpan PythonCheckTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan DefaultProbeTimeout = TimeSpan.FromSeconds(120);
     private static readonly TimeSpan DefaultTranscribeTimeout = TimeSpan.FromHours(4);
-    private static readonly TimeSpan RetryUnavailableAfter = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan DefaultEnvironmentRetryTtl = TimeSpan.FromSeconds(60);
 
     private static readonly IReadOnlyDictionary<string, string> PythonEnvironment =
         new Dictionary<string, string>
@@ -49,6 +51,7 @@ public class WhisperTranscriptionService : IWhisperTranscriptionService
     private readonly WhisperServiceOptions _options;
     private readonly SemaphoreSlim _envGate = new(1, 1);
     private WorkerEnvironment? _env;
+    private long _envGeneration;
 
     private sealed record PythonRuntime(string FileName, IReadOnlyList<string> PrefixArgs, string Version);
 
@@ -222,7 +225,13 @@ public class WhisperTranscriptionService : IWhisperTranscriptionService
         }
     }
 
-    public void InvalidateEnvironment() => _env = null;
+    public void InvalidateEnvironment()
+    {
+        _env = null;
+        Interlocked.Increment(ref _envGeneration);
+    }
+
+    public long EnvironmentGeneration => Interlocked.Read(ref _envGeneration);
 
     // ---- Ambiente (probe com cache; falha de cancelamento não é cacheada) ----
 
@@ -251,10 +260,20 @@ public class WhisperTranscriptionService : IWhisperTranscriptionService
         }
     }
 
-    // Ambiente disponível fica em cache; indisponível é reconsultado após pouco tempo
-    // (ex.: usuário acabou de criar workers/.venv).
-    private static bool IsStillValid(WorkerEnvironment env) =>
-        env.Python is not null || DateTime.UtcNow - env.ResolvedAtUtc < RetryUnavailableAfter;
+    // Ambiente PRONTO (Python, worker, Whisper, modelo em cache e ffmpeg) fica em cache; qualquer ambiente
+    // incompleto é reconsultado após o TTL (ex.: usuário acabou de criar workers/.venv, instalar o Whisper
+    // ou baixar o modelo). Instalações feitas pelo assistente também chamam InvalidateEnvironment.
+    private bool IsStillValid(WorkerEnvironment env) =>
+        IsReady(env) || Now() - env.ResolvedAtUtc < (_options.EnvironmentRetryTtl ?? DefaultEnvironmentRetryTtl);
+
+    private static bool IsReady(WorkerEnvironment env) =>
+        env.Python is not null
+        && env.WorkerScript is not null
+        && env.Probe.HasWhisper
+        && env.Probe.ModelCached != false
+        && env.Probe.FfmpegOnPath != false;
+
+    private DateTime Now() => (_options.Clock ?? TimeProvider.System).GetUtcNow().UtcDateTime;
 
     private async Task<WorkerEnvironment> ResolveEnvironmentAsync(CancellationToken ct)
     {
@@ -340,11 +359,13 @@ public class WhisperTranscriptionService : IWhisperTranscriptionService
             HasWhisper: installed,
             Engine: engine,
             DefaultModel: DefaultModel,
-            StatusSummary: summary));
+            StatusSummary: summary,
+            ModelCached: modelCached,
+            FfmpegOnPath: ffmpegOnPath));
     }
 
-    private static WorkerEnvironment Env(PythonRuntime? python, string? script, WhisperProbeResult probe) =>
-        new(python, script, probe, DateTime.UtcNow);
+    private WorkerEnvironment Env(PythonRuntime? python, string? script, WhisperProbeResult probe) =>
+        new(python, script, probe, Now());
 
     private async Task<PythonRuntime?> FindPythonAsync(string? scriptPath, CancellationToken ct)
     {

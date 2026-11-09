@@ -31,17 +31,35 @@ public sealed class FakeWhisperService : IWhisperTranscriptionService
     public int TranscribeCalls => Volatile.Read(ref _transcribeCalls);
     public int InvalidateCalls { get; private set; }
 
-    public void InvalidateEnvironment() => InvalidateCalls++;
+    public bool? ModelCached { get; set; }
+    public bool? FfmpegOnPath { get; set; }
+    public bool? Cuda { get; set; } = false;
+    public string Device { get; set; } = "cpu";
+    public int ProbeCalls { get; private set; }
+    private long _generation;
 
-    public Task<WhisperProbeResult> ProbeEnvironmentAsync(CancellationToken ct = default) =>
-        Task.FromResult(new WhisperProbeResult(
+    public void InvalidateEnvironment()
+    {
+        InvalidateCalls++;
+        _generation++;
+    }
+
+    public long EnvironmentGeneration => _generation;
+
+    public Task<WhisperProbeResult> ProbeEnvironmentAsync(CancellationToken ct = default)
+    {
+        ProbeCalls++;
+        return Task.FromResult(new WhisperProbeResult(
             HasPython: Available,
-            HasCuda: false,
-            Device: "cpu",
+            HasCuda: Cuda,
+            Device: Device,
             HasWhisper: Available,
             Engine: Available ? "fake-whisper 1.0" : null,
             DefaultModel: "large-v3",
-            StatusSummary: Available ? "fake disponível" : "fake indisponível"));
+            StatusSummary: Available ? "fake disponível" : "fake indisponível",
+            ModelCached: ModelCached,
+            FfmpegOnPath: FfmpegOnPath));
+    }
 
     public Task<string?> FindPythonExecutableAsync(CancellationToken ct = default) =>
         Task.FromResult(Available ? "fake-python" : (string?)null);

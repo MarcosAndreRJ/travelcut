@@ -9,7 +9,9 @@ public record WhisperProbeResult(
     bool HasWhisper,
     string? Engine,         // reportado pelo worker; null se indisponível
     string DefaultModel,    // "large-v3"
-    string StatusSummary
+    string StatusSummary,
+    bool? ModelCached = null,   // modelo DefaultModel no cache local do worker; null = desconhecido (não bloqueia)
+    bool? FfmpegOnPath = null   // ffmpeg visível no PATH do worker (o Whisper o invoca); null = desconhecido
 );
 
 /// <summary>
@@ -31,6 +33,9 @@ public interface IWhisperTranscriptionService
 
     /// <summary>Descarta o probe em cache: a próxima consulta reflete instalação ou configuração feita agora.</summary>
     void InvalidateEnvironment() { }
+
+    /// <summary>Incrementa a cada <see cref="InvalidateEnvironment"/>: consumidores com cache próprio detectam a invalidação.</summary>
+    long EnvironmentGeneration => 0;
 
     // Nunca sintetiza texto: sem Python/Whisper/modelo retorna Status "unavailable" com Reason.
     Task<TranscriptionOutcome> TranscribeAsync(

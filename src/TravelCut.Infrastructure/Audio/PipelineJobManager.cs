@@ -54,6 +54,7 @@ public class PipelineJobManager : IPipelineJobManager
     private readonly SemaphoreSlim _environmentLock = new(1, 1);
     private AnalysisEnvironmentDto? _environment;
     private DateTime _environmentAtUtc = DateTime.MinValue;
+    private long _environmentGeneration = -1;
 
     public PipelineJobManager(
         ILogger<PipelineJobManager> logger,
@@ -214,23 +215,39 @@ public class PipelineJobManager : IPipelineJobManager
 
     public async Task<AnalysisEnvironmentDto> GetEnvironmentAsync(CancellationToken ct = default, bool forceRefresh = false)
     {
-        var cached = _environment;
-        if (!forceRefresh && cached != null && DateTime.UtcNow - _environmentAtUtc < EnvironmentCacheTtl) return cached;
+        if (!forceRefresh && PeekEnvironment() is { } cached) return cached;
 
         await _environmentLock.WaitAsync(ct);
         try
         {
-            if (!forceRefresh && _environment != null && DateTime.UtcNow - _environmentAtUtc < EnvironmentCacheTtl) return _environment;
+            if (!forceRefresh && PeekEnvironment() is { } again) return again;
 
             if (forceRefresh) _whisper.InvalidateEnvironment();
+            // Geração lida antes do probe: invalidação durante o probe força nova consulta na próxima chamada.
+            long generation = _whisper.EnvironmentGeneration;
             _environment = await ProbeEnvironmentAsync(ct);
             _environmentAtUtc = DateTime.UtcNow;
+            _environmentGeneration = generation;
             return _environment;
         }
         finally
         {
             _environmentLock.Release();
         }
+    }
+
+    /// <summary>
+    /// Ambiente em cache (TTL de 60 s, inclusive quando Whisper/modelo estão ausentes) ou null se expirado/invalidado
+    /// (instalação via assistente). Nunca dispara probe: seguro para caminhos que não podem bloquear.
+    /// </summary>
+    public AnalysisEnvironmentDto? PeekEnvironment()
+    {
+        var cached = _environment;
+        return cached != null
+            && DateTime.UtcNow - _environmentAtUtc < EnvironmentCacheTtl
+            && _environmentGeneration == _whisper.EnvironmentGeneration
+                ? cached
+                : null;
     }
 
     public async Task<MediaAnalysisDto?> GetMediaAnalysisAsync(Guid projectId, Guid mediaId, CancellationToken ct = default)
@@ -736,25 +753,50 @@ public class PipelineJobManager : IPipelineJobManager
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogWarning(ex, "Falha ao sondar Python/Whisper");
-            reasons.Add("Não foi possível sondar Python/Whisper: transcrição indisponível.");
         }
 
         bool python = probe?.HasPython ?? false;
-        bool whisper = probe?.HasWhisper ?? false;
-        if (probe != null)
+        bool installed = probe?.HasWhisper ?? false;
+        // null = desconhecido (probe sem a informação): não bloqueia. O worker real sempre informa os dois campos.
+        bool modelCached = probe?.ModelCached != false;
+        bool ffmpegOnPath = probe?.FfmpegOnPath != false;
+        // Whisper só é "disponível" com TODAS as dependências reais: Python + openai-whisper + modelo em cache + ffmpeg no PATH do worker.
+        bool whisper = probe != null && python && installed && modelCached && ffmpegOnPath;
+
+        var whisperReasons = new List<string>();
+        if (probe == null)
+        {
+            whisperReasons.Add("Não foi possível sondar Python/Whisper: transcrição indisponível.");
+        }
+        else
         {
             if (!python)
             {
-                reasons.Add("Python não encontrado: transcrição Whisper indisponível.");
+                whisperReasons.Add("Python não encontrado: transcrição Whisper indisponível.");
             }
-            else if (!whisper)
+            else if (!installed)
             {
-                reasons.Add("Whisper large-v3 não disponível no Python configurado: transcrição indisponível.");
+                whisperReasons.Add("Whisper large-v3 não disponível no Python configurado: transcrição indisponível.");
             }
-            if (python && probe.HasCuda == false)
+            else
             {
-                reasons.Add("CUDA não disponível: Whisper large-v3 rodaria em CPU (processamento lento).");
+                if (!modelCached)
+                {
+                    whisperReasons.Add("Modelo Whisper large-v3 não está no cache local (o worker não baixa modelos automaticamente): transcrição indisponível.");
+                }
+                if (!ffmpegOnPath)
+                {
+                    whisperReasons.Add("ffmpeg não está no PATH do worker Whisper: transcrição indisponível.");
+                }
             }
+        }
+        reasons.AddRange(whisperReasons);
+
+        bool cpuOnly = probe != null && python
+            && (probe.HasCuda == false || string.Equals(probe.Device, "cpu", StringComparison.OrdinalIgnoreCase));
+        if (cpuOnly)
+        {
+            reasons.Add("CUDA não disponível: Whisper large-v3 rodaria em CPU (processamento lento).");
         }
 
         return new AnalysisEnvironmentDto(
@@ -762,10 +804,14 @@ public class PipelineJobManager : IPipelineJobManager
             FfmpegVersion: ffmpegVersion,
             PythonAvailable: python,
             WhisperAvailable: whisper,
-            WhisperEngine: whisper ? probe?.Engine : null,
+            WhisperEngine: installed ? probe?.Engine : null,
             WhisperModel: WhisperModel,
             CudaAvailable: probe?.HasCuda,
-            Reasons: reasons);
+            Reasons: reasons,
+            Device: python ? probe?.Device : null,
+            ModelCached: python ? probe?.ModelCached : null,
+            CpuFallback: whisper && cpuOnly,
+            WhisperUnavailableReason: whisper || whisperReasons.Count == 0 ? null : string.Join(" ", whisperReasons));
     }
 
     // ---------------------------------------------------------------- Helpers de entrada

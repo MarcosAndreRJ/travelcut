@@ -493,6 +493,11 @@ public sealed partial class EnvironmentAssistantService
                 ctx.IsFailed = true;
                 ctx.AddLog($"Exceção: {ex}");
             }
+            finally
+            {
+                // Instalação (mesmo parcial) pode ter mudado Python/venv/Whisper: o próximo probe deve ser real.
+                _whisperService.InvalidateEnvironment();
+            }
         });
 
         return jobId;
@@ -568,6 +573,11 @@ public sealed partial class EnvironmentAssistantService
                 _logger.LogError(ex, "Falha no download do modelo {ModelName}.", modelName);
                 ctx.AddLog($"Exceção: {ex}");
                 ctx.CompleteFailed(ex.Message);
+            }
+            finally
+            {
+                // O modelo passa a existir no cache local: o probe (modelCached) precisa ser refeito.
+                _whisperService.InvalidateEnvironment();
             }
         });
 
@@ -754,6 +764,8 @@ public sealed partial class EnvironmentAssistantService
         ctx.ProgressPercent = 95;
         ctx.CurrentMessage = "Testando probe do worker Whisper...";
 
+        // Descarta o probe em cache: o resultado abaixo (e o cache do pipeline) refletem a instalação recém-feita.
+        _whisperService.InvalidateEnvironment();
         var probe = await _whisperService.ProbeEnvironmentAsync(ct).ConfigureAwait(false);
         ctx.AddLog($"Resultado probe: {probe.StatusSummary}");
 

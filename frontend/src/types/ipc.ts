@@ -563,6 +563,11 @@ export interface AnalysisEnvironmentDto {
   whisperModel: string;
   cudaAvailable: boolean | null;
   reasons: string[];
+  // Aditivos (F14.8/P04): opcionais para compatibilidade com respostas antigas e mocks.
+  device?: 'cuda' | 'cpu' | string | null;
+  modelCached?: boolean | null;
+  cpuFallback?: boolean;
+  whisperUnavailableReason?: string | null;
 }
 
 export interface StartPipelineRequest {

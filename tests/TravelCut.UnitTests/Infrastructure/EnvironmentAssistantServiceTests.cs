@@ -111,6 +111,18 @@ public class EnvironmentAssistantServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ConfigureToolPathAsync_InvalidatesWhisperEnvironmentCache()
+    {
+        var dummyPath = Path.Combine(_tempDir, "custom-python.exe");
+        File.WriteAllText(dummyPath, "dummy");
+        int before = _whisperService.InvalidateCalls;
+
+        await _service.ConfigureToolPathAsync("python", dummyPath);
+
+        Assert.True(_whisperService.InvalidateCalls > before);
+    }
+
+    [Fact]
     public async Task TestToolAsync_ReturnsValidResponseWithoutThrowing()
     {
         var testResult = await _service.TestToolAsync("python");
