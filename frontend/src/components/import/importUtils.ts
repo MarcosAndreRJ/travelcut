@@ -1,4 +1,5 @@
 import type {
+  AnalysisEnvironmentDto,
   ImportCandidateDto,
   ImportDestination,
   ImportItemResult,
@@ -30,6 +31,103 @@ export const DEFAULT_IMPORT_OPTIONS: ImportOptions = {
   generateThumbnails: true,
   analyzeMetadata: true,
   detectSpeech: true
+};
+
+export const IMPORT_OPTIONS_STORAGE_KEY = 'travelcut.import.options';
+
+/** Preferências locais da tela. detectSpeech fica de fora: a escolha de automação é persistida no host (AutoProcess). */
+export type LocalImportOptions = Omit<ImportOptions, 'detectSpeech'>;
+
+export const loadLocalImportOptions = (): Partial<LocalImportOptions> => {
+  try {
+    const raw = localStorage.getItem(IMPORT_OPTIONS_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const out: Partial<LocalImportOptions> = {};
+    if (typeof parsed.copyFiles === 'boolean') out.copyFiles = parsed.copyFiles;
+    if (typeof parsed.generateThumbnails === 'boolean') out.generateThumbnails = parsed.generateThumbnails;
+    if (typeof parsed.analyzeMetadata === 'boolean') out.analyzeMetadata = parsed.analyzeMetadata;
+    return out;
+  } catch {
+    return {};
+  }
+};
+
+export const saveLocalImportOptions = (options: ImportOptions): void => {
+  const local: LocalImportOptions = {
+    copyFiles: options.copyFiles,
+    generateThumbnails: options.generateThumbnails,
+    analyzeMetadata: options.analyzeMetadata
+  };
+  try {
+    localStorage.setItem(IMPORT_OPTIONS_STORAGE_KEY, JSON.stringify(local));
+  } catch {
+    // Armazenamento indisponível: a escolha vale apenas nesta sessão.
+  }
+};
+
+export type AnalysisToggleKey = 'generateThumbnails' | 'analyzeMetadata' | 'detectSpeech';
+
+export interface AnalysisCapabilities {
+  /** false enquanto o ambiente não foi lido ou falhou ao ser lido. */
+  ready: boolean;
+  /** Whisper roda em CPU (sem CUDA): a transcrição será mais lenta. */
+  cpuFallback: boolean;
+  /** Motivo de bloqueio por opção; ausente = disponível. */
+  blocked: Partial<Record<AnalysisToggleKey, string>>;
+}
+
+const FFMPEG_MISSING_REASON = 'FFmpeg não encontrado — configure em Configurações';
+
+/** Converte o ambiente lido do host em bloqueios de opção. Sem leitura, nada de análise é oferecido. */
+export const resolveAnalysisCapabilities = (
+  environment: AnalysisEnvironmentDto | null,
+  environmentError: boolean
+): AnalysisCapabilities => {
+  if (environment === null) {
+    const reason = environmentError
+      ? 'Não foi possível verificar o ambiente de análise'
+      : 'Verificando o ambiente de análise…';
+    return {
+      ready: false,
+      cpuFallback: false,
+      blocked: { generateThumbnails: reason, analyzeMetadata: reason, detectSpeech: reason }
+    };
+  }
+  const blocked: Partial<Record<AnalysisToggleKey, string>> = {};
+  if (!environment.ffmpegAvailable) {
+    blocked.generateThumbnails = FFMPEG_MISSING_REASON;
+    blocked.analyzeMetadata = FFMPEG_MISSING_REASON;
+    blocked.detectSpeech = FFMPEG_MISSING_REASON;
+  } else if (!environment.whisperAvailable) {
+    blocked.detectSpeech = environment.whisperUnavailableReason || 'Whisper indisponível neste ambiente';
+  }
+  return {
+    ready: true,
+    cpuFallback: environment.cpuFallback === true && blocked.detectSpeech === undefined,
+    blocked
+  };
+};
+
+/** Opções efetivas enviadas ao host: opções bloqueadas viram false; metadados são forçados com fala ou miniaturas. */
+export const effectiveImportOptions = (options: ImportOptions, caps: AnalysisCapabilities): ImportOptions => {
+  const generateThumbnails = options.generateThumbnails && caps.blocked.generateThumbnails === undefined;
+  const detectSpeech = options.detectSpeech && caps.blocked.detectSpeech === undefined;
+  const analyzeMetadata =
+    caps.blocked.analyzeMetadata === undefined && (options.analyzeMetadata || generateThumbnails || detectSpeech);
+  return { copyFiles: options.copyFiles, generateThumbnails, analyzeMetadata, detectSpeech };
+};
+
+/** Motivos de bloqueio exibidos nos toggles (inclui metadados obrigatórios). */
+export const importToggleLocks = (
+  effective: ImportOptions,
+  caps: AnalysisCapabilities
+): Partial<Record<keyof ImportOptions, string>> => {
+  const locks: Partial<Record<keyof ImportOptions, string>> = { ...caps.blocked };
+  if (locks.analyzeMetadata === undefined && (effective.generateThumbnails || effective.detectSpeech)) {
+    locks.analyzeMetadata = 'Obrigatória enquanto transcrição ou miniaturas estiverem ligadas';
+  }
+  return locks;
 };
 
 export const IMPORT_DESTINATIONS: ReadonlyArray<ImportDestination> = ['1-Bruto', '2-Assets'];

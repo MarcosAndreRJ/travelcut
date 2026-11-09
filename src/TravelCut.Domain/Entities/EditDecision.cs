@@ -26,4 +26,10 @@ public class EditDecision
     /// Marca explícita (não inferida de Notes) para o estado em pilha. Decisões antigas: false (ver migração do DbContext).
     /// </summary>
     public bool IsRedo { get; set; }
+
+    /// <summary>
+    /// F14.8: parâmetros da decisão em JSON (DecisionParametersDto; hoje só zoom). Null = nenhum (decisões antigas, compatível).
+    /// Coluna aditiva "ParametersJson" (EnsureColumns).
+    /// </summary>
+    public string? ParametersJson { get; set; }
 }

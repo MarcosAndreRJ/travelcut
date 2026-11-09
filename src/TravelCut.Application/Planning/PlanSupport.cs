@@ -134,7 +134,7 @@ public static class EditorialProfiles
     public static EditorialProfileDto Default() => new(
         ProfileId: ViagensId,
         Version: 1,
-        SilencePolicy: "conservative",
+        SilencePolicy: "balanced", // perfil da política editorial automática (default Balanced)
         Pace: "normal",
         JokePreservation: "strict",
         ZoomStrength: "subtle",

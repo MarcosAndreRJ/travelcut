@@ -141,6 +141,7 @@ public sealed partial class EnvironmentAssistantService : IEnvironmentAssistantS
         }
 
         await _settingsService.SetToolPathAsync(key, path, ct).ConfigureAwait(false);
+        _whisperService.InvalidateEnvironment();
         return true;
     }
 

@@ -30,6 +30,9 @@ import {
   StartPipelineRequest,
   EditPlanDto,
   EditorialProfileDto,
+  AutomationProfile,
+  AutomationProfileDto,
+  AutomationOptionsDto,
   PlanAppliedCutDto,
   PlanClipDto,
   PlanIssueDto,
@@ -43,6 +46,7 @@ import {
   PlanValidationDto,
   TimelineTimeBaseDto,
   BatchDecideRequest,
+  DecisionParametersDto,
   DecisionAction,
   DecisionResultDto,
   EditDecisionDto,
@@ -205,6 +209,33 @@ interface MockDecisionState {
   effectiveEndSeconds: number | null;
   /** Ação que produziu este estado; redo regrava essa ação original. */
   lastAction: DecisionAction | null;
+  /** F14.8: parâmetros (zoom) da decisão; herdados por decisões seguintes, como o intervalo. */
+  parameters?: DecisionParametersDto | null;
+}
+
+/** DEMONSTRAÇÃO (espelho do host): zoom só de sugestões de zoom; escala limitada a 1,01–1,12; foco em 0–1. */
+function mockNormalizeParameters(
+  parameters: DecisionParametersDto | null | undefined,
+  suggestedAction: string
+): DecisionParametersDto | null {
+  const zoom = parameters?.zoom;
+  if (!zoom) return null;
+  if (suggestedAction !== 'zoom') {
+    throw new IpcError('DEMO: parameters.zoom só se aplica a sugestões de zoom.', 'INVALID_ARGUMENT');
+  }
+  const ok = (v: unknown) => typeof v === 'number' && Number.isFinite(v);
+  if (!ok(zoom.scale) || zoom.scale <= 0) {
+    throw new IpcError('DEMO: parameters.zoom.scale inválida.', 'INVALID_ARGUMENT');
+  }
+  if (!ok(zoom.focalPointX) || !ok(zoom.focalPointY) ||
+      zoom.focalPointX < 0 || zoom.focalPointX > 1 || zoom.focalPointY < 0 || zoom.focalPointY > 1) {
+    throw new IpcError('DEMO: ponto focal deve estar entre 0 e 1.', 'INVALID_ARGUMENT');
+  }
+  if (!ok(zoom.durationSeconds) || zoom.durationSeconds < 0) {
+    throw new IpcError('DEMO: parameters.zoom.durationSeconds inválida.', 'INVALID_ARGUMENT');
+  }
+  const scale = Math.min(1.12, Math.max(1.01, zoom.scale));
+  return { zoom: { ...zoom, zoomType: zoom.zoomType || 'punch_in', scale, startScale: 1, endScale: scale } };
 }
 
 /** Erro do host com código estável (ex.: PIPELINE_IN_PROGRESS). */
@@ -375,6 +406,9 @@ class IpcBridgeService {
   private mockAnalyzedMediaIds = new Set<string>();
   // DEMONSTRAÇÃO: revisões do plano editorial; cada plan.generate/plan.revert acrescenta uma revisão.
   private mockPlanRevisions: EditPlanDto[] = [];
+  // Perfil de automação do projeto mock (null = nunca escolhido → 'balanced', isDefault=true).
+  private mockAutomationProfile: AutomationProfile | null = null;
+  private mockAutoProcess: boolean | null = null;
   private mockProfile: EditorialProfileDto = {
     profileId: 'demo-profile',
     version: 1,
@@ -873,6 +907,42 @@ class IpcBridgeService {
 
       case 'profile.get':
         return { ...this.mockProfile };
+
+      case 'automation.profile.get': {
+        this.assertMockProject(payload?.projectId);
+        return {
+          projectId: payload.projectId,
+          profile: this.mockAutomationProfile ?? 'balanced',
+          isDefault: this.mockAutomationProfile === null
+        } satisfies AutomationProfileDto;
+      }
+
+      case 'automation.profile.set': {
+        this.assertMockProject(payload?.projectId);
+        if (!['conservative', 'balanced', 'aggressive'].includes(payload?.profile)) {
+          throw new IpcError('Perfil de automação inválido (use conservative, balanced ou aggressive).', 'INVALID_ARGUMENT');
+        }
+        this.mockAutomationProfile = payload.profile as AutomationProfile;
+        return { projectId: payload.projectId, profile: this.mockAutomationProfile, isDefault: false } satisfies AutomationProfileDto;
+      }
+
+      case 'automation.options.get': {
+        this.assertMockProject(payload?.projectId);
+        return {
+          projectId: payload.projectId,
+          autoProcess: this.mockAutoProcess ?? true,
+          isDefault: this.mockAutoProcess === null
+        } satisfies AutomationOptionsDto;
+      }
+
+      case 'automation.options.set': {
+        this.assertMockProject(payload?.projectId);
+        if (typeof payload?.autoProcess !== 'boolean') {
+          throw new IpcError('autoProcess inválido (booleano).', 'INVALID_ARGUMENT');
+        }
+        this.mockAutoProcess = payload.autoProcess;
+        return { projectId: payload.projectId, autoProcess: payload.autoProcess, isDefault: false } satisfies AutomationOptionsDto;
+      }
 
       case 'system.openFolder':
         return { success: true, openedPath: payload?.path };
@@ -1945,7 +2015,12 @@ class IpcBridgeService {
       effectiveStartSeconds: state.effectiveStartSeconds,
       effectiveEndSeconds: state.effectiveEndSeconds,
       canUndo: (this.mockDecisionPast.get(suggestionId)?.length ?? 0) > 0,
-      canRedo: (this.mockDecisionFuture.get(suggestionId)?.length ?? 0) > 0
+      canRedo: (this.mockDecisionFuture.get(suggestionId)?.length ?? 0) > 0,
+      // F14.8: sem plano autoaplicado no mock, só existe origem humana (decisão ativa).
+      origin: (this.mockDecisionPast.get(suggestionId)?.length ?? 0) > 0 ? 'human' : null,
+      policyVersion: null,
+      policyReason: null,
+      parameters: state.parameters ?? base.parameters ?? null
     };
   }
 
@@ -1980,7 +2055,8 @@ class IpcBridgeService {
       version,
       baseRevision: null,
       sourceStartSeconds: state.effectiveStartSeconds,
-      sourceEndSeconds: state.effectiveEndSeconds
+      sourceEndSeconds: state.effectiveEndSeconds,
+      parameters: state.parameters ?? null
     });
   }
 
@@ -2001,12 +2077,17 @@ class IpcBridgeService {
 
   private mockSubmitDecision(request: SubmitDecisionRequest): DecisionResultDto {
     const suggestionId = request?.suggestionId;
-    this.mockRequireSuggestion(suggestionId);
+    const target = this.mockRequireSuggestion(suggestionId);
     if (!request?.action || !MOCK_DECISION_ACTIONS.includes(request.action)) {
       throw new IpcError('DEMO: ação de decisão inválida.', 'INVALID_ACTION');
     }
     const id = suggestionId as string;
     const action = request.action;
+    if (request.parameters?.zoom && action !== 'approve' && action !== 'modify') {
+      throw new IpcError('DEMO: parameters só é aceito em approve ou modify.', 'INVALID_ARGUMENT');
+    }
+    const normalized = mockNormalizeParameters(request.parameters, target.suggestedAction);
+    const inheritedParameters = normalized ?? this.mockDecisionStates.get(id)?.parameters ?? null;
     let next: MockDecisionState;
     if (action === 'modify') {
       const start = request.modifiedStartSeconds;
@@ -2017,7 +2098,10 @@ class IpcBridgeService {
       ) {
         throw new IpcError('DEMO: intervalo inválido (entrada deve ser menor que saída e não negativa).', 'INVALID_INTERVAL');
       }
-      next = { status: 'Approved', effectiveStartSeconds: start, effectiveEndSeconds: end, lastAction: 'modify' };
+      next = {
+        status: 'Approved', effectiveStartSeconds: start, effectiveEndSeconds: end, lastAction: 'modify',
+        parameters: inheritedParameters
+      };
     } else {
       // Como no host: approve/reject/defer mantêm o intervalo efetivo atual (ajuste de modify não se perde).
       const current = this.mockDecisionStates.get(id);
@@ -2025,7 +2109,8 @@ class IpcBridgeService {
         status: action === 'approve' ? 'Approved' : action === 'reject' ? 'Rejected' : 'Deferred',
         effectiveStartSeconds: current?.effectiveStartSeconds ?? null,
         effectiveEndSeconds: current?.effectiveEndSeconds ?? null,
-        lastAction: action
+        lastAction: action,
+        parameters: inheritedParameters
       };
     }
     this.mockCommit(id, next);
@@ -2075,6 +2160,14 @@ class IpcBridgeService {
     const ids = Array.from(new Set(Array.isArray(request.suggestionIds) ? request.suggestionIds : []));
     const known = ids.filter((id) => this.mockSuggestions.some((s) => s.suggestionId === id));
     const missing = ids.filter((id) => !known.includes(id));
+    // F14.8: parâmetros em lote só com approve e só para sugestões de zoom (tudo ou nada: valida antes de gravar).
+    if (request.parameters?.zoom && request.action !== 'approve') {
+      throw new IpcError('DEMO: parameters em lote só é aceito com approve.', 'INVALID_ARGUMENT');
+    }
+    const batchParameters = new Map<string, DecisionParametersDto | null>();
+    for (const id of known) {
+      batchParameters.set(id, mockNormalizeParameters(request.parameters, this.mockRequireSuggestion(id).suggestedAction));
+    }
     for (const id of known) {
       const status: EditSuggestion['status'] =
         request.action === 'approve' ? 'Approved' : request.action === 'reject' ? 'Rejected' : 'Deferred';
@@ -2083,7 +2176,8 @@ class IpcBridgeService {
         status,
         effectiveStartSeconds: current?.effectiveStartSeconds ?? null,
         effectiveEndSeconds: current?.effectiveEndSeconds ?? null,
-        lastAction: request.action
+        lastAction: request.action,
+        parameters: batchParameters.get(id) ?? current?.parameters ?? null
       };
       this.mockCommit(id, next);
       this.mockLog(id, request.action, request.reviewer ?? 'Editor', request.notes ?? '', next);
@@ -2338,6 +2432,26 @@ class IpcBridgeService {
 
   public async getEditorialProfile(): Promise<EditorialProfileDto> {
     return this.send<EditorialProfileDto>('profile.get');
+  }
+
+  /** F14.8: perfil de automação editorial persistido do projeto (padrão 'balanced', isDefault=true). */
+  public async getAutomationProfile(projectId: string): Promise<AutomationProfileDto> {
+    return this.send<AutomationProfileDto>('automation.profile.get', { projectId });
+  }
+
+  /** F14.8: define o perfil de automação do projeto. Erros: INVALID_ARGUMENT, PROJECT_NOT_FOUND. */
+  public async setAutomationProfile(projectId: string, profile: AutomationProfile): Promise<AutomationProfileDto> {
+    return this.send<AutomationProfileDto>('automation.profile.set', { projectId, profile });
+  }
+
+  /** F14.8: opções de automação do projeto (autoProcess padrão true). */
+  public async getAutomationOptions(projectId: string): Promise<AutomationOptionsDto> {
+    return this.send<AutomationOptionsDto>('automation.options.get', { projectId });
+  }
+
+  /** F14.8: liga/desliga o processamento automático pós-análise. Erros: INVALID_ARGUMENT, PROJECT_NOT_FOUND. */
+  public async setAutomationOptions(projectId: string, autoProcess: boolean): Promise<AutomationOptionsDto> {
+    return this.send<AutomationOptionsDto>('automation.options.set', { projectId, autoProcess });
   }
 
   // ---- Importação de mídia (Tela 07) — nomes conforme types/ipc.ts ----

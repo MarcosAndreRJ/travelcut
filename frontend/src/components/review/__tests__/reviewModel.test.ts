@@ -77,11 +77,11 @@ describe('reviewModel: filtros da fila', () => {
 
 describe('reviewModel: contadores e rótulos', () => {
   it('conta por status a partir da lista recebida', () => {
-    expect(countByStatus(LIST)).toEqual({ all: 6, pending: 3, approved: 1, rejected: 1, deferred: 1 });
+    expect(countByStatus(LIST)).toEqual({ all: 6, pending: 3, approved: 1, rejected: 1, deferred: 1, applied: 1, conflict: 0 });
   });
 
   it('lista vazia zera os contadores', () => {
-    expect(countByStatus([])).toEqual({ all: 0, pending: 0, approved: 0, rejected: 0, deferred: 0 });
+    expect(countByStatus([])).toEqual({ all: 0, pending: 0, approved: 0, rejected: 0, deferred: 0, applied: 0, conflict: 0 });
   });
 
   it('categorias conhecidas vêm primeiro na ordem definida, desconhecidas em ordem alfabética', () => {

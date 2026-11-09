@@ -5,6 +5,7 @@ import { isPlayableSource, usePlaybackSource } from './usePlaybackSource';
 import { useProxyGeneration } from './useProxyGeneration';
 import {
   afterModeSkipTarget,
+  afterModeSkipTargets,
   clampToWindow,
   contextWindow,
   formatSourceSeconds,
@@ -39,7 +40,8 @@ export const MediaIntervalPlayer: React.FC<MediaIntervalPlayerProps> = ({
   seekToSeconds = null,
   className = '',
   videoAreaClassName = 'aspect-video',
-  zoomTransform = null
+  zoomTransform = null,
+  removedIntervals = null
 }) => {
   const { state, reload } = usePlaybackSource(projectId, mediaId);
   const readySource = state.kind === 'ready' ? state.source : null;
@@ -155,7 +157,8 @@ export const MediaIntervalPlayer: React.FC<MediaIntervalPlayerProps> = ({
       const v = videoRef.current;
       if (!v || v.paused) return;
       let now = v.currentTime;
-      const skip = mode === 'after' ? afterModeSkipTarget(now, startSeconds, endSeconds) : null;
+      const skipWindows = removedIntervals ?? [{ start: startSeconds, end: endSeconds }];
+      const skip = mode === 'after' ? afterModeSkipTargets(now, skipWindows) : null;
       if (skip !== null) {
         v.currentTime = skip;
         now = skip;
@@ -173,7 +176,7 @@ export const MediaIntervalPlayer: React.FC<MediaIntervalPlayerProps> = ({
     };
     frameId = window.requestAnimationFrame(tick);
     return () => window.cancelAnimationFrame(frameId);
-  }, [playing, mode, startSeconds, endSeconds, contextSeconds, duration, notify]);
+  }, [playing, mode, startSeconds, endSeconds, contextSeconds, duration, notify, removedIntervals]);
 
   const handleLoadedMetadata = () => {
     const v = videoRef.current;

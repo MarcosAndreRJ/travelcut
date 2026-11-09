@@ -24,6 +24,9 @@ public interface ISmartZoomRecommender
 
 public sealed class SmartZoomRecommender : ISmartZoomRecommender
 {
+    /// <summary>Unidade de <see cref="TimeRange"/> em sugestões: milissegundos.</summary>
+    private const double MillisecondsPerSecond = 1000.0;
+
     private readonly ILogger<SmartZoomRecommender> _logger;
 
     public SmartZoomRecommender(ILogger<SmartZoomRecommender> logger)
@@ -68,7 +71,8 @@ public sealed class SmartZoomRecommender : ISmartZoomRecommender
 
         if (segmentIndex % 2 != 1) return null;
 
-        double durationSeconds = (double)sourceInterval.DurationTicks / 10_000_000.0;
+        // E04a: TimeRange de sugestões editoriais está em MILISSEGUNDOS (não em ticks de 100 ns).
+        double durationSeconds = sourceInterval.DurationTicks / MillisecondsPerSecond;
         if (durationSeconds < 1.2) return null;
 
         double scale = Math.Clamp(profile.DefaultScale, profile.MinScale, profile.MaxScale);
@@ -79,7 +83,9 @@ public sealed class SmartZoomRecommender : ISmartZoomRecommender
             FocalPointY: 0.5,
             DurationSeconds: durationSeconds,
             StartScale: 1.0,
-            EndScale: scale
+            EndScale: scale,
+            Framing: classification?.Framing,
+            FocalPointKnown: IsFocalPointKnown(classification)
         );
 
         string rationale = $"Zoom editorial sugerido ({scale:0.00}x, {profile.RecommendedType}) para cena de {interaction}.";
@@ -97,6 +103,19 @@ public sealed class SmartZoomRecommender : ISmartZoomRecommender
             Author = "smart-zoom-engine",
             CreatedAtUtc = DateTime.UtcNow
         };
+    }
+
+    /// <summary>
+    /// O ponto focal (0,5; 0,5) só é confiável com enquadramento classificado (médio/close) de cena com pessoa
+    /// (direto à câmera, entrevista, diálogo). Sem classificação, plano aberto, b-roll ou paisagem: incerto → revisão humana.
+    /// </summary>
+    internal static bool IsFocalPointKnown(EditorialSceneClassificationDto? c)
+    {
+        if (c is null) return false;
+        bool framingKnown = c.Framing is SceneClassificationConstants.FramingMedium or SceneClassificationConstants.FramingCloseUp;
+        bool personScene = c.Interaction is SceneClassificationConstants.InteractionDirectToCamera
+            or SceneClassificationConstants.InteractionInterview or SceneClassificationConstants.InteractionDialogue;
+        return framingKnown && personScene;
     }
 
     public IReadOnlyList<EditSuggestion> GenerateZoomSuggestions(

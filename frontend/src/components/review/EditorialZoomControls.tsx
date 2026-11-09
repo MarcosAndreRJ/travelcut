@@ -1,5 +1,6 @@
 import React from 'react';
 import { RotateCcw, ZoomIn, Eye, Crosshair } from 'lucide-react';
+import type { SmartZoomParametersDto, SubmitDecisionRequest } from '../../types/ipc';
 
 export interface EditorialZoomConfig {
   scale: number;          // 1.0, 1.1, 1.15, 1.2, 1.25
@@ -18,6 +19,55 @@ export const DEFAULT_ZOOM_CONFIG: EditorialZoomConfig = {
   mode: 'hold',
   showSafeArea: false
 };
+
+/** Faixa de escala aceita pelo host (SmartZoomParametersDto.scale). Presets acima de 1.12 são limitados ao enviar. */
+export const HOST_ZOOM_SCALE_MIN = 1.01;
+export const HOST_ZOOM_SCALE_MAX = 1.12;
+
+export interface ZoomParametersMapping {
+  /** null quando não há zoom (escala 1.0): o contrato atual não consegue expressar "sem zoom". */
+  parameters: SmartZoomParametersDto | null;
+  /** true quando a escala da UI foi limitada à faixa do host. */
+  scaleClamped: boolean;
+}
+
+const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
+
+/** Config da UI -> parameters.zoom. offsetX/Y (-50..50 %) viram focal 0..1 centrado em 0.5. */
+export function zoomConfigToParameters(config: EditorialZoomConfig, durationSeconds: number): ZoomParametersMapping {
+  if (config.scale <= 1.0) return { parameters: null, scaleClamped: false };
+  const scale = Math.min(HOST_ZOOM_SCALE_MAX, Math.max(HOST_ZOOM_SCALE_MIN, config.scale));
+  return {
+    parameters: {
+      zoomType: 'punch_in',
+      scale,
+      focalPointX: clamp01(0.5 + config.offsetX / 100),
+      focalPointY: clamp01(0.5 + config.offsetY / 100),
+      durationSeconds: Math.max(0, durationSeconds),
+      focalPointKnown: true
+    },
+    scaleClamped: scale !== config.scale
+  };
+}
+
+/** parameters.zoom efetivo -> config da UI. Ausente = sem zoom. */
+export function zoomConfigFromParameters(zoom: SmartZoomParametersDto | null | undefined): EditorialZoomConfig {
+  if (!zoom) return DEFAULT_ZOOM_CONFIG;
+  const offsetX = Math.round((zoom.focalPointX - 0.5) * 100);
+  const offsetY = Math.round((zoom.focalPointY - 0.5) * 100);
+  const anchor: EditorialZoomConfig['anchor'] =
+    offsetX === 0 && offsetY === 0 ? 'center' : offsetX === 0 && offsetY === -15 ? 'top-third' : 'custom';
+  return { ...DEFAULT_ZOOM_CONFIG, scale: zoom.scale, anchor, offsetX, offsetY };
+}
+
+/** Monta a decisão `approve` com parameters.zoom para sugestão de zoom (ajuste só do zoom). */
+export function buildZoomApproveRequest(
+  suggestionId: string,
+  zoom: SmartZoomParametersDto,
+  reviewer: string
+): SubmitDecisionRequest {
+  return { suggestionId, action: 'approve', reviewer, parameters: { zoom } };
+}
 
 interface EditorialZoomControlsProps {
   value: EditorialZoomConfig;

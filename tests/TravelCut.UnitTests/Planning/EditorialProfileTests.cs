@@ -12,7 +12,7 @@ public class EditorialProfileTests
 
         Assert.Equal("viagens", p.ProfileId);
         Assert.Equal(1, p.Version);
-        Assert.Equal("conservative", p.SilencePolicy);
+        Assert.Equal("balanced", p.SilencePolicy);
         Assert.Equal("normal", p.Pace);
         Assert.Equal("strict", p.JokePreservation);
         Assert.Equal("subtle", p.ZoomStrength);

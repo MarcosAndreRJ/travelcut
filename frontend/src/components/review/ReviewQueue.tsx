@@ -27,6 +27,8 @@ interface ReviewQueueProps {
   onToggleSelected: (suggestionId: string) => void;
   onToggleAllVisible: (suggestionIds: string[], select: boolean) => void;
   mediaName: (mediaId: string) => string;
+  /** Rótulo de situação efetiva da linha (ex.: "Aplicado automaticamente"); padrão: status da sugestão. */
+  outcomeLabelOf?: (suggestion: EditSuggestion) => string;
   /** Faixa de lote (fica logo abaixo dos filtros). */
   batchBar?: React.ReactNode;
   /** Rodapé (legenda de atalhos). */
@@ -35,8 +37,10 @@ interface ReviewQueueProps {
 
 const STATUS_OPTIONS: { value: ReviewStatusFilter; label: string; count: (c: StatusCounts) => number }[] = [
   { value: 'pending', label: 'Pendentes', count: (c) => c.pending },
+  { value: 'applied', label: 'Aplicados', count: (c) => c.applied },
+  { value: 'conflict', label: 'Conflitos', count: (c) => c.conflict },
+  { value: 'rejected', label: 'Não aplicados', count: (c) => c.rejected },
   { value: 'approved', label: 'Aprovados', count: (c) => c.approved },
-  { value: 'rejected', label: 'Rejeitados', count: (c) => c.rejected },
   { value: 'deferred', label: 'Adiados', count: (c) => c.deferred },
   { value: 'all', label: 'Todos', count: (c) => c.all }
 ];
@@ -61,6 +65,7 @@ const selectClass =
 export const ReviewQueue: React.FC<ReviewQueueProps> = ({
   items,
   counts,
+  outcomeLabelOf,
   kindOptions,
   filters,
   onFiltersChange,
@@ -269,7 +274,7 @@ export const ReviewQueue: React.FC<ReviewQueueProps> = ({
                   </div>
                   <div className="flex flex-wrap items-center gap-1 mt-1.5">
                     <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase text-slate-300 bg-slate-800 border border-slate-700">
-                      {statusLabelOf(sug)}
+                      {outcomeLabelOf ? outcomeLabelOf(sug) : statusLabelOf(sug)}
                     </span>
                     {isAdjusted(sug) && (
                       <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase text-cyan-300 bg-cyan-950/60 border border-cyan-800/50">

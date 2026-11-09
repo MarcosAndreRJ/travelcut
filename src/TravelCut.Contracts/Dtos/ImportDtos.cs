@@ -112,7 +112,7 @@ public record ImportJobStatusDto(
     [property: JsonPropertyName("bytesTotal")] long BytesTotal,
     [property: JsonPropertyName("bytesCopied")] long BytesCopied,
     [property: JsonPropertyName("currentFile")] string? CurrentFile,
-    [property: JsonPropertyName("speechAnalysis")] string SpeechAnalysis, // not_requested | queued | unavailable
+    [property: JsonPropertyName("speechAnalysis")] string SpeechAnalysis, // not_requested | queued | merged | failed | skipped | unavailable
     [property: JsonPropertyName("message")] string? Message,
     [property: JsonPropertyName("items")] IReadOnlyList<ImportItemStatusDto> Items,
     [property: JsonPropertyName("startedAtUtc")] DateTime StartedAtUtc,

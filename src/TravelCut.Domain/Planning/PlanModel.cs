@@ -42,7 +42,11 @@ public sealed record PlanRevision(Guid PlanId, Guid ProjectId, int Revision, int
     string Author, PlanProfileSnapshot Profile, RationalTimeBase TimeBase, string TimeZoneId, string MediaSetFingerprint,
     IReadOnlyList<PlanTrack> Tracks, IReadOnlyList<PlanSection> Sections, IReadOnlyList<PlanClip> Clips,
     IReadOnlyList<PlanTransition> Transitions, IReadOnlyList<PlanAppliedCut> AppliedCuts,
-    IReadOnlyList<PlanPendingItem> Pending);
+    IReadOnlyList<PlanPendingItem> Pending, IReadOnlyList<PlanAppliedEffect>? AppliedEffects = null);
+
+/// <summary>F14.8: efeito aplicado (cut | zoom) com origem auto | human. Informativo: NÃO entra no fingerprint do plano.</summary>
+public sealed record PlanAppliedEffect(Guid SuggestionId, Guid MediaId, string Kind, string Origin,
+    string? PolicyVersion = null, string? Reason = null, double? Scale = null, double? FocalPointX = null, double? FocalPointY = null);
 
 public sealed record MediaFacts(Guid MediaId, long DurationUs, string Fingerprint, string RelativePath);
 

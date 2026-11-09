@@ -2,7 +2,13 @@
 // Reprodução real via <video> com URL de media.getPlaybackSource. Sem atributo crossOrigin
 // (o host de mídia usa DenyCors). Nunca declarar frame-accurate.
 
+import type { SourceWindow } from './mediaTime';
+
 export interface MediaIntervalPlayerProps {
+  /**
+   * Modo "after": trechos da fonte a pular (plano vigente). Sem valor, pula só [startSeconds, endSeconds).
+   */
+  removedIntervals?: SourceWindow[] | null;
   projectId: string;
   mediaId: string;
   /** Intervalo de origem a destacar/reproduzir, em segundos da mídia fonte. */

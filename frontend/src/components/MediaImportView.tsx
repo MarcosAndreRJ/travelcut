@@ -15,8 +15,10 @@ import {
 } from 'lucide-react';
 import { ipc } from '../services/ipcBridge';
 import type {
+  AnalysisEnvironmentDto,
   ImportDestination,
   ImportJobStatusDto,
+  PostAnalysisStatusDto,
   ProjectSummary,
   StartImportRequest
 } from '../types/ipc';
@@ -29,6 +31,11 @@ import {
   basenameOf,
   DEFAULT_IMPORT_OPTIONS,
   dirnameOf,
+  effectiveImportOptions,
+  importToggleLocks,
+  loadLocalImportOptions,
+  resolveAnalysisCapabilities,
+  saveLocalImportOptions,
   formatBytes,
   formatDurationLong,
   ImportOptions,
@@ -87,7 +94,15 @@ export const MediaImportView: React.FC<MediaImportViewProps> = ({
 
   const [source, setSource] = useState<SourceTab>('videos');
   const [destination, setDestination] = useState<ImportDestination>('1-Bruto');
-  const [options, setOptions] = useState<ImportOptions>(DEFAULT_IMPORT_OPTIONS);
+  const [options, setOptions] = useState<ImportOptions>(() => ({
+    ...DEFAULT_IMPORT_OPTIONS,
+    ...loadLocalImportOptions()
+  }));
+  const [environment, setEnvironment] = useState<AnalysisEnvironmentDto | null>(null);
+  const [environmentError, setEnvironmentError] = useState(false);
+  // Escolha de automação persistida no host (AutoProcess). null = nunca escolhida: vale a recomendação.
+  const [autoProcessChoice, setAutoProcessChoice] = useState<boolean | null>(null);
+  const [postAnalysis, setPostAnalysis] = useState<PostAnalysisStatusDto | null>(null);
   const [tags, setTags] = useState<string[]>([]);
   const [rows, setRows] = useState<ImportRow[]>([]);
   const [pendingInspections, setPendingInspections] = useState(0);
@@ -112,6 +127,69 @@ export const MediaImportView: React.FC<MediaImportViewProps> = ({
   const destinationPath = joinPath(project.rootPath, destination);
   const overlayVisible = jobId !== null;
   const jobIsRunning = overlayVisible && !(job !== null && isTerminalJobState(job.state));
+  const capabilities = useMemo(
+    () => resolveAnalysisCapabilities(environment, environmentError),
+    [environment, environmentError]
+  );
+  // Sem escolha salva, a recomendação liga a automação somente quando Whisper e FFmpeg estão disponíveis.
+  const detectSpeechChoice = autoProcessChoice ?? (capabilities.ready && capabilities.blocked.detectSpeech === undefined);
+  // viewOptions é o que a tela mostra e o que é enviado ao host.
+  const viewOptions = effectiveImportOptions({ ...options, detectSpeech: detectSpeechChoice }, capabilities);
+  const toggleLocks = importToggleLocks(viewOptions, capabilities);
+
+  // Ambiente de análise (FFmpeg/Whisper) lido ao abrir a tela.
+  useEffect(() => {
+    let active = true;
+    ipc
+      .getAnalysisEnvironment()
+      .then((env) => {
+        if (active) setEnvironment(env);
+      })
+      .catch(() => {
+        if (active) setEnvironmentError(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // Automação do projeto (AutoProcess). Falha de leitura mantém a recomendação, sem gravar nada.
+  useEffect(() => {
+    let active = true;
+    ipc
+      .getAutomationOptions(projectId)
+      .then((res) => {
+        if (active) setAutoProcessChoice(res.isDefault ? null : res.autoProcess);
+      })
+      .catch(() => {
+        // Sem leitura do host: a recomendação continua valendo.
+      });
+    return () => {
+      active = false;
+    };
+  }, [projectId]);
+
+  useEffect(() => {
+    saveLocalImportOptions(options);
+  }, [options]);
+
+  // Resumo pós-análise: consultado quando a importação chega a estado terminal.
+  const jobState = job?.state ?? null;
+  useEffect(() => {
+    if (jobId === null || jobState === null || !isTerminalJobState(jobState)) return;
+    let active = true;
+    ipc
+      .getPipelineStatus(projectId)
+      .then((status) => {
+        if (active) setPostAnalysis(status.postAnalysis ?? null);
+      })
+      .catch(() => {
+        if (active) setPostAnalysis(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [jobId, jobState, projectId]);
 
   // Polling do status de importação até estado terminal (ou erro de consulta).
   useEffect(() => {
@@ -295,10 +373,10 @@ export const MediaImportView: React.FC<MediaImportViewProps> = ({
       paths: selectedItems.map((item) => item.fullPath),
       destination,
       subfolder: null,
-      copyFiles: options.copyFiles,
-      generateThumbnails: options.generateThumbnails,
-      analyzeMetadata: options.analyzeMetadata,
-      detectSpeech: options.detectSpeech,
+      copyFiles: viewOptions.copyFiles,
+      generateThumbnails: viewOptions.generateThumbnails,
+      analyzeMetadata: viewOptions.analyzeMetadata,
+      detectSpeech: viewOptions.detectSpeech,
       tags
     };
     setIsStarting(true);
@@ -306,6 +384,7 @@ export const MediaImportView: React.FC<MediaImportViewProps> = ({
     try {
       const res = await ipc.startImport(request);
       setJob(null);
+      setPostAnalysis(null);
       setOverlayError(null);
       setCancelRequested(false);
       setJobId(res.jobId);
@@ -349,6 +428,13 @@ export const MediaImportView: React.FC<MediaImportViewProps> = ({
   };
 
   const updateOption = (key: keyof ImportOptions, value: boolean) => {
+    if (key === 'detectSpeech') {
+      setAutoProcessChoice(value);
+      ipc.setAutomationOptions(projectId, value).catch((err: unknown) => {
+        setNotice({ tone: 'error', text: `Não foi possível salvar a preferência de análise automática: ${messageOf(err)}` });
+      });
+      return;
+    }
     setOptions((prev) => ({ ...prev, [key]: value }));
   };
 
@@ -533,7 +619,12 @@ export const MediaImportView: React.FC<MediaImportViewProps> = ({
           {/* Painel direito */}
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-1 min-w-0">
             <DestinationCard rootPath={project.rootPath} destination={destination} onChange={setDestination} />
-            <OptionsCard options={options} onChange={updateOption} />
+            <OptionsCard
+              options={viewOptions}
+              onChange={updateOption}
+              locks={toggleLocks}
+              cpuFallback={capabilities.cpuFallback}
+            />
             <TagsCard
               tags={tags}
               onAdd={addTags}
@@ -591,6 +682,7 @@ export const MediaImportView: React.FC<MediaImportViewProps> = ({
           onCancel={() => void cancelImport()}
           onClose={closeOverlay}
           onOpenLibrary={handleOpenLibraryFromOverlay}
+          postAnalysis={postAnalysis}
         />
       )}
     </div>

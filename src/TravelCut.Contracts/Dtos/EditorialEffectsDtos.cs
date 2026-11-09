@@ -87,7 +87,10 @@ public sealed record SmartZoomParametersDto(
     [property: JsonPropertyName("focalPointY")] double FocalPointY,
     [property: JsonPropertyName("durationSeconds")] double DurationSeconds,
     [property: JsonPropertyName("startScale")] double StartScale = 1.0,
-    [property: JsonPropertyName("endScale")] double EndScale = 1.08
+    [property: JsonPropertyName("endScale")] double EndScale = 1.08,
+    // F14.8/E04 (aditivo): enquadramento classificado e se o ponto focal é conhecido (não é o centro "por padrão").
+    [property: JsonPropertyName("framing")] string? Framing = null,
+    [property: JsonPropertyName("focalPointKnown")] bool FocalPointKnown = false
 );
 
 public sealed record SmartZoomProfileDto(

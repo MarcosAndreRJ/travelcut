@@ -24,6 +24,8 @@ public sealed class FakeWhisperService : IWhisperTranscriptionService
     public bool Available { get; set; } = true;
     public TranscriptionOutcome? Outcome { get; set; }
     public bool WaitForCancellation { get; set; }
+    /// <summary>Quando definido, TranscribeAsync só responde depois que o gate for liberado (mantém o pipeline ativo).</summary>
+    public TaskCompletionSource<bool>? TranscribeGate { get; set; }
     /// <summary>Telemetria entregue antes de bloquear ou responder.</summary>
     public List<TranscriptionProgressUpdate> ProgressScript { get; } = new();
     public TaskCompletionSource<bool>? ProgressDelivered { get; set; }
@@ -31,17 +33,35 @@ public sealed class FakeWhisperService : IWhisperTranscriptionService
     public int TranscribeCalls => Volatile.Read(ref _transcribeCalls);
     public int InvalidateCalls { get; private set; }
 
-    public void InvalidateEnvironment() => InvalidateCalls++;
+    public bool? ModelCached { get; set; }
+    public bool? FfmpegOnPath { get; set; }
+    public bool? Cuda { get; set; } = false;
+    public string Device { get; set; } = "cpu";
+    public int ProbeCalls { get; private set; }
+    private long _generation;
 
-    public Task<WhisperProbeResult> ProbeEnvironmentAsync(CancellationToken ct = default) =>
-        Task.FromResult(new WhisperProbeResult(
+    public void InvalidateEnvironment()
+    {
+        InvalidateCalls++;
+        _generation++;
+    }
+
+    public long EnvironmentGeneration => _generation;
+
+    public Task<WhisperProbeResult> ProbeEnvironmentAsync(CancellationToken ct = default)
+    {
+        ProbeCalls++;
+        return Task.FromResult(new WhisperProbeResult(
             HasPython: Available,
-            HasCuda: false,
-            Device: "cpu",
+            HasCuda: Cuda,
+            Device: Device,
             HasWhisper: Available,
             Engine: Available ? "fake-whisper 1.0" : null,
             DefaultModel: "large-v3",
-            StatusSummary: Available ? "fake disponível" : "fake indisponível"));
+            StatusSummary: Available ? "fake disponível" : "fake indisponível",
+            ModelCached: ModelCached,
+            FfmpegOnPath: FfmpegOnPath));
+    }
 
     public Task<string?> FindPythonExecutableAsync(CancellationToken ct = default) =>
         Task.FromResult(Available ? "fake-python" : (string?)null);
@@ -66,6 +86,10 @@ public sealed class FakeWhisperService : IWhisperTranscriptionService
         execution?.OnLog("stderr", "aviso de teste");
         foreach (var update in ProgressScript) progress?.Report(update);
         ProgressDelivered?.TrySetResult(true);
+        if (TranscribeGate != null)
+        {
+            await TranscribeGate.Task.WaitAsync(ct);
+        }
         if (WaitForCancellation)
         {
             await Task.Delay(Timeout.Infinite, ct);

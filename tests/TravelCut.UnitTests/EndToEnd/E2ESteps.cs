@@ -48,7 +48,34 @@ public static class E2ESteps
 
         var status = await WaitTerminalAsync(host, projectId);
         Assert.Equal(jobId, status.GetProperty("jobId").GetGuid());
+        await WaitPostAnalysisSettledAsync(host, projectId, status);
         return status;
+    }
+
+    /// <summary>
+    /// F14.8/P01: ao fim de uma análise completed/completed_with_issues o orquestrador gera o plano em segundo plano.
+    /// Espera essa execução terminar (finishedAtUtc >= fim do pipeline) para que o teste seja determinístico.
+    /// </summary>
+    public static async Task WaitPostAnalysisSettledAsync(E2EHost host, Guid projectId, JsonElement pipelineStatus, TimeSpan? timeout = null)
+    {
+        var state = pipelineStatus.GetProperty("state").GetString();
+        if (state is not ("completed" or "completed_with_issues")) return;
+        var pipelineFinished = pipelineStatus.GetProperty("finishedAtUtc").GetDateTime();
+
+        var deadline = DateTime.UtcNow + (timeout ?? TimeSpan.FromSeconds(30));
+        while (true)
+        {
+            var status = await host.Ok("pipeline.status", new ProjectRequest(projectId));
+            if (status.TryGetProperty("postAnalysis", out var post) && post.ValueKind == JsonValueKind.Object
+                && post.GetProperty("state").GetString() is not ("idle" or "running")
+                && post.GetProperty("finishedAtUtc").ValueKind == JsonValueKind.String
+                && post.GetProperty("finishedAtUtc").GetDateTime() >= pipelineFinished)
+            {
+                return;
+            }
+            if (DateTime.UtcNow > deadline) Assert.Fail("O pós-análise não terminou no prazo: " + status.GetRawText());
+            await Task.Delay(20);
+        }
     }
 
     public static async Task<JsonElement> WaitTerminalAsync(E2EHost host, Guid projectId, TimeSpan? timeout = null)

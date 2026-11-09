@@ -62,7 +62,12 @@ public record AnalysisEnvironmentDto(
     [property: JsonPropertyName("whisperEngine")] string? WhisperEngine,
     [property: JsonPropertyName("whisperModel")] string WhisperModel,  // sempre "large-v3" (não substituir sem autorização)
     [property: JsonPropertyName("cudaAvailable")] bool? CudaAvailable, // null = desconhecido
-    [property: JsonPropertyName("reasons")] List<string> Reasons       // por que algo está indisponível
+    [property: JsonPropertyName("reasons")] List<string> Reasons,      // por que algo está indisponível
+    // Aditivos (F14.8/P04): ausentes em respostas antigas; consumidores devem tratá-los como opcionais.
+    [property: JsonPropertyName("device")] string? Device = null,                  // "cuda" | "cpu" | null (desconhecido)
+    [property: JsonPropertyName("modelCached")] bool? ModelCached = null,          // modelo large-v3 no cache local; null = desconhecido
+    [property: JsonPropertyName("cpuFallback")] bool CpuFallback = false,          // Whisper disponível, mas sem CUDA (CPU: muito lento)
+    [property: JsonPropertyName("whisperUnavailableReason")] string? WhisperUnavailableReason = null // motivo(s) quando whisperAvailable=false
 );
 
 // ---- Pipeline ----
@@ -114,7 +119,8 @@ public record PipelineStatusDto(
     [property: JsonPropertyName("environment")] AnalysisEnvironmentDto? Environment,
     [property: JsonPropertyName("startedAtUtc")] DateTime? StartedAtUtc,
     [property: JsonPropertyName("finishedAtUtc")] DateTime? FinishedAtUtc,
-    [property: JsonPropertyName("activity")] PipelineActivityDto? Activity = null
+    [property: JsonPropertyName("activity")] PipelineActivityDto? Activity = null,
+    [property: JsonPropertyName("postAnalysis")] PostAnalysisStatusDto? PostAnalysis = null   // F14.8: processamento automático pós-análise (null = sem orquestrador)
 );
 
 /// <summary>

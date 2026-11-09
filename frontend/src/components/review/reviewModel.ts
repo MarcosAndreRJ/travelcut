@@ -1,4 +1,5 @@
-import type { EditSuggestion, TranscriptWordDto } from '../../types/ipc';
+import type { EditPlanDto, EditSuggestion, TranscriptWordDto } from '../../types/ipc';
+import { outcomeOf } from './preeditSummary';
 
 // Funções puras da Tela 03 (Revisão de Cortes & Efeitos). Sem React e sem IPC.
 // Regra de negócio fica no host: aqui só há filtros de visualização, janelas de apresentação
@@ -13,7 +14,7 @@ export const FRAME_STEP_SECONDS = 1 / 30;
 /** Passo do campo numérico e dos botões de ±0,1 s. */
 export const TENTH_STEP_SECONDS = 0.1;
 
-export type ReviewStatusFilter = 'pending' | 'approved' | 'rejected' | 'deferred' | 'all';
+export type ReviewStatusFilter = 'pending' | 'approved' | 'rejected' | 'deferred' | 'applied' | 'conflict' | 'all';
 export type ReviewConfidenceFilter = 'all' | 'low' | 'medium' | 'high';
 export type ReviewDecisionAction = 'approve' | 'reject' | 'defer' | 'reopen';
 export type EditorialCategoryFilter = 'all' | 'cuts' | 'zooms' | 'transitions';
@@ -126,35 +127,57 @@ export interface StatusCounts {
   approved: number;
   rejected: number;
   deferred: number;
+  /** Aplicadas automaticamente ou pelo usuário (efetivo, plano vigente quando houver). */
+  applied: number;
+  conflict: number;
 }
 
-/** Contadores reais por status, calculados sobre a lista recebida do host. */
-export const countByStatus = (suggestions: EditSuggestion[]): StatusCounts => {
-  const counts: StatusCounts = { all: suggestions.length, pending: 0, approved: 0, rejected: 0, deferred: 0 };
+/** Contadores reais pelo status efetivo (plano vigente quando disponível). */
+export const countByStatus = (suggestions: EditSuggestion[], plan: EditPlanDto | null = null): StatusCounts => {
+  const counts: StatusCounts = { all: suggestions.length, pending: 0, approved: 0, rejected: 0, deferred: 0, applied: 0, conflict: 0 };
   for (const s of suggestions) {
-    if (s.status === 'Proposed') counts.pending += 1;
-    else if (s.status === 'Approved') counts.approved += 1;
-    else if (s.status === 'Rejected') counts.rejected += 1;
-    else if (s.status === 'Deferred') counts.deferred += 1;
+    const outcome = outcomeOf(s, plan);
+    if (outcome === 'pending') counts.pending += 1;
+    else if (outcome === 'autoApplied' || outcome === 'userApplied') counts.applied += 1;
+    else if (outcome === 'notApplied') counts.rejected += 1;
+    else if (outcome === 'deferred') counts.deferred += 1;
+    else if (outcome === 'conflict') counts.conflict += 1;
+    if (isApproved(s)) counts.approved += 1;
   }
   return counts;
 };
 
-export const filterSuggestions = (suggestions: EditSuggestion[], filters: ReviewFilters): EditSuggestion[] =>
+export const filterSuggestions = (
+  suggestions: EditSuggestion[],
+  filters: ReviewFilters,
+  plan: EditPlanDto | null = null
+): EditSuggestion[] =>
   suggestions.filter((s) => {
     if (filters.category === 'cuts' && !isCutKind(s.kind)) return false;
     if (filters.category === 'zooms' && !isZoomKind(s.kind)) return false;
     if (filters.category === 'transitions' && !isTransitionKind(s.kind)) return false;
 
-    if (filters.status === 'pending' && !isPending(s)) return false;
+    const outcome = outcomeOf(s, plan);
+    if (filters.status === 'pending' && outcome !== 'pending') return false;
     if (filters.status === 'approved' && !isApproved(s)) return false;
-    if (filters.status === 'rejected' && s.status !== 'Rejected') return false;
-    if (filters.status === 'deferred' && s.status !== 'Deferred') return false;
+    if (filters.status === 'applied' && outcome !== 'autoApplied' && outcome !== 'userApplied') return false;
+    if (filters.status === 'conflict' && outcome !== 'conflict') return false;
+    if (filters.status === 'rejected' && outcome !== 'notApplied') return false;
+    if (filters.status === 'deferred' && outcome !== 'deferred') return false;
     if (filters.kind !== 'all' && kindKey(s.kind) !== filters.kind) return false;
     if (filters.confidence !== 'all' && s.confidenceBand !== filters.confidence) return false;
     if (filters.humanOnly && !requiresHumanReview(s)) return false;
     return true;
   });
+
+const CONFIDENCE_RANK: Record<string, number> = { low: 0, medium: 1, high: 2 };
+
+/** Fila de pendentes: revisão humana obrigatória e baixa confiança primeiro (ordem original em empate). */
+export const prioritizePending = (items: EditSuggestion[]): EditSuggestion[] =>
+  items
+    .map((s, index) => ({ s, index, rank: (requiresHumanReview(s) ? 0 : 3) + (CONFIDENCE_RANK[s.confidenceBand] ?? 1) }))
+    .sort((a, b) => a.rank - b.rank || a.index - b.index)
+    .map((x) => x.s);
 
 /**
  * Tempo removido vem SEMPRE do plano do host (summary.removedSourceUs da revisão mais recente).

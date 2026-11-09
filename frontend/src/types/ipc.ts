@@ -58,6 +58,25 @@ export interface EditDecisionDto {
   baseRevision?: number | null;
   sourceStartSeconds?: number | null;
   sourceEndSeconds?: number | null;
+  parameters?: DecisionParametersDto | null; // F14.8 (aditivo)
+}
+
+// F14.8 — espelho de SmartZoomParametersDto / DecisionParametersDto (EditDtos.cs, EditorialEffectsDtos.cs).
+export interface SmartZoomParametersDto {
+  zoomType: 'punch_in' | 'push_in' | string;
+  scale: number;            // limitada a 1,01–1,12 pelo host
+  focalPointX: number;      // 0–1
+  focalPointY: number;      // 0–1
+  durationSeconds: number;  // >= 0
+  startScale?: number;
+  endScale?: number;
+  framing?: string | null;
+  focalPointKnown?: boolean;
+}
+
+/** Parâmetros opcionais da decisão (hoje só zoom). Decisão humana vence a política. */
+export interface DecisionParametersDto {
+  zoom?: SmartZoomParametersDto | null;
 }
 
 export interface SubmitDecisionRequest {
@@ -67,6 +86,7 @@ export interface SubmitDecisionRequest {
   notes?: string | null;
   modifiedStartSeconds?: number | null; // obrigatório em "modify"
   modifiedEndSeconds?: number | null;
+  parameters?: DecisionParametersDto | null; // F14.8: só approve/modify de sugestão de zoom; ausente = herda os efetivos
 }
 
 export interface UndoDecisionRequest {
@@ -82,6 +102,7 @@ export interface BatchDecideRequest {
   action: 'approve' | 'reject' | 'defer';
   reviewer: string;
   notes?: string | null;
+  parameters?: DecisionParametersDto | null; // F14.8: só com approve e sugestões de zoom
 }
 
 export interface DecisionResultDto {
@@ -111,6 +132,11 @@ export interface EditSuggestion {
   effectiveEndSeconds?: number | null;
   canUndo?: boolean;
   canRedo?: boolean;
+  // F14.8 (aditivo)
+  origin?: 'auto' | 'human' | null;       // human = decisão de usuário ativa; auto = autoaplicada pela política no plano vigente
+  policyVersion?: string | null;          // só origin 'auto'
+  policyReason?: string | null;           // só origin 'auto'
+  parameters?: DecisionParametersDto | null; // efetivos (decisão humana, senão os da própria sugestão de zoom)
 }
 
 // ---- Prévia (F07) — espelho de src/TravelCut.Contracts/Dtos/PreviewDtos.cs ----
@@ -420,7 +446,7 @@ export interface ImportJobStatusDto {
   bytesTotal: number;
   bytesCopied: number;
   currentFile: string | null;
-  speechAnalysis: 'not_requested' | 'queued' | 'unavailable';
+  speechAnalysis: 'not_requested' | 'queued' | 'merged' | 'failed' | 'skipped' | 'unavailable';
   message: string | null;
   items: ImportItemStatusDto[];
   startedAtUtc: string;
@@ -563,6 +589,11 @@ export interface AnalysisEnvironmentDto {
   whisperModel: string;
   cudaAvailable: boolean | null;
   reasons: string[];
+  // Aditivos (F14.8/P04): opcionais para compatibilidade com respostas antigas e mocks.
+  device?: 'cuda' | 'cpu' | string | null;
+  modelCached?: boolean | null;
+  cpuFallback?: boolean;
+  whisperUnavailableReason?: string | null;
 }
 
 export interface StartPipelineRequest {
@@ -602,6 +633,8 @@ export interface PipelineStatusDto {
   finishedAtUtc: string | null;
   /** Atividade dentro da mídia; ausente quando não há job ou no modo demonstração. */
   activity?: PipelineActivityDto | null;
+  /** F14.8: processamento automático pós-análise (plano + proxies); ausente no modo demonstração. */
+  postAnalysis?: PostAnalysisStatusDto | null;
 }
 
 /** Diagnóstico do worker Whisper (pipeline.diagnostics): caminhos locais, só por ação explícita do usuário. */
@@ -821,6 +854,65 @@ export interface EditorialProfileDto {
   autoApplyTrivialCuts?: boolean;
 }
 
+// ---- Perfil de automação editorial por projeto (F14.8) — espelho de src/TravelCut.Contracts/Dtos/AutomationProfileDtos.cs ----
+// IPC: automation.profile.get / automation.profile.set. plan.generate sem 'profile' usa o perfil persistido.
+
+export type AutomationProfile = 'conservative' | 'balanced' | 'aggressive';
+
+export interface GetAutomationProfileRequest {
+  projectId: string;
+}
+
+export interface SetAutomationProfileRequest {
+  projectId: string;
+  profile: AutomationProfile;
+}
+
+export interface AutomationProfileDto {
+  projectId: string;
+  profile: AutomationProfile;
+  /** true = nunca escolhido pelo usuário (projeto novo/antigo): valor padrão 'balanced'. */
+  isDefault: boolean;
+}
+
+export type PostAnalysisState = 'idle' | 'running' | 'completed' | 'completed_with_issues' | 'failed' | 'skipped';
+
+/** Espelho de src/TravelCut.Contracts/Dtos/PostAnalysisDtos.cs (pipeline.status.postAnalysis). */
+export interface PostAnalysisStatusDto {
+  state: PostAnalysisState;
+  /** Etapa atual (apenas running): plan | proxy. */
+  stage: 'plan' | 'proxy' | null;
+  /** skipped: auto_process_disabled | no_analysis_results. */
+  reason: string | null;
+  autoCutsApplied: number;
+  pendingReview: number;
+  proxiesQueued: number;
+  failures: number;
+  /** Códigos estáveis (PLAN_FAILED:<code>, PROXY_FAILED:<n>, PROXY_FFMPEG_UNAVAILABLE, ...). */
+  issues: string[];
+  planRevision: number | null;
+  startedAtUtc: string | null;
+  finishedAtUtc: string | null;
+}
+
+// ---- Opções de automação por projeto (F14.8) — IPC: automation.options.get / automation.options.set ----
+export interface GetAutomationOptionsRequest {
+  projectId: string;
+}
+
+export interface SetAutomationOptionsRequest {
+  projectId: string;
+  autoProcess: boolean;
+}
+
+export interface AutomationOptionsDto {
+  projectId: string;
+  /** Gate do processamento automático pós-análise (padrão true). */
+  autoProcess: boolean;
+  /** true = nunca escolhido pelo usuário. */
+  isDefault: boolean;
+}
+
 export interface TimelineTimeBaseDto {
   fpsNumerator?: number;
   fpsDenominator?: number;
@@ -888,6 +980,19 @@ export interface PlanAppliedCutDto {
   origin: 'approved_by_user' | 'auto_trivial' | 'residual_sub_frame';
 }
 
+/** F14.8: efeito aplicado pelo plano com origem auditável (informativo; fora do fingerprint). */
+export interface PlanAppliedEffectDto {
+  suggestionId: string;
+  mediaId: string;
+  kind: 'cut' | 'zoom' | string;
+  origin: 'auto' | 'human';
+  policyVersion?: string | null; // só origin 'auto'
+  reason?: string | null;        // só origin 'auto'
+  scale?: number | null;         // zoom
+  focalPointX?: number | null;   // zoom (decisão humana)
+  focalPointY?: number | null;
+}
+
 export interface PlanPendingItemDto {
   suggestionId: string | null;
   mediaId: string | null;
@@ -945,6 +1050,7 @@ export interface EditPlanDto {
   pendingItems?: PlanPendingItemDto[];
   summary: PlanSummaryDto;
   validation: PlanValidationDto;
+  appliedEffects?: PlanAppliedEffectDto[] | null; // F14.8 (null em planos antigos)
 }
 
 export interface PlanRevisionInfoDto {

@@ -260,8 +260,10 @@ public class IpcDispatcher
                     var suggestions = await _planRepo.ListSuggestionsByProjectAsync(projectId, ct);
                     var decisions = await _planRepo.ListDecisionsByProjectAsync(projectId, ct);
                     var effective = EffectiveSuggestionStatus.ResolveDetailed(suggestions, decisions);
+                    var appliedEffects = await _planning.LoadAppliedEffectsAsync(projectId, ct);
                     var dtos = suggestions
-                        .Select(s => SuggestionEffectiveMapper.ToDto(s, effective[s.SuggestionId]))
+                        .Select(s => SuggestionEffectiveMapper.ToDto(s, effective[s.SuggestionId],
+                            appliedEffects.TryGetValue(s.SuggestionId, out var fx) ? fx : null))
                         .ToList();
 
                     return IpcResponse.Success(request.RequestId, new { suggestions = dtos });
@@ -340,7 +342,8 @@ public class IpcDispatcher
                         d.Version,
                         d.BaseRevision,
                         d.SourceStartMs is long ss ? SuggestionStorageMapper.ToSeconds(ss) : null,
-                        d.SourceEndMs is long se ? SuggestionStorageMapper.ToSeconds(se) : null
+                        d.SourceEndMs is long se ? SuggestionStorageMapper.ToSeconds(se) : null,
+                        DecisionParameters.Parse(d.ParametersJson)
                     )).ToList();
                     return IpcResponse.Success(request.RequestId, new { decisions = dtos });
                 }
@@ -553,6 +556,50 @@ public class IpcDispatcher
 
                 case "profile.get":
                     return IpcResponse.Success(request.RequestId, _planning.GetProfile());
+
+                case "automation.profile.get":
+                {
+                    var req = DeserializePayload<GetAutomationProfileRequest>(request.Payload);
+                    if (req == null || req.ProjectId == Guid.Empty)
+                    {
+                        return IpcResponse.Fail(request.RequestId, "INVALID_ARGUMENT", "ID de projeto inválido.");
+                    }
+
+                    return PlanResponse(request.RequestId, await _planning.GetAutomationProfileAsync(req, ct));
+                }
+
+                case "automation.profile.set":
+                {
+                    var req = DeserializePayload<SetAutomationProfileRequest>(request.Payload);
+                    if (req == null || req.ProjectId == Guid.Empty)
+                    {
+                        return IpcResponse.Fail(request.RequestId, "INVALID_ARGUMENT", "ID de projeto inválido.");
+                    }
+
+                    return PlanResponse(request.RequestId, await _planning.SetAutomationProfileAsync(req, ct));
+                }
+
+                case "automation.options.get":
+                {
+                    var req = DeserializePayload<GetAutomationOptionsRequest>(request.Payload);
+                    if (req == null || req.ProjectId == Guid.Empty)
+                    {
+                        return IpcResponse.Fail(request.RequestId, "INVALID_ARGUMENT", "ID de projeto inválido.");
+                    }
+
+                    return PlanResponse(request.RequestId, await _planning.GetAutomationOptionsAsync(req, ct));
+                }
+
+                case "automation.options.set":
+                {
+                    var req = DeserializePayload<SetAutomationOptionsRequest>(request.Payload);
+                    if (req == null || req.ProjectId == Guid.Empty)
+                    {
+                        return IpcResponse.Fail(request.RequestId, "INVALID_ARGUMENT", "ID de projeto inválido.");
+                    }
+
+                    return PlanResponse(request.RequestId, await _planning.SetAutomationOptionsAsync(req, ct));
+                }
 
                 case "plan.generate":
                 {

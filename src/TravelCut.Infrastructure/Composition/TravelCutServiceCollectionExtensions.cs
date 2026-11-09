@@ -82,6 +82,7 @@ public static class TravelCutServiceCollectionExtensions
         // Editorial Services (F14.4)
         services.AddScoped<TravelCut.Application.Editorial.ISceneClassificationService, TravelCut.Application.Editorial.SceneClassificationService>();
         services.AddScoped<TravelCut.Application.Editorial.ISmartZoomRecommender, TravelCut.Application.Editorial.SmartZoomRecommender>();
+        services.AddScoped<TravelCut.Application.Editorial.IZoomSuggestionGenerator, TravelCut.Application.Editorial.ZoomSuggestionGenerator>();
         services.AddScoped<TravelCut.Application.Editorial.ITransitionRecommender, TravelCut.Application.Editorial.TransitionRecommender>();
         services.AddScoped<TravelCut.Application.Editorial.IEditorialEffectsService, TravelCut.Application.Editorial.EditorialEffectsService>();
         services.AddScoped<TravelCut.Application.Editorial.EditorialIpcHandler>();
@@ -141,6 +142,8 @@ public static class TravelCutServiceCollectionExtensions
         services.AddSingleton<ISceneClassifierService, SceneClassifierService>();
         services.AddSingleton<ICutCandidateService, CutCandidateService>();
         // Singleton: guarda jobs em memória e cria escopos próprios (DbContext) por mídia.
+        // F14.8/P01: orquestrador pós-análise (plano + proxies), singleton com escopo de DI próprio por execução.
+        services.AddSingleton<IPostAnalysisOrchestrator, TravelCut.Application.PostAnalysis.PostAnalysisOrchestrator>();
         services.AddSingleton<IPipelineJobManager, PipelineJobManager>();
 
         // Importação de mídia (Tela 07)

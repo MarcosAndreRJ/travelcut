@@ -11,6 +11,15 @@ public class Project
     public DateTime LastModifiedAtUtc { get; set; } = DateTime.UtcNow;
     public int ProfileVersion { get; set; } = 1;
 
+    /// <summary>
+    /// Perfil de automação editorial escolhido para o projeto ("conservative" | "balanced" | "aggressive").
+    /// Null = projeto anterior ao campo (coluna aditiva) ou nunca configurado; o consumidor trata como "balanced".
+    /// </summary>
+    public string? AutomationProfile { get; set; }
+
+    /// <summary>Processamento automático pós-análise (plano + proxies). Null = nunca escolhido (coluna aditiva) = true.</summary>
+    public bool? AutoProcess { get; set; }
+
     public static readonly string[] RequiredFourFolders = ["1-Bruto", "2-Assets", "3-Trabalho", "4-Final"];
 
     public bool HasValidFourFoldersStructure(out string missingFolder)

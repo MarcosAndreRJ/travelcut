@@ -50,10 +50,28 @@ public class PipelineJobManager : IPipelineJobManager
     private readonly Dictionary<Guid, PipelineJobRun> _jobs = new();
     private readonly Dictionary<Guid, Guid> _activeByProject = new();
     private readonly Dictionary<Guid, Guid> _latestByProject = new();
+    // Coalescência (F14.8/P02): lotes pendentes por projeto (em memória), iniciados ao liberar o slot. FIFO; lotes só se fundem com mesma configuração.
+    private readonly Dictionary<Guid, List<PendingBatch>> _pending = new();
+
+    private sealed class PendingBatch
+    {
+        public required Guid ProjectId { get; init; }
+        public required List<string> Stages { get; init; }
+        public required string Language { get; init; }
+        public required bool Force { get; init; }
+        /// <summary>null = todas as mídias do projeto.</summary>
+        public List<Guid>? MediaIds { get; set; }
+
+        public StartPipelineRequest ToRequest() => new(ProjectId, MediaIds, Stages, Language, Force);
+    }
+
+    /// <summary>F14.8/P01: processamento automático (plano + proxies) acionado só em completed/completed_with_issues.</summary>
+    private readonly IPostAnalysisOrchestrator? _postAnalysis;
 
     private readonly SemaphoreSlim _environmentLock = new(1, 1);
     private AnalysisEnvironmentDto? _environment;
     private DateTime _environmentAtUtc = DateTime.MinValue;
+    private long _environmentGeneration = -1;
 
     public PipelineJobManager(
         ILogger<PipelineJobManager> logger,
@@ -62,8 +80,10 @@ public class PipelineJobManager : IPipelineJobManager
         ISilenceDetectionService silence,
         ISceneClassifierService scene,
         ICutCandidateService candidates,
-        IProjectOperationLock projectLocks)
+        IProjectOperationLock projectLocks,
+        IPostAnalysisOrchestrator? postAnalysis = null)
     {
+        _postAnalysis = postAnalysis;
         _logger = logger;
         _scopeFactory = scopeFactory;
         _whisper = whisper;
@@ -74,6 +94,133 @@ public class PipelineJobManager : IPipelineJobManager
     }
 
     // ---------------------------------------------------------------- IPipelineJobManager
+
+    public async Task<PipelineEnqueueResult> EnqueueAsync(StartPipelineRequest request, CancellationToken ct = default)
+    {
+        // Valida cedo (INVALID_STAGE / idioma): nada inválido entra na fila.
+        var stages = NormalizeStages(request.Stages);
+        var language = NormalizeLanguage(request.Language);
+
+        if (TryMergeIntoPending(request, stages, language) is { } merged) return merged;
+
+        try
+        {
+            return new PipelineEnqueueResult(PipelineEnqueueResult.Started, await StartAsync(request, ct), 0);
+        }
+        catch (InvalidOperationException ex) when (ex.Message == "PIPELINE_IN_PROGRESS")
+        {
+            // Corrida: outro start ocupou o slot entre a checagem e a reserva. Trava entre processos (sem job local): não há aviso de liberação → propaga.
+            if (TryMergeIntoPending(request, stages, language) is { } raced) return raced;
+            throw;
+        }
+    }
+
+    private PipelineEnqueueResult? TryMergeIntoPending(StartPipelineRequest request, List<string> stages, string language)
+    {
+        lock (_registry)
+        {
+            if (!_activeByProject.TryGetValue(request.ProjectId, out var activeJobId)) return null;
+
+            if (!_pending.TryGetValue(request.ProjectId, out var batches))
+            {
+                batches = new List<PendingBatch>();
+                _pending[request.ProjectId] = batches;
+            }
+
+            var batch = batches.FirstOrDefault(b => b.Force == request.Force && b.Language == language && b.Stages.SequenceEqual(stages));
+            if (batch == null)
+            {
+                batch = new PendingBatch
+                {
+                    ProjectId = request.ProjectId,
+                    Stages = stages,
+                    Language = language,
+                    Force = request.Force,
+                    MediaIds = request.MediaIds == null ? null : new List<Guid>()
+                };
+                batches.Add(batch);
+            }
+
+            if (request.MediaIds == null)
+            {
+                batch.MediaIds = null; // "todas" absorve qualquer lista
+            }
+            else if (batch.MediaIds != null)
+            {
+                foreach (var id in request.MediaIds)
+                {
+                    if (!batch.MediaIds.Contains(id)) batch.MediaIds.Add(id);
+                }
+            }
+
+            _logger.LogInformation("Pipeline do projeto {ProjectId} em andamento ({JobId}): mídias mescladas ao lote pendente ({Count})",
+                request.ProjectId, activeJobId, batch.MediaIds?.Count ?? -1);
+            return new PipelineEnqueueResult(PipelineEnqueueResult.Merged, activeJobId, batch.MediaIds?.Count ?? 0);
+        }
+    }
+
+    /// <summary>Inicia o próximo lote pendente do projeto (se o slot estiver livre). Nunca lança: falhas vão ao log.</summary>
+    private async Task DrainPendingAsync(Guid projectId)
+    {
+        try
+        {
+            while (true)
+            {
+                PendingBatch? batch;
+                lock (_registry)
+                {
+                    // Slot ocupado: o job ativo drena ao terminar.
+                    if (_activeByProject.ContainsKey(projectId)) return;
+                    if (!_pending.TryGetValue(projectId, out var list) || list.Count == 0) { _pending.Remove(projectId); return; }
+                    batch = list[0];
+                    list.RemoveAt(0);
+                    if (list.Count == 0) _pending.Remove(projectId);
+                }
+
+                try
+                {
+                    var jobId = await StartAsync(batch.ToRequest(), CancellationToken.None);
+                    _logger.LogInformation("Lote pendente do projeto {ProjectId} iniciado como job {JobId}", projectId, jobId);
+                    return; // o próximo lote é drenado quando este job liberar o slot
+                }
+                catch (InvalidOperationException ex) when (ex.Message == "PIPELINE_IN_PROGRESS")
+                {
+                    lock (_registry)
+                    {
+                        if (_activeByProject.ContainsKey(projectId))
+                        {
+                            // Outro job tomou o slot: devolve o lote ao início da fila; ele drena ao terminar.
+                            if (!_pending.TryGetValue(projectId, out var list)) { list = new List<PendingBatch>(); _pending[projectId] = list; }
+                            list.Insert(0, batch);
+                            return;
+                        }
+                    }
+                    _logger.LogError("Lote pendente do projeto {ProjectId} descartado: a trava de análise entre processos está ocupada.", projectId);
+                }
+                catch (Exception ex)
+                {
+                    // Ex.: NO_MEDIA_TO_ANALYZE / PROJECT_NOT_FOUND. Segue para o próximo lote.
+                    _logger.LogError(ex, "Falha ao iniciar lote pendente do projeto {ProjectId}; lote descartado.", projectId);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Falha inesperada ao drenar a fila pendente do projeto {ProjectId}", projectId);
+        }
+    }
+
+    /// <summary>Cancelamento explícito do usuário descarta os lotes pendentes (não reinicia análise sem pedido).</summary>
+    private void DropPending(Guid projectId)
+    {
+        lock (_registry)
+        {
+            if (_pending.Remove(projectId, out var dropped))
+            {
+                _logger.LogWarning("Análise cancelada: {Count} lote(s) pendente(s) do projeto {ProjectId} descartado(s).", dropped.Count, projectId);
+            }
+        }
+    }
 
     public async Task<Guid> StartAsync(StartPipelineRequest request, CancellationToken ct = default)
     {
@@ -151,6 +298,8 @@ public class PipelineJobManager : IPipelineJobManager
                 _activeByProject.Remove(request.ProjectId);
                 _jobs.Remove(job.JobId);
             }
+            // Lotes mesclados durante a breve reserva não podem ficar órfãos.
+            _ = Task.Run(() => DrainPendingAsync(request.ProjectId));
             throw;
         }
 
@@ -186,10 +335,11 @@ public class PipelineJobManager : IPipelineJobManager
                 CurrentMedia: null,
                 Environment: environment,
                 StartedAtUtc: null,
-                FinishedAtUtc: null);
+                FinishedAtUtc: null,
+                PostAnalysis: _postAnalysis?.GetStatus(projectId));
         }
 
-        return job.Snapshot(environment);
+        return job.Snapshot(environment) with { PostAnalysis = _postAnalysis?.GetStatus(projectId) };
     }
 
     public PipelineDiagnosticsDto GetDiagnostics(Guid projectId)
@@ -214,23 +364,39 @@ public class PipelineJobManager : IPipelineJobManager
 
     public async Task<AnalysisEnvironmentDto> GetEnvironmentAsync(CancellationToken ct = default, bool forceRefresh = false)
     {
-        var cached = _environment;
-        if (!forceRefresh && cached != null && DateTime.UtcNow - _environmentAtUtc < EnvironmentCacheTtl) return cached;
+        if (!forceRefresh && PeekEnvironment() is { } cached) return cached;
 
         await _environmentLock.WaitAsync(ct);
         try
         {
-            if (!forceRefresh && _environment != null && DateTime.UtcNow - _environmentAtUtc < EnvironmentCacheTtl) return _environment;
+            if (!forceRefresh && PeekEnvironment() is { } again) return again;
 
             if (forceRefresh) _whisper.InvalidateEnvironment();
+            // Geração lida antes do probe: invalidação durante o probe força nova consulta na próxima chamada.
+            long generation = _whisper.EnvironmentGeneration;
             _environment = await ProbeEnvironmentAsync(ct);
             _environmentAtUtc = DateTime.UtcNow;
+            _environmentGeneration = generation;
             return _environment;
         }
         finally
         {
             _environmentLock.Release();
         }
+    }
+
+    /// <summary>
+    /// Ambiente em cache (TTL de 60 s, inclusive quando Whisper/modelo estão ausentes) ou null se expirado/invalidado
+    /// (instalação via assistente). Nunca dispara probe: seguro para caminhos que não podem bloquear.
+    /// </summary>
+    public AnalysisEnvironmentDto? PeekEnvironment()
+    {
+        var cached = _environment;
+        return cached != null
+            && DateTime.UtcNow - _environmentAtUtc < EnvironmentCacheTtl
+            && _environmentGeneration == _whisper.EnvironmentGeneration
+                ? cached
+                : null;
     }
 
     public async Task<MediaAnalysisDto?> GetMediaAnalysisAsync(Guid projectId, Guid mediaId, CancellationToken ct = default)
@@ -255,6 +421,7 @@ public class PipelineJobManager : IPipelineJobManager
     private async Task RunJobAsync(PipelineJobRun job)
     {
         var ct = job.Cts.Token;
+        bool canceled = false;
         job.MarkRunning();
 
         try
@@ -285,9 +452,11 @@ public class PipelineJobManager : IPipelineJobManager
             await ReleaseSlotAsync(job);
             job.Finish(forcedState: null);
             _logger.LogInformation("Análise {JobId} finalizada com estado {State}", job.JobId, job.State);
+            TriggerPostAnalysis(job);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
+            canceled = true;
             job.CancelNonTerminal();
             await ReleaseSlotAsync(job);
             job.Finish(forcedState: "canceled");
@@ -304,6 +473,29 @@ public class PipelineJobManager : IPipelineJobManager
         {
             // Redundante por segurança (idempotente): garante liberação mesmo em caminhos não previstos.
             await ReleaseSlotAsync(job);
+
+            // Slot livre e job já finalizado: inicia o lote pendente (mídias importadas durante este pipeline) ou o descarta se cancelado.
+            if (canceled) DropPending(job.ProjectId);
+            else await DrainPendingAsync(job.ProjectId);
+        }
+    }
+
+    /// <summary>
+    /// Aciona o orquestrador pós-análise em segundo plano (sem bloquear o fim do job). Nunca em failed/canceled.
+    /// Falha do orquestrador é registrada e não altera o estado da análise.
+    /// </summary>
+    private void TriggerPostAnalysis(PipelineJobRun job)
+    {
+        if (_postAnalysis is null) return;
+        if (job.State is not ("completed" or "completed_with_issues")) return;
+
+        try
+        {
+            _ = _postAnalysis.ScheduleAsync(job.ProjectId, job.JobId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Falha ao acionar o processamento pós-análise do job {JobId}", job.JobId);
         }
     }
 
@@ -736,25 +928,50 @@ public class PipelineJobManager : IPipelineJobManager
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogWarning(ex, "Falha ao sondar Python/Whisper");
-            reasons.Add("Não foi possível sondar Python/Whisper: transcrição indisponível.");
         }
 
         bool python = probe?.HasPython ?? false;
-        bool whisper = probe?.HasWhisper ?? false;
-        if (probe != null)
+        bool installed = probe?.HasWhisper ?? false;
+        // null = desconhecido (probe sem a informação): não bloqueia. O worker real sempre informa os dois campos.
+        bool modelCached = probe?.ModelCached != false;
+        bool ffmpegOnPath = probe?.FfmpegOnPath != false;
+        // Whisper só é "disponível" com TODAS as dependências reais: Python + openai-whisper + modelo em cache + ffmpeg no PATH do worker.
+        bool whisper = probe != null && python && installed && modelCached && ffmpegOnPath;
+
+        var whisperReasons = new List<string>();
+        if (probe == null)
+        {
+            whisperReasons.Add("Não foi possível sondar Python/Whisper: transcrição indisponível.");
+        }
+        else
         {
             if (!python)
             {
-                reasons.Add("Python não encontrado: transcrição Whisper indisponível.");
+                whisperReasons.Add("Python não encontrado: transcrição Whisper indisponível.");
             }
-            else if (!whisper)
+            else if (!installed)
             {
-                reasons.Add("Whisper large-v3 não disponível no Python configurado: transcrição indisponível.");
+                whisperReasons.Add("Whisper large-v3 não disponível no Python configurado: transcrição indisponível.");
             }
-            if (python && probe.HasCuda == false)
+            else
             {
-                reasons.Add("CUDA não disponível: Whisper large-v3 rodaria em CPU (processamento lento).");
+                if (!modelCached)
+                {
+                    whisperReasons.Add("Modelo Whisper large-v3 não está no cache local (o worker não baixa modelos automaticamente): transcrição indisponível.");
+                }
+                if (!ffmpegOnPath)
+                {
+                    whisperReasons.Add("ffmpeg não está no PATH do worker Whisper: transcrição indisponível.");
+                }
             }
+        }
+        reasons.AddRange(whisperReasons);
+
+        bool cpuOnly = probe != null && python
+            && (probe.HasCuda == false || string.Equals(probe.Device, "cpu", StringComparison.OrdinalIgnoreCase));
+        if (cpuOnly)
+        {
+            reasons.Add("CUDA não disponível: Whisper large-v3 rodaria em CPU (processamento lento).");
         }
 
         return new AnalysisEnvironmentDto(
@@ -762,10 +979,14 @@ public class PipelineJobManager : IPipelineJobManager
             FfmpegVersion: ffmpegVersion,
             PythonAvailable: python,
             WhisperAvailable: whisper,
-            WhisperEngine: whisper ? probe?.Engine : null,
+            WhisperEngine: installed ? probe?.Engine : null,
             WhisperModel: WhisperModel,
             CudaAvailable: probe?.HasCuda,
-            Reasons: reasons);
+            Reasons: reasons,
+            Device: python ? probe?.Device : null,
+            ModelCached: python ? probe?.ModelCached : null,
+            CpuFallback: whisper && cpuOnly,
+            WhisperUnavailableReason: whisper || whisperReasons.Count == 0 ? null : string.Join(" ", whisperReasons));
     }
 
     // ---------------------------------------------------------------- Helpers de entrada

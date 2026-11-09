@@ -60,17 +60,33 @@ interface ToggleSwitchProps {
   onChange: (checked: boolean) => void;
   label: string;
   description: string;
+  disabled?: boolean;
+  /** Motivo exibido quando a opção está bloqueada pelo ambiente. */
+  disabledReason?: string;
 }
 
-export const ToggleSwitch: React.FC<ToggleSwitchProps> = ({ id, checked, onChange, label, description }) => (
+export const ToggleSwitch: React.FC<ToggleSwitchProps> = ({
+  id,
+  checked,
+  onChange,
+  label,
+  description,
+  disabled = false,
+  disabledReason
+}) => (
   <div className="flex items-start justify-between gap-3">
     <div className="min-w-0">
-      <p id={`${id}-label`} className="text-xs font-semibold text-white">
+      <p id={`${id}-label`} className={`text-xs font-semibold ${disabled ? 'text-slate-400' : 'text-white'}`}>
         {label}
       </p>
       <p id={`${id}-desc`} className="text-[10px] text-slate-400 mt-0.5">
         {description}
       </p>
+      {disabledReason && (
+        <p id={`${id}-reason`} className="text-[10px] text-amber-300 mt-0.5">
+          {disabledReason}
+        </p>
+      )}
     </div>
     <button
       type="button"
@@ -78,9 +94,12 @@ export const ToggleSwitch: React.FC<ToggleSwitchProps> = ({ id, checked, onChang
       role="switch"
       aria-checked={checked}
       aria-labelledby={`${id}-label`}
-      aria-describedby={`${id}-desc`}
-      onClick={() => onChange(!checked)}
-      className={`relative shrink-0 w-9 h-5 rounded-full transition-colors focus-visible:ring-2 focus-visible:ring-cyan-400 outline-none ${
+      aria-describedby={disabledReason ? `${id}-desc ${id}-reason` : `${id}-desc`}
+      disabled={disabled}
+      onClick={() => {
+        if (!disabled) onChange(!checked);
+      }}
+      className={`relative shrink-0 w-9 h-5 rounded-full transition-colors focus-visible:ring-2 focus-visible:ring-cyan-400 outline-none disabled:opacity-40 disabled:cursor-not-allowed ${
         checked ? 'bg-cyan-500' : 'bg-slate-700'
       }`}
     >
@@ -111,17 +130,20 @@ const OPTION_DEFS: ReadonlyArray<{ key: keyof ImportOptions; label: string; desc
   },
   {
     key: 'detectSpeech',
-    label: 'Detectar cenas com fala',
-    description: 'Pré-análise para transcrição automática'
+    label: 'Transcrever e analisar automaticamente',
+    description: 'Transcrição com Whisper e análise de cortes após a importação'
   }
 ];
 
 interface OptionsCardProps {
   options: ImportOptions;
   onChange: (key: keyof ImportOptions, value: boolean) => void;
+  /** Motivo de bloqueio por opção (ambiente sem FFmpeg/Whisper ou dependência forçada). */
+  locks?: Partial<Record<keyof ImportOptions, string>>;
+  cpuFallback?: boolean;
 }
 
-export const OptionsCard: React.FC<OptionsCardProps> = ({ options, onChange }) => (
+export const OptionsCard: React.FC<OptionsCardProps> = ({ options, onChange, locks = {}, cpuFallback = false }) => (
   <section className={CARD} aria-labelledby="import-options-title">
     <h2 id="import-options-title" className={CARD_TITLE}>
       Opções de importação
@@ -135,9 +157,16 @@ export const OptionsCard: React.FC<OptionsCardProps> = ({ options, onChange }) =
           description={def.description}
           checked={options[def.key]}
           onChange={(value) => onChange(def.key, value)}
+          disabled={locks[def.key] !== undefined}
+          disabledReason={locks[def.key]}
         />
       ))}
     </div>
+    {cpuFallback && (
+      <p role="note" className="mt-3 text-[10px] text-slate-400">
+        Whisper usará a CPU (sem GPU CUDA disponível): a transcrição será mais lenta.
+      </p>
+    )}
     {!options.copyFiles && (
       <div role="note" className="mt-3 flex items-start gap-2 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-[11px] text-amber-200">
         <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0 text-amber-400" aria-hidden="true" />

@@ -57,13 +57,14 @@ public sealed class EndToEndRestartTests : IDisposable
         Assert.Equal(before.Applications, after.Applications);
         Assert.Equal(before.Analysis, after.Analysis);
 
+        // Rev. 1 = geração automática pós-análise; as 2 decisões geram as revisões 2 e 3; o generate explícito é idempotente.
         // plan.generate sem mudanças: mesma revisão e mesmo fingerprint; nenhuma revisão nova.
         var again = await E2ESteps.GeneratePlanAsync(restarted, projectId);
         Assert.Equal(before.Revision, again.GetProperty("revision").GetInt32());
         Assert.Equal(before.PlanFingerprint, again.GetProperty("planFingerprint").GetString());
 
         var list = await restarted.Ok("plan.list", new { projectId });
-        Assert.Equal(1, list.GetProperty("revisions").GetArrayLength());
+        Assert.Equal(3, list.GetProperty("revisions").GetArrayLength());
     }
 
     /// <summary>Estado observável pelo IPC, normalizado (listas ordenadas; sem campos com data de validação).</summary>

@@ -61,6 +61,15 @@ public class SilenceDetectionService : ISilenceDetectionService
 
     private static readonly Regex RepeatedLetterRegex = new(@"(\p{L})\1\1", RegexOptions.Compiled);
 
+    // E10: resposta/negação/ênfase duplicada seguida de continuação ("não, não foi isso") não é repetição removível.
+    private static readonly HashSet<string> EmphasisTokens = new(StringComparer.Ordinal)
+    {
+        "não", "nao", "sim", "nunca", "jamais", "nada", "claro", "tá", "ta", "ok", "muito", "bem", "já", "ja", "mesmo", "sempre",
+    };
+
+    // Artigos de uma letra duplicados ("o o carro") continuam candidatos a repetição.
+    private static readonly HashSet<string> SingleLetterStutter = new(StringComparer.Ordinal) { "o", "a", "e" };
+
     private static readonly HashSet<string> PeraCueSingle = new(StringComparer.Ordinal) { "peraí", "perai" };
     private static readonly HashSet<string> PeraCueAfterNao = new(StringComparer.Ordinal) { "pera", "peraí", "perai" };
 
@@ -411,7 +420,13 @@ public class SilenceDetectionService : ISilenceDetectionService
             return new HesitationMatch("repetition", 4, s.PauseBetween(i + 1) ? "medium" : "low");
         }
 
-        if (i + 1 < s.Count && t.Length >= 2 && t == next && !IsLaughter(next))
+        if (i + 2 < s.Count && t == next && EmphasisTokens.Contains(t))
+        {
+            // Rebaixado: possível ênfase/resposta; vai para revisão e nunca é tratado como repetição removível.
+            return new HesitationMatch("emphasis", 2, "low");
+        }
+
+        if (i + 1 < s.Count && (t.Length >= 2 || SingleLetterStutter.Contains(t)) && t == next && !IsLaughter(next))
         {
             return new HesitationMatch("repetition", 2, s.PauseBetween(i) ? "medium" : "low");
         }

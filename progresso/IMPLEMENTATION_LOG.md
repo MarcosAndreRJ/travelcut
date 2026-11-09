@@ -528,6 +528,13 @@ Validação: parser do PowerShell sem erros; ModelDownloadProgressTests 6/6 em 3
 Observação: a versão continua 0.10.0-host-test.3 (Directory.Build.props), então o pacote substitui o anterior com o mesmo nome em dist\. deploy.cmd chamado por outro programa via "cmd /c" também pausa no fim.
 Próximo: nenhum.
 
+[2026-11-09 00:00:00 -03:00] F14.8 | orquestrador | TESTADO
+Ação: I1 (politica editorial central + perfil persistido), I2 (ambiente real, fila de importacao, PostAnalysisOrchestrator, opcoes de importacao), I4 (zoom no plano, validacao de handles, geracao de zoom no pos-analise) na branch feat/f14.8-automated-preediting.
+Arquivos: ver docs/workstreams/F14.8-AUTOMATED-PREEDITING.md
+Validação: dotnet test tests/TravelCut.UnitTests -> 1288 aprovados, 0 falhas (verificado pelo orquestrador). tsc com erros pre-existentes; UI nao verificada; sem homologacao host.
+Observação: transicoes editoriais ainda nao chegam ao plano; I5/I6 pendentes (I6 bloqueado pela F14.7 ausente).
+Próximo: I5 (preview fiel e painel de pre-edicao).
+
 ## Modelo de entrada (copiar preenchendo com dados reais)
 
 ```text

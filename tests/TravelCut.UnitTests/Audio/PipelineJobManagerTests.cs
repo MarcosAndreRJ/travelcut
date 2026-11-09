@@ -115,6 +115,87 @@ public class PipelineJobManagerTests : IDisposable
     }
 
     [Fact]
+    public async Task BatchEnqueuedDuringActivePipeline_IsMerged_AndTranscribedWhenFirstFinishes()
+    {
+        var gate = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var whisper = new FakeWhisperService { Outcome = CompletedTranscription(), TranscribeGate = gate };
+        var silence = new FakeSilenceService { Outcome = CompletedSilence((1.0, 3.4)) };
+        var h = NewHarness(whisper, silence);
+        var project = h.CreateProject();
+        var m1 = h.AddMedia(project, "1-Bruto/a.mp4", fingerprint: "fp-a");
+        var m2 = h.AddMedia(project, "1-Bruto/b.mp4", fingerprint: "fp-b");
+        var m3 = h.AddMedia(project, "1-Bruto/c.mp4", fingerprint: "fp-c");
+
+        var first = await h.Manager.EnqueueAsync(Start(project.ProjectId, mediaIds: new List<Guid> { m1.MediaId }));
+        Assert.Equal(PipelineEnqueueResult.Started, first.Outcome);
+
+        // Importações durante o pipeline ativo: lotes mesclados, sem novo job e sem erro.
+        var second = await h.Manager.EnqueueAsync(Start(project.ProjectId, mediaIds: new List<Guid> { m2.MediaId }));
+        var third = await h.Manager.EnqueueAsync(Start(project.ProjectId, mediaIds: new List<Guid> { m2.MediaId, m3.MediaId }));
+        Assert.Equal(PipelineEnqueueResult.Merged, second.Outcome);
+        Assert.Equal(first.JobId, second.JobId);
+        Assert.Equal(1, second.PendingMediaCount);
+        Assert.Equal(2, third.PendingMediaCount); // m2 não duplica
+
+        gate.SetResult(true); // libera o pipeline A
+
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(20);
+        PipelineStatusDto status;
+        while (true)
+        {
+            status = await h.Manager.GetStatusAsync(project.ProjectId);
+            if (status.JobId != first.JobId && status.State == "completed") break;
+            Assert.True(DateTime.UtcNow < deadline, $"Lote pendente não foi transcrito; estado: {status.State}");
+            await Task.Delay(25);
+        }
+
+        Assert.Equal(2, status.Media.Count);
+        Assert.Equal(3, whisper.TranscribeCalls); // m1 no job A; m2 e m3 no job B
+        foreach (var media in new[] { m1, m2, m3 })
+        {
+            var analysis = await h.Manager.GetMediaAnalysisAsync(project.ProjectId, media.MediaId);
+            Assert.Equal("completed", analysis?.TranscriptionStatus);
+        }
+    }
+
+    [Fact]
+    public async Task CancelingActivePipeline_DropsPendingBatch_AndNextEnqueueStartsNormally()
+    {
+        var whisper = new FakeWhisperService { Outcome = CompletedTranscription(), WaitForCancellation = true };
+        var h = NewHarness(whisper, new FakeSilenceService { Outcome = CompletedSilence((1.0, 3.4)) });
+        var project = h.CreateProject();
+        var m1 = h.AddMedia(project, "1-Bruto/a.mp4", fingerprint: "fp-a");
+        var m2 = h.AddMedia(project, "1-Bruto/b.mp4", fingerprint: "fp-b");
+
+        var first = await h.Manager.EnqueueAsync(Start(project.ProjectId, mediaIds: new List<Guid> { m1.MediaId }));
+        var merged = await h.Manager.EnqueueAsync(Start(project.ProjectId, mediaIds: new List<Guid> { m2.MediaId }));
+        Assert.Equal(PipelineEnqueueResult.Merged, merged.Outcome);
+
+        Assert.True(h.Manager.Cancel(first.JobId!.Value));
+        var canceled = await h.WaitForFinishAsync(project.ProjectId);
+        Assert.Equal("canceled", canceled.State);
+        await Task.Delay(300);
+
+        Assert.Equal(1, whisper.TranscribeCalls); // lote pendente não foi iniciado após cancelamento explícito
+        var next = await h.Manager.EnqueueAsync(Start(project.ProjectId, mediaIds: new List<Guid> { m2.MediaId }));
+        Assert.Equal(PipelineEnqueueResult.Started, next.Outcome);
+        Assert.True(h.Manager.Cancel(next.JobId!.Value));
+        await h.WaitForFinishAsync(project.ProjectId);
+    }
+
+    [Fact]
+    public async Task Enqueue_WithInvalidStage_ThrowsAndQueuesNothing()
+    {
+        var h = NewHarness(new FakeWhisperService { Outcome = CompletedTranscription() }, new FakeSilenceService());
+        var project = h.CreateProject();
+        h.AddMedia(project, "1-Bruto/a.mp4");
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            h.Manager.EnqueueAsync(Start(project.ProjectId, stages: new List<string> { "nope" })));
+        Assert.Equal("INVALID_STAGE", ex.Message);
+    }
+
+    [Fact]
     public async Task CompletedFakes_PersistTranscript_AndGenerateCandidateWithEvidence()
     {
         var whisper = new FakeWhisperService { Outcome = CompletedTranscription() };

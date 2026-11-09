@@ -45,7 +45,10 @@ public static class PlanInputsFingerprint
             sb.Append("s|").Append(s.SuggestionId.ToString("D")).Append('|')
               .Append(s.Status.ToString()).Append('|')
               .Append(s.StartMs.ToString(inv)).Append('|')
-              .Append(s.EndMs.ToString(inv)).Append('\n');
+              .Append(s.EndMs.ToString(inv));
+            // F14.8: só quando há parâmetros (fingerprints de projetos antigos permanecem idênticos).
+            if (s.ParametersJson is not null) sb.Append("|p:").Append(s.ParametersJson);
+            sb.Append('\n');
         }
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(sb.ToString()))).ToLowerInvariant();
     }

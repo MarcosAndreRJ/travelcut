@@ -800,6 +800,37 @@ public class IpcDispatcherTests : IDisposable
     }
 
     [Fact]
+    public async Task DispatchAsync_AutomationProfile_GetDefaultThenSetThenGet()
+    {
+        SeedPlanProject();
+
+        var first = await Dispatch("automation.profile.get", new { projectId = TravelFixture.ProjectId });
+        Assert.True(first.Ok);
+        var firstJson = JsonSerializer.Serialize(first.Payload);
+        Assert.Contains("\"profile\":\"balanced\"", firstJson);
+        Assert.Contains("\"isDefault\":true", firstJson);
+
+        var set = await Dispatch("automation.profile.set", new { projectId = TravelFixture.ProjectId, profile = "aggressive" });
+        Assert.True(set.Ok);
+
+        var again = await Dispatch("automation.profile.get", new { projectId = TravelFixture.ProjectId });
+        var againJson = JsonSerializer.Serialize(again.Payload);
+        Assert.Contains("\"profile\":\"aggressive\"", againJson);
+        Assert.Contains("\"isDefault\":false", againJson);
+    }
+
+    [Fact]
+    public async Task DispatchAsync_AutomationProfile_SetInvalidProfile_FailsWithInvalidArgument()
+    {
+        SeedPlanProject();
+
+        var response = await Dispatch("automation.profile.set", new { projectId = TravelFixture.ProjectId, profile = "turbo" });
+
+        Assert.False(response.Ok);
+        Assert.Equal("INVALID_ARGUMENT", response.ErrorCode);
+    }
+
+    [Fact]
     public async Task DispatchAsync_PlanGet_WithoutPlan_ReturnsNullPayload()
     {
         SeedPlanProject();

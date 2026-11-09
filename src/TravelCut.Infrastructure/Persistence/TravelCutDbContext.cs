@@ -85,6 +85,8 @@ public class TravelCutDbContext : DbContext
             b.HasIndex(p => p.RootPath).IsUnique();
             b.Property(p => p.Name).IsRequired().HasMaxLength(255);
             b.Property(p => p.RootPath).IsRequired().HasMaxLength(1024);
+            b.Property(p => p.AutomationProfile).HasMaxLength(32);
+            b.Property(p => p.AutoProcess);
         });
 
         // MediaAsset
@@ -459,6 +461,13 @@ public class TravelCutDbContext : DbContext
             ("MetadataStatus", "TEXT NOT NULL DEFAULT 'not_requested'")
         });
 
+        // Projects: perfil de automação editorial (F14.8). NULL = projeto antigo → tratado como "balanced" na leitura.
+        EnsureColumns(connection, "Projects", new (string Name, string Definition)[]
+        {
+            ("AutomationProfile", "TEXT NULL"),
+            ("AutoProcess", "INTEGER NULL")
+        });
+
         // MediaAssets: tags do usuário em JSON.
         EnsureColumns(connection, "MediaAssets", new (string Name, string Definition)[]
         {
@@ -477,7 +486,8 @@ public class TravelCutDbContext : DbContext
             ("BaseRevision", "INTEGER NULL"),
             ("SourceStartMs", "INTEGER NULL"),
             ("SourceEndMs", "INTEGER NULL"),
-            ("IsRedo", "INTEGER NOT NULL DEFAULT 0")
+            ("IsRedo", "INTEGER NOT NULL DEFAULT 0"),
+            ("ParametersJson", "TEXT NULL") // F14.8: parâmetros da decisão (zoom); NULL = nenhum
         });
 
         // 1) Version única primeiro: em bancos antigos todas as linhas têm Version=1, e o backfill depende da ordem real.

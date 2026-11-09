@@ -1,5 +1,7 @@
 using TravelCut.Application.Planning;
 using TravelCut.Contracts.Dtos;
+using TravelCut.Domain.Entities;
+using TravelCut.Domain.Enums;
 using TravelCut.Domain.Planning;
 using TravelCut.Domain.ValueObjects;
 using Xunit;
@@ -93,8 +95,8 @@ public class EditPlannerTests
     {
         var plan = Plan();
 
-        // 2,4 s (S1) + 0,5 s (S3) + 14,9 s (S7) = 17,8 s
-        Assert.Equal(17_800_000, plan.Summary.RemovedSourceUs);
+        // 2,4 s (S1) + 2,5 s (S3) + 14,9 s (S7) = 19,8 s
+        Assert.Equal(19_800_000, plan.Summary.RemovedSourceUs);
         Assert.Equal(2, plan.Summary.ApprovedCutsApplied);
         Assert.Equal(1, plan.Summary.AutoCutsApplied);
     }
@@ -128,7 +130,7 @@ public class EditPlannerTests
         Assert.DoesNotContain(plan.AppliedCuts, c => c.SuggestionId == S(3));
         Assert.Equal(0, plan.Summary.AutoCutsApplied);
         Assert.Contains(plan.Pending, p => p.SuggestionId == S(3) && p.Kind == "suggestion_pending");
-        Assert.Equal(2, V1Of(plan, 1).Count); // sem o corte de 40,0–40,5 s: dois trechos em vez de três
+        Assert.Equal(2, V1Of(plan, 1).Count); // sem o corte de 40,0–42,5 s: dois trechos em vez de três
     }
 
     [Fact]
@@ -248,33 +250,163 @@ public class EditPlannerTests
 
     // ------------------------------------------------------------------ Zoom, música, transições
 
-    [Fact]
-    public void Zoom_IsSuggestedOnly_NeverSetOnClip()
-    {
-        // M1: clip.Zoom é sempre null; a sugestão vai em pending "zoom_suggestion" com clipId.
-        var plan = Plan();
+    // E04: zoom só nasce de sugestões "zoom" (caminho único); aprovado/autoaplicado vira clip.zoom, o resto é pendência.
 
-        var m1 = V1Of(plan, 1);
-        Assert.Equal(3, m1.Count);
-        Assert.All(plan.Clips, c => Assert.Null(c.Zoom));
-        Assert.True(m1[1].NeedsHumanReview);
-        Assert.True(m1[2].NeedsHumanReview);
-        Assert.DoesNotContain(plan.Pending, p => p.ClipId == m1[0].ClipId && p.Kind == "zoom_suggestion");
-        Assert.Contains(plan.Pending, p => p.Kind == "zoom_suggestion" && p.MediaId == M(1) && p.ClipId == m1[1].ClipId
-            && p.Message.Contains("1,05", StringComparison.Ordinal) && p.Message.Contains("subtle", StringComparison.Ordinal));
-        Assert.Contains(plan.Pending, p => p.Kind == "zoom_suggestion" && p.ClipId == m1[2].ClipId);
-        Assert.Equal(2, plan.Pending.Count(p => p.Kind == "zoom_suggestion"));
+    private static EditSuggestion ZoomSug(int n, long startMs, long endMs, double scale = 1.05, bool focalKnown = true, string status = "proposed")
+    {
+        var p = new SmartZoomParametersDto(SmartZoomConstants.TypePunchIn, scale, 0.5, 0.5, (endMs - startMs) / 1000.0, 1.0, scale,
+            "medium", focalKnown);
+        return new EditSuggestion
+        {
+            SuggestionId = S(100 + n), MediaId = M(1), SourceInterval = new TimeRange(startMs, endMs),
+            Kind = SuggestionKind.SubtleZoom, Rationale = "zoom", EvidenceRefs = System.Text.Json.JsonSerializer.Serialize(p),
+            ConfidenceBand = "high", NeedsHumanReview = true, SuggestedAction = "zoom",
+            Status = SuggestionStatus.Proposed, Author = "smart-zoom-engine",
+            CreatedAtUtc = new DateTime(2026, 10, 14, 9, 30, n, DateTimeKind.Utc),
+        };
     }
 
-    [Fact]
-    public void Zoom_IsNothing_WhenStrengthOff()
+    private static EditDecision ZoomDecision(int n, string action, int seq) => new()
     {
-        var profile = EditorialProfiles.Default() with { ZoomStrength = "off" };
+        DecisionId = TravelFixture.D(100 + seq), SuggestionId = S(100 + n), Action = action, Reviewer = "user",
+        TimestampUtc = new DateTime(2026, 10, 14, 10, 30, seq, DateTimeKind.Utc), Version = seq,
+    };
 
-        var plan = Plan(profile);
+    private static EditPlanDto ZoomPlan(IEnumerable<EditSuggestion> zooms, IEnumerable<EditDecision>? decisions = null, EditorialProfileDto? profile = null) =>
+        TravelFixture.BuildPlan(TravelFixture.Input(
+            profile: profile,
+            suggestions: TravelFixture.Suggestions().Concat(zooms),
+            decisions: TravelFixture.Decisions().Concat(decisions ?? [])));
+
+    // M1 (60 s) tem clipes [0;10], [12,4;40] e [42,5;60] após os cortes S1 (aprovado) e S3 (auto).
+
+    [Fact]
+    public void Zoom_WithoutZoomSuggestion_NothingAppliedNorPending()
+    {
+        var plan = Plan();
 
         Assert.All(plan.Clips, c => Assert.Null(c.Zoom));
         Assert.DoesNotContain(plan.Pending, p => p.Kind == "zoom_suggestion");
+    }
+
+    [Fact]
+    public void Zoom_ApprovedByUser_IsMaterializedOnV1Clip_AndUndoRevertsToPending()
+    {
+        var approved = ZoomPlan([ZoomSug(1, 12_400, 40_000)], [ZoomDecision(1, "approve", 1)]);
+        var clip = V1Of(approved, 1)[1];
+        Assert.Equal(1.05, clip.Zoom);
+        Assert.Contains(S(101), clip.SuggestionIds);
+        Assert.Contains(clip.Evidence, e => e.Contains("aprovado pelo usuário", StringComparison.Ordinal));
+        Assert.DoesNotContain(approved.Pending, p => p.Kind == "zoom_suggestion");
+        Assert.All(approved.Clips.Where(c => c.TrackId != "V1"), c => Assert.Null(c.Zoom));
+
+        // Desfazer: volta a pendente e a política NÃO reaplica (decisão explícita no histórico).
+        var undone = ZoomPlan([ZoomSug(1, 12_400, 40_000)], [ZoomDecision(1, "approve", 1), ZoomDecision(1, "undo", 2)]);
+        Assert.All(undone.Clips, c => Assert.Null(c.Zoom));
+        Assert.Contains(undone.Pending, p => p.Kind == "zoom_suggestion" && p.SuggestionId == S(101));
+
+        // Idempotente: mesmas entradas, mesmo plano.
+        var again = ZoomPlan([ZoomSug(1, 12_400, 40_000)], [ZoomDecision(1, "approve", 1)]);
+        Assert.Equal(approved.Clips.Select(c => c.Zoom), again.Clips.Select(c => c.Zoom));
+    }
+
+    [Fact]
+    public void Zoom_Rejected_IsNeitherAppliedNorPending()
+    {
+        var plan = ZoomPlan([ZoomSug(1, 12_400, 40_000)], [ZoomDecision(1, "reject", 1)]);
+
+        Assert.All(plan.Clips, c => Assert.Null(c.Zoom));
+        Assert.DoesNotContain(plan.Pending, p => p.Kind == "zoom_suggestion");
+    }
+
+    [Fact]
+    public void Zoom_Balanced_AutoAppliesDiscreteZoomWithKnownFraming()
+    {
+        var plan = ZoomPlan([ZoomSug(1, 12_400, 40_000)]);
+
+        var clip = V1Of(plan, 1)[1];
+        Assert.Equal(1.05, clip.Zoom);
+        Assert.Contains(clip.Evidence, e => e.Contains("aplicado automaticamente (origem=auto", StringComparison.Ordinal) && e.Contains("Zoom 1,05", StringComparison.Ordinal));
+        Assert.DoesNotContain(plan.Pending, p => p.Kind == "zoom_suggestion");
+        Assert.False(clip.NeedsHumanReview);
+    }
+
+    [Fact]
+    public void Zoom_Conservative_NeverAutoApplies()
+    {
+        var profile = EditorialProfiles.Default() with { SilencePolicy = "conservative" };
+
+        var plan = ZoomPlan([ZoomSug(1, 12_400, 40_000)], profile: profile);
+
+        Assert.All(plan.Clips, c => Assert.Null(c.Zoom));
+        Assert.Contains(plan.Pending, p => p.Kind == "zoom_suggestion" && p.SuggestionId == S(101));
+    }
+
+    [Fact]
+    public void Zoom_StrengthOff_NeverAutoApplies_ButApprovedStillWins()
+    {
+        var off = EditorialProfiles.Default() with { ZoomStrength = "off" };
+
+        var auto = ZoomPlan([ZoomSug(1, 12_400, 40_000)], profile: off);
+        Assert.All(auto.Clips, c => Assert.Null(c.Zoom));
+        Assert.Contains(auto.Pending, p => p.Kind == "zoom_suggestion");
+
+        var manual = ZoomPlan([ZoomSug(1, 12_400, 40_000)], [ZoomDecision(1, "approve", 1)], off);
+        Assert.Equal(1.05, V1Of(manual, 1)[1].Zoom); // decisão manual > config
+    }
+
+    [Fact]
+    public void Zoom_UncertainFraming_GoesToReview()
+    {
+        var plan = ZoomPlan([ZoomSug(1, 12_400, 40_000, focalKnown: false)]);
+
+        Assert.All(plan.Clips, c => Assert.Null(c.Zoom));
+        Assert.Contains(plan.Pending, p => p.Kind == "zoom_suggestion" && p.SuggestionId == S(101) && p.ClipId == V1Of(plan, 1)[1].ClipId);
+    }
+
+    [Fact]
+    public void Zoom_OverlappingAppliedCut_GoesToReview()
+    {
+        // 38–44 s cruza o corte automático S3 (40,0–42,5).
+        var plan = ZoomPlan([ZoomSug(1, 38_000, 44_000)]);
+
+        Assert.All(plan.Clips, c => Assert.Null(c.Zoom));
+        Assert.Contains(plan.Pending, p => p.Kind == "zoom_suggestion");
+    }
+
+    [Fact]
+    public void Zoom_StrongScaleOrShortDuration_GoesToReview_InBalanced()
+    {
+        // Perfil medium + escala 1,10 > 1,06 do Balanced; e zoom de 1,0 s < 1,5 s.
+        var medium = EditorialProfiles.Default() with { ZoomStrength = "medium" };
+        var strong = ZoomPlan([ZoomSug(1, 12_400, 40_000, scale: 1.10)], profile: medium);
+        Assert.All(strong.Clips, c => Assert.Null(c.Zoom));
+
+        var shortZoom = ZoomPlan([ZoomSug(2, 12_400, 13_400)]);
+        Assert.All(shortZoom.Clips, c => Assert.Null(c.Zoom));
+        Assert.Contains(shortZoom.Pending, p => p.Kind == "zoom_suggestion");
+    }
+
+    [Fact]
+    public void Zoom_BalancedLimitsToOnePerWindow_AggressiveAllowsTwo()
+    {
+        // Dois clipes de M1 dentro de 20 s: [12,4;40] e [42,5;60] -> inicios 12,4 e 42,5 (30 s) não colidem; usa-se 2 zooms no mesmo clipe.
+        var zooms = new[] { ZoomSug(1, 12_400, 40_000), ZoomSug(2, 12_400, 40_000) };
+
+        var balanced = ZoomPlan(zooms);
+        Assert.Equal(1.05, V1Of(balanced, 1)[1].Zoom);
+        Assert.Single(balanced.Pending, p => p.Kind == "zoom_suggestion"); // o 2º no mesmo clipe fica pendente
+
+        // Janela: zoom em clipes adjacentes próximos (0–10 s e 12,4–40 s: inícios a 12,4 s).
+        var nearby = ZoomPlan([ZoomSug(1, 0, 10_000), ZoomSug(2, 12_400, 40_000)]);
+        Assert.Equal(1.05, V1Of(nearby, 1)[0].Zoom);
+        Assert.Null(V1Of(nearby, 1)[1].Zoom);
+        Assert.Contains(nearby.Pending, p => p.Kind == "zoom_suggestion" && p.SuggestionId == S(102));
+
+        var aggressive = EditorialProfiles.Default() with { SilencePolicy = "aggressive" };
+        var wide = ZoomPlan([ZoomSug(1, 0, 10_000), ZoomSug(2, 12_400, 40_000)], profile: aggressive);
+        Assert.Equal(1.05, V1Of(wide, 1)[0].Zoom);
+        Assert.Equal(1.05, V1Of(wide, 1)[1].Zoom);
     }
 
     [Fact]
@@ -441,7 +573,7 @@ public class EditPlannerTests
         Assert.Contains("Cronologia: 14/10 09:00 (creation_time)", first.Evidence);
         var afterApprovedCut = V1Of(plan, 1)[1];
         Assert.Contains("Corte aprovado: silêncio 2,4 s", afterApprovedCut.Evidence);
-        Assert.Contains("Corte automático trivial: silêncio 0,5 s", afterApprovedCut.Evidence);
+        Assert.Contains("Corte automático trivial: silêncio 2,5 s", afterApprovedCut.Evidence);
     }
 
     [Fact]

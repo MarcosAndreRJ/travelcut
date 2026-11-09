@@ -110,6 +110,7 @@ public sealed partial class PlanningUseCases
         if (request.ProjectId == Guid.Empty)
             return PlanOutcome<EditPlanDto>.Fail("INVALID_ARGUMENT", "ID de projeto inválido.");
 
+        // Perfil explícito vence (validado aqui); sem perfil, usa o perfil de automação persistido do projeto.
         var profile = EditorialProfiles.Resolve(request.Profile, out var profileError);
         if (profileError is not null)
             return PlanOutcome<EditPlanDto>.Fail("INVALID_ARGUMENT", profileError);
@@ -126,6 +127,13 @@ public sealed partial class PlanningUseCases
 
         return await WithProjectLockAsync(project.ProjectId, async () =>
         {
+            // Relê dentro do lock: um automation.profile.set concorrente já foi serializado.
+            if (request.Profile is null)
+            {
+                var fresh = await _projects.GetByIdAsync(project.ProjectId, ct) ?? project;
+                profile = ProfileForProject(fresh);
+            }
+
             var latest = await _revisions.GetLatestAsync(project.ProjectId, ct);
             var planId = latest?.PlanId ?? Guid.NewGuid();
             var revision = await NextRevisionAsync(project.RootPath, planId, latest?.Revision, ct);

@@ -43,7 +43,9 @@ public sealed class EndToEndUnicodeTests : IDisposable
         await E2ESteps.DecideAsync(host, silenceB.GetProperty("suggestionId").GetGuid(), "reject");
 
         var generated = await E2ESteps.GeneratePlanAsync(host, projectId);
-        Assert.Equal(1, generated.GetProperty("revision").GetInt32());
+        // Rev. 1 = geração automática pós-análise; cada decisão (aprovar, rejeitar) reage com uma nova revisão (2 e 3).
+        // O plan.generate explícito é idempotente por fingerprint: devolve a revisão 3 sem criar outra.
+        Assert.Equal(3, generated.GetProperty("revision").GetInt32());
 
         var plan = await E2ESteps.LatestPlanAsync(host, projectId);
         Assert.Equal(1, plan.GetProperty("summary").GetProperty("approvedCutsApplied").GetInt32());
