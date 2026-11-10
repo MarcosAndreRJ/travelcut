@@ -41,6 +41,13 @@ export function useTimelineEditor({
   histRef.current = hist;
   // Revisão sobre a qual o editor está baseado (base do próximo save).
   const baseRef = useRef<PlanRef | null>(initialPlan ? { planId: initialPlan.planId, revision: initialPlan.revision } : null);
+  const [base, setBase] = useState<PlanRef | null>(baseRef.current);
+  // Maior revisão observada (vigente conhecida pelo editor).
+  const [knownLatest, setKnownLatest] = useState<number | null>(initialPlan?.revision ?? null);
+  // Revisão nova chegada de fora enquanto há edições não salvas (aguarda decisão do usuário).
+  const [external, setExternal] = useState<PlanRef | null>(null);
+  const initialPlanRef = useRef(initialPlan);
+  initialPlanRef.current = initialPlan;
   const plan = currentPlan(hist);
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
   const [snappingEnabled, setSnappingEnabled] = useState(true);
@@ -49,20 +56,43 @@ export function useTimelineEditor({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [conflicts, setConflicts] = useState<PlanConflictDto[]>([]);
 
-  // Revisão vinda de fora (reabertura, nova revisão). Sem edições: adota. Com edições: preserva (ver item 2).
+  const updateBase = useCallback((next: PlanRef) => {
+    baseRef.current = next;
+    setBase(next);
+  }, []);
+
+  // Revisão vinda de fora (reabertura, nova revisão). Sem edições: adota. Com edições: preserva e avisa.
   useEffect(() => {
     if (!initialPlan) return;
     const incoming = { planId: initialPlan.planId, revision: initialPlan.revision };
+    setKnownLatest((prev) => (prev === null ? incoming.revision : Math.max(prev, incoming.revision)));
     const decision = decideIncoming(baseRef.current, incoming, isHistoryDirty(histRef.current), 'external');
     if (decision === 'adopt') {
-      baseRef.current = incoming;
+      updateBase(incoming);
+      setExternal(null);
       setHist(createHistory(initialPlan));
+    } else if (decision === 'banner') {
+      setExternal(incoming);
     }
-  }, [initialPlan?.planId, initialPlan?.revision]);
+  }, [initialPlan?.planId, initialPlan?.revision, updateBase]);
+
+  // "Manter minhas edições": preserva o histórico; a base continua antiga (marcada como desatualizada).
+  const keepLocalEdits = useCallback(() => setExternal(null), []);
+
+  // "Carregar a nova revisão": descarta as edições locais e adota a revisão recebida.
+  const loadExternalRevision = useCallback(() => {
+    const next = initialPlanRef.current;
+    if (!next) return;
+    updateBase({ planId: next.planId, revision: next.revision });
+    setExternal(null);
+    setHist(createHistory(next));
+  }, [updateBase]);
 
   const canUndo = canUndoHistory(hist);
   const canRedo = canRedoHistory(hist);
   const isDirty = isHistoryDirty(hist);
+  const externalRevision = external?.revision ?? null;
+  const baseOutdated = base !== null && knownLatest !== null && base.revision < knownLatest;
 
   const commitPlan = useCallback(
     (newPlan: EditPlanDto, op?: PlanEditorialOperationDto) => {
@@ -419,7 +449,8 @@ export function useTimelineEditor({
       );
       // Mantém o histórico: a entrada salva passa a ser a revisão devolvida pelo host.
       setHist((h) => markHistorySaved(h, idx, sent, saved));
-      baseRef.current = { planId: saved.planId, revision: saved.revision };
+      updateBase({ planId: saved.planId, revision: saved.revision });
+      setKnownLatest((prev) => (prev === null ? saved.revision : Math.max(prev, saved.revision)));
       onPlanChanged?.(saved);
       return saved;
     } catch (err) {
@@ -429,7 +460,7 @@ export function useTimelineEditor({
     } finally {
       setIsSaving(false);
     }
-  }, [projectId, onPlanChanged]);
+  }, [projectId, onPlanChanged, updateBase]);
 
   // Reconciliar plano manual com nova revisao automatica (F14.1)
   const reconcile = useCallback(async () => {
@@ -491,6 +522,12 @@ export function useTimelineEditor({
     canRedo,
     isDirty,
     isSaving,
+    externalRevision,
+    baseRevision: base?.revision ?? null,
+    baseOutdated,
+    latestKnownRevision: knownLatest,
+    keepLocalEdits,
+    loadExternalRevision,
     saveError,
     conflicts,
     selectedClipId,

@@ -191,6 +191,43 @@ export const TimelinePlanningView: React.FC<TimelinePlanningViewProps> = ({ proj
 
           {planState.actionError && <ActionError message={planState.actionError} onDismiss={planState.dismissActionError} />}
 
+          {timelineEditor.externalRevision !== null && (
+            <div
+              role="status"
+              data-testid="plan-external-revision-banner"
+              className="mx-4 mt-3 flex flex-wrap items-center gap-2 px-3 py-2 rounded-xl bg-cyan-950/50 border border-cyan-500/30 text-xs text-cyan-100"
+            >
+              <AlertCircle className="w-4 h-4 shrink-0" aria-hidden="true" />
+              <span className="flex-1">
+                Há uma revisão mais nova (R{timelineEditor.externalRevision}). Suas edições não salvas foram mantidas.
+              </span>
+              <button
+                type="button"
+                onClick={timelineEditor.keepLocalEdits}
+                className="px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-[11px] font-semibold text-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+              >
+                Manter minhas edições
+              </button>
+              <button
+                type="button"
+                onClick={timelineEditor.loadExternalRevision}
+                className="px-3 py-1 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/40 text-[11px] font-semibold text-cyan-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+              >
+                Carregar a nova revisão
+              </button>
+            </div>
+          )}
+
+          {timelineEditor.externalRevision === null && timelineEditor.isDirty && timelineEditor.baseOutdated && (
+            <div
+              role="status"
+              data-testid="plan-base-outdated-note"
+              className="mx-4 mt-3 px-3 py-2 rounded-xl bg-amber-950/50 border border-amber-500/30 text-xs text-amber-200"
+            >
+              Suas edições partem da R{timelineEditor.baseRevision} e a revisão vigente é R{timelineEditor.latestKnownRevision}. Carregue a nova revisão para continuar editando.
+            </div>
+          )}
+
           {outdated && (
             <div
               role="status"
