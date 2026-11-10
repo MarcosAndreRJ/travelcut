@@ -91,7 +91,8 @@ public sealed partial class PlanningUseCases
     private const string CorruptMessage = "O arquivo desta revisão do plano está inválido (JSON corrompido ou incompleto).";
     private const string ConflictMessage = "Outra gravação ocupou o número desta revisão. Tente novamente.";
 
-    private static readonly ConcurrentDictionary<Guid, SemaphoreSlim> ProjectLocks = new();
+    // Estático: serializa entre instâncias (escopos DI). Entradas ociosas são removidas (ProjectLockRegistry).
+    private static readonly ProjectLockRegistry ProjectLocks = new();
 
     private readonly IProjectRepository _projects;
     private readonly IMediaRepository _media;
@@ -647,15 +648,7 @@ public sealed partial class PlanningUseCases
 
     private static async Task<PlanOutcome<T>> WithProjectLockAsync<T>(Guid projectId, Func<Task<PlanOutcome<T>>> action, CancellationToken ct)
     {
-        var gate = ProjectLocks.GetOrAdd(projectId, _ => new SemaphoreSlim(1, 1));
-        await gate.WaitAsync(ct);
-        try
-        {
-            return await action();
-        }
-        finally
-        {
-            gate.Release();
-        }
+        using var _ = await ProjectLocks.AcquireAsync(projectId, ct);
+        return await action();
     }
 }
