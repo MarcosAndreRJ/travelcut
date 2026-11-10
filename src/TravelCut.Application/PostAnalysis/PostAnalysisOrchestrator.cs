@@ -235,8 +235,11 @@ public sealed class PostAnalysisOrchestrator : IPostAnalysisOrchestrator, IDispo
 
                 try
                 {
-                    var outcome = await sp.GetRequiredService<PlanningUseCases>()
-                        .GenerateAsync(new GeneratePlanRequest(projectId, null, null), ct);
+                    // A base de tempo da revisão vigente é herdada (antes null reescolhia pela moda das mídias a cada execução).
+                    var planning = sp.GetRequiredService<PlanningUseCases>();
+                    var inheritedTimeBase = await planning.GetLatestTimeBaseAsync(projectId, ct);
+                    var outcome = await planning
+                        .GenerateAsync(new GeneratePlanRequest(projectId, null, inheritedTimeBase), ct);
                     if (outcome.Success && outcome.Value is { } plan)
                     {
                         planOk = true;
@@ -251,8 +254,8 @@ public sealed class PostAnalysisOrchestrator : IPostAnalysisOrchestrator, IDispo
                             var transitions = sp.GetService<Editorial.ITransitionSuggestionGenerator>();
                             if (transitions is not null && await transitions.GenerateAsync(projectId, plan, ct) > 0)
                             {
-                                var again = await sp.GetRequiredService<PlanningUseCases>()
-                                    .GenerateAsync(new GeneratePlanRequest(projectId, null, null), ct);
+                                var again = await planning
+                                    .GenerateAsync(new GeneratePlanRequest(projectId, null, plan.TimeBase), ct);
                                 if (again.Success && again.Value is { } next)
                                 {
                                     revision = next.Revision;

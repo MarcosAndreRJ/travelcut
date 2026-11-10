@@ -238,6 +238,20 @@ public sealed partial class PlanningUseCases
         return new CandidateBuild(input, EditPlanner.Build(input, context), planId, revision);
     }
 
+    /// <summary>
+    /// Base de tempo da revisão mais recente (sem validar nem gravar), para regenerações automáticas herdarem a base já
+    /// escolhida em vez de reescolher pela moda das mídias. Sem plano ou plano ilegível: null (geração decide sozinha).
+    /// </summary>
+    public async Task<TimelineTimeBaseDto?> GetLatestTimeBaseAsync(Guid projectId, CancellationToken ct = default)
+    {
+        if (projectId == Guid.Empty) return null;
+        var project = await _projects.GetByIdAsync(projectId, ct);
+        if (project is null || string.IsNullOrWhiteSpace(project.RootPath)) return null;
+        var entry = await _revisions.GetLatestAsync(projectId, ct);
+        if (entry is null) return null;
+        return (await ReadPlanAsync(project.RootPath, entry, ct)).Plan?.TimeBase;
+    }
+
     /// <summary>Sem plano no projeto retorna sucesso com valor null.</summary>
     public async Task<PlanOutcome<EditPlanDto?>> GetAsync(GetPlanRequest request, CancellationToken ct = default)
     {
