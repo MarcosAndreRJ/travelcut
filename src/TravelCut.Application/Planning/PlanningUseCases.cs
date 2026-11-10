@@ -63,6 +63,19 @@ public sealed partial class PlanningUseCases
     /// <summary>O PlanId do plano enviado não é o do plano vigente do projeto.</summary>
     public const string PlanIdMismatchCode = "PLAN_ID_MISMATCH";
 
+    /// <summary>Regeneração recusada: a revisão vigente é manual e seu artefato não pode ser lido. O plano é preservado.</summary>
+    public const string PlanManualEditsUnreadableCode = "PLAN_MANUAL_EDITS_UNREADABLE";
+
+    /// <summary>Regeneração recusada para não perder edições manuais que não podem ser reaplicadas. O plano é preservado.</summary>
+    public const string PlanManualProtectedCode = "PLAN_MANUAL_PROTECTED";
+
+    private const string ManualUnreadableMessage =
+        "A revisão manual vigente não pôde ser lida; o plano foi preservado e não foi regenerado.";
+
+    /// <summary>Códigos de recusa da guarda B: o plano vigente foi mantido de propósito (não é falha de geração nem de job).</summary>
+    public static bool IsPlanPreservedCode(string? code) =>
+        code is PlanManualEditsUnreadableCode or PlanManualProtectedCode;
+
     /// <summary>Autor de revisão gerada pelo planejador (único autor "automático"); os demais são edição humana ou revert.</summary>
     public static bool IsAutomaticAuthor(string? author) =>
         author is not null && author.StartsWith("planner-rules/", StringComparison.Ordinal);
@@ -149,6 +162,20 @@ public sealed partial class PlanningUseCases
             }
 
             var latest = await _revisions.GetLatestAsync(project.ProjectId, ct);
+            // Guarda B: a revisão vigente é manual (user/revert/outro autor não automático) e não pode ser lida: regenerar
+            // a superseria sem que o trabalho do usuário possa ser reaplicado. Recusa, nada é gravado.
+            if (latest is not null && !IsAutomaticAuthor(latest.Author))
+            {
+                var vigente = await ReadPlanAsync(project.RootPath, latest, ct);
+                if (vigente.ErrorCode is not null)
+                {
+                    _logger.LogWarning(
+                        "Regeneração recusada: revisão manual {Revision} do plano {PlanId} ilegível ({Code}); plano preservado",
+                        latest.Revision, latest.PlanId, vigente.ErrorCode);
+                    return PlanOutcome<EditPlanDto>.Fail(PlanManualEditsUnreadableCode, ManualUnreadableMessage);
+                }
+            }
+
             var candidate = await BuildCandidateCoreAsync(project, profile, request.TimeBase, zone, zoneId, latest, ct);
             var input = candidate.Input;
             var built = candidate.Built;

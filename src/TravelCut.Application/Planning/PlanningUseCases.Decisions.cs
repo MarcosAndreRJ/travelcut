@@ -282,6 +282,14 @@ public sealed partial class PlanningUseCases
             var current = await GetAsync(new GetPlanRequest(projectId, before.Revision), ct);
             if (!current.Success || current.Value is null)
             {
+                // Revisão manual ilegível: o plano é preservado de propósito (guarda B), não é falha da reação.
+                if (!IsAutomaticAuthor(before.Author))
+                {
+                    _logger.LogWarning("Decisão gravada; revisão manual {Revision} ilegível ({Code}): plano preservado, sem regenerar",
+                        before.Revision, current.ErrorCode);
+                    return new PlanReaction(before.Revision, false, null);
+                }
+
                 _logger.LogWarning("Decisão gravada, mas a revisão {Revision} do plano não pôde ser lida ({Code})",
                     before.Revision, current.ErrorCode);
                 return new PlanReaction(before.Revision, false, current.ErrorCode ?? "PLAN_NOT_FOUND");
@@ -290,6 +298,12 @@ public sealed partial class PlanningUseCases
             var basis = current.Value;
             var regenerated = await GenerateAsync(
                 new GeneratePlanRequest(projectId, basis.Profile, basis.TimeBase, basis.TimeZoneId), ct);
+            if (!regenerated.Success && IsPlanPreservedCode(regenerated.ErrorCode))
+            {
+                _logger.LogInformation("Decisão gravada; regeneração recusada pela proteção do plano manual ({Code}): plano preservado",
+                    regenerated.ErrorCode);
+                return new PlanReaction(before.Revision, false, null);
+            }
             if (!regenerated.Success)
             {
                 _logger.LogWarning("Decisão gravada, mas a regeneração do plano falhou ({Code})", regenerated.ErrorCode);

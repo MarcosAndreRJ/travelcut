@@ -268,6 +268,13 @@ public sealed class PostAnalysisOrchestrator : IPostAnalysisOrchestrator, IDispo
                             _logger.LogWarning(ex, "Projeto {ProjectId}: falha ao gerar sugestões de transição (plano segue)", projectId);
                         }
                     }
+                    else if (PlanningUseCases.IsPlanPreservedCode(outcome.ErrorCode))
+                    {
+                        // Guarda B: o plano manual vigente foi preservado de propósito; não é falha do job.
+                        planOk = true;
+                        _logger.LogInformation("Projeto {ProjectId}: plano manual preservado, geração automática não aplicada ({Code})",
+                            projectId, outcome.ErrorCode);
+                    }
                     else
                     {
                         planFailed = true;
