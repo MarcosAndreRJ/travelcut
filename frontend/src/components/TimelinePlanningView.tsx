@@ -74,6 +74,8 @@ export const TimelinePlanningView: React.FC<TimelinePlanningViewProps> = ({ proj
 
   const selectedClip = plan ? findClip(plan, selectedClipId) : null;
   const summary = plan?.summary ?? null;
+  // Revisão não vigente: controles e canvas ficam inertes (somente leitura).
+  const editInertProps: object = timelineEditor.editable ? {} : { inert: '', 'aria-disabled': true };
   const tb = plan?.timeBase ?? null;
   const outdated = hasPlanOutdated(validation);
   const [showMultitrack, setShowMultitrack] = useState(false);
@@ -256,13 +258,13 @@ export const TimelinePlanningView: React.FC<TimelinePlanningViewProps> = ({ proj
             </div>
           )}
 
-          {timelineEditor.externalRevision === null && timelineEditor.isDirty && timelineEditor.baseOutdated && (
+          {timelineEditor.externalRevision === null && timelineEditor.baseOutdated && (
             <div
               role="status"
               data-testid="plan-base-outdated-note"
               className="mx-4 mt-3 px-3 py-2 rounded-xl bg-amber-950/50 border border-amber-500/30 text-xs text-amber-200"
             >
-              Suas edições partem da R{timelineEditor.baseRevision} e a revisão vigente é R{timelineEditor.latestKnownRevision}. Carregue a nova revisão para continuar editando.
+              Edição só na revisão vigente (R{timelineEditor.latestKnownRevision}). Esta base é R{timelineEditor.baseRevision}; a edição fica bloqueada até carregar a nova revisão ou recarregar a base.
             </div>
           )}
 
@@ -339,13 +341,16 @@ export const TimelinePlanningView: React.FC<TimelinePlanningViewProps> = ({ proj
 
             {/* Prévia interativa e timeline */}
             <div className="flex-1 min-w-0 flex flex-col gap-3 min-h-[420px]">
-              <TimelineEditorToolbar editor={timelineEditor} activePlan={activePlan} />
+              <div {...editInertProps}>
+                <TimelineEditorToolbar editor={timelineEditor} activePlan={activePlan} />
+              </div>
               <PlanPreviewPlayer
                 plan={activePlan!}
                 selectedClip={selectedClip}
                 currentFrame={currentFrame}
                 onSeekFrame={setCurrentFrame}
               />
+              <div {...editInertProps}>
               <PlanTimelineCanvas
                 plan={activePlan!}
                 selectedClipId={selectedClipId}
@@ -363,6 +368,7 @@ export const TimelinePlanningView: React.FC<TimelinePlanningViewProps> = ({ proj
                 calculateSnap={timelineEditor.calculateSnap}
                 selectedClipIds={new Set(timelineEditor.selectedClipId ? [timelineEditor.selectedClipId] : [])}
               />
+              </div>
             </div>
 
             {/* Inspetor do clipe */}

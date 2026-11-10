@@ -122,11 +122,16 @@ export function useTimelineEditor({
   const canUndo = canUndoHistory(hist);
   const canRedo = canRedoHistory(hist);
   const isDirty = isHistoryDirty(hist);
+  // Edição só sobre a revisão vigente: a base precisa ser a mais nova conhecida.
+  const editable = base !== null && (knownLatest === null || base.revision >= knownLatest);
+  const editableRef = useRef(editable);
+  editableRef.current = editable;
   const externalRevision = external?.revision ?? null;
   const baseOutdated = base !== null && knownLatest !== null && base.revision < knownLatest;
 
   const commitPlan = useCallback(
     (newPlan: EditPlanDto, op?: PlanEditorialOperationDto) => {
+      if (!editableRef.current) return;
       // Recalcula maxEndFrame no summary
       const maxEnd = (newPlan.clips ?? []).reduce(
         (acc, c) => Math.max(acc, c.timelineStartFrame + c.durationFrames),
@@ -608,6 +613,7 @@ export function useTimelineEditor({
     undo,
     redo,
     saveRevision,
+    editable,
     reconcilePreview,
     previewReconcile,
     acceptReconcile,
