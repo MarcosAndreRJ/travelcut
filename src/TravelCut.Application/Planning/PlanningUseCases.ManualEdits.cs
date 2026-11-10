@@ -202,6 +202,10 @@ public sealed partial class PlanningUseCases
         var latest = await _revisions.GetLatestAsync(project.ProjectId, ct);
         var candidate = await BuildCandidateCoreAsync(
             project, manualPlan.Profile, manualPlan.TimeBase, zone, zoneId, latest, ct);
+        // Overlay recusado (base adulterada/ilegivel, aplicacao estrutural recusada): nao e falha de geracao, e protecao do trabalho do usuario.
+        if (candidate.Built.Plan is null && candidate.Refused)
+            return PlanOutcome<ReconcilePlanResponse>.Fail(
+                candidate.Built.ErrorCode ?? PlanManualProtectedCode, candidate.Built.ErrorMessage ?? ManualProtectedMessage);
         if (candidate.Built.Plan is null)
             return PlanOutcome<ReconcilePlanResponse>.Fail("AUTOGEN_FAILED",
                 $"Falha ao gerar plano candidato: {candidate.Built.ErrorMessage ?? candidate.Built.ErrorCode}");

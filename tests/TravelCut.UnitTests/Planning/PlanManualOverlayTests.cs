@@ -197,6 +197,34 @@ public sealed class PlanManualOverlayTests : IDisposable
         Assert.Equal(filesBefore, _rig.Artifacts.Files.Count);
     }
 
+    // Reconcile (previa) com overlay recusado devolve a protecao do trabalho do usuario, nao uma falha de geracao.
+    [Fact]
+    public async Task R4_Reconcile_WhenOverlayIsRefused_ReturnsManualProtected_NotAutogenFailed()
+    {
+        var generated = await GenerateAsync();
+        var manual = await SaveAsync(generated, ManualPlanEdits.DropLastPair(generated));
+        var tampered = manual with { ManualEdits = manual.ManualEdits!.Select(e => e with { SourceOutUs = e.SourceOutUs + 1 }).ToList() };
+        _rig.Artifacts.Replace(manual.PlanId, manual.Revision, PlanJson.Serialize(tampered));
+        var filesBefore = _rig.Artifacts.Files.Count;
+
+        var outcome = await _rig.UseCases.ReconcileAsync(new ReconcilePlanRequest(ProjectId));
+
+        Assert.False(outcome.Success);
+        Assert.Equal(PlanningUseCases.PlanManualProtectedCode, outcome.ErrorCode);
+        Assert.NotEqual("AUTOGEN_FAILED", outcome.ErrorCode);
+        Assert.Equal(filesBefore, _rig.Artifacts.Files.Count);
+        Assert.Equal(manual.Revision, (await _rig.Revisions.GetLatestAsync(ProjectId))!.Revision);
+
+        // Via IPC o erro carrega as acoes sugeridas.
+        var response = await _rig.Dispatcher.DispatchAsync(new TravelCut.Contracts.Ipc.IpcRequest
+        {
+            RequestId = "rc1", Type = "plan.reconcile", Payload = new ReconcilePlanRequest(ProjectId),
+        });
+        Assert.False(response.Ok);
+        Assert.Equal(PlanningUseCases.PlanManualProtectedCode, response.Error!.Code);
+        Assert.Equal("suggestedActions:" + PlanningUseCases.ManualProtectedSuggestedActions, response.Error.Details);
+    }
+
     // -------------------------------------------------------------- R5: fixtures antigas e migracao
 
     [Fact]
