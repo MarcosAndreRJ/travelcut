@@ -76,10 +76,13 @@ public static partial class PlanReconciler
                 case ManualEditKinds.Include:
                     if (e.SourceOutUs > DurOf(e.MediaId)) { blocked = "INCLUDE_OUT_OF_MEDIA"; conflicts.Add(Conf(e, blocked, "O trecho a incluir passa do fim da mídia.", "warning")); break; }
                     var uncovered = SegOps.Subtract(new[] { (e.SourceInUs, e.SourceOutUs) }, SegOps.RangesOf(cur, e.MediaId));
+                    // Comportamento real: havendo QUALQUER segmento da mídia no plano, o trecho é inserido colado ao vizinho mais próximo
+                    // NA FONTE (estende/funde com o vizinho adjacente ou entra logo após o vizinho à esquerda, senão antes do da direita).
+                    // Só quando a mídia não tem nenhum segmento no plano não há âncora: conflito INCLUDE_UNANCHORED, plano intacto.
                     if (!SegOps.Include(trial, e.MediaId, e.SourceInUs, e.SourceOutUs))
                     {
                         blocked = ConflictIncludeUnanchored;
-                        conflicts.Add(Conf(e, blocked, "Trecho incluído sem segmento vizinho na mídia; posição não inventada.", "warning", "Reposicionar o trecho manualmente."));
+                        conflicts.Add(Conf(e, blocked, "A mídia do trecho incluído não tem nenhum segmento no plano: sem vizinho na fonte para ancorar a posição; trecho não inserido.", "warning", "Reposicionar o trecho manualmente."));
                     }
                     else if (uncovered.Any(u => auto.AppliedCuts.Any(c => c.MediaId == e.MediaId && c.SourceInUs < u.B && c.SourceOutUs > u.A)))
                         conflicts.Add(Conf(e, ConflictCutReopened, "A inclusão manual venceu um corte aplicado pelo plano automático.", "warning", "Revisar o corte reaberto."));

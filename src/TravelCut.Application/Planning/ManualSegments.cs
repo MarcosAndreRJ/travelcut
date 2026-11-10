@@ -132,7 +132,11 @@ internal static class SegOps
         return any;
     }
 
-    /// <summary>Insere a parte não coberta de [a,b) colada ao vizinho na fonte. False = mídia sem nenhum segmento (INCLUDE_UNANCHORED).</summary>
+    /// <summary>
+    /// Insere a parte não coberta de [a,b) colada ao vizinho mais próximo na fonte (esquerdo com Out ≤ início, senão direito com In ≥ fim;
+    /// estende/funde quando adjacente e de velocidade 1x). Com qualquer segmento da mídia, sempre há posição; false SOMENTE quando a
+    /// mídia não tem nenhum segmento (INCLUDE_UNANCHORED).
+    /// </summary>
     public static bool Include(List<Seg> s, Guid m, long a, long b)
     {
         if (!s.Any(x => x.MediaId == m)) return false;

@@ -60,6 +60,19 @@ public class PlanReconcilerApplyTests
         Assert.Equal(Canon(auto), Canon(r.Plan!));
     }
 
+    // M-2: com algum segmento da midia no plano, o include distante de qualquer vizinho NAO e conflito: entra colado ao vizinho
+    // mais proximo na fonte (logo apos o segmento da esquerda). INCLUDE_UNANCHORED so existe sem nenhum segmento da midia.
+    [Fact]
+    public void Include_FarFromNeighbors_InsertsRightAfterNearestLeftSegment_WithoutUnanchoredConflict()
+    {
+        var r = Apply(Default(), Inc(1, A, 11 * S, 13 * S));      // A tem [0,10) e [15,30): lacuna [10,15), include [11,13) nao encosta em ninguem
+        Assert.False(r.Refused);
+        Assert.DoesNotContain(r.Conflicts, c => c.Type == PlanReconciler.ConflictIncludeUnanchored);
+        Assert.Equal("applied", r.Outcomes.Single().Status);
+        var exp = DefaultSpecs(); exp.Insert(1, new Spec(A, 11 * S, 13 * S));
+        Assert.Equal(CanonOf(exp), Canon(r.Plan!));
+    }
+
     [Fact]
     public void Place_MovesAfterAnchor_AndInheritsPredecessorSection()
     {
