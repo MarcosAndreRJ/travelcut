@@ -185,6 +185,34 @@ const mockAssemblyFingerprintOf = (planFingerprint: string, clipCount: number): 
 const MOCK_IDEMPOTENCY_KEY_PATTERN = /^[A-Za-z0-9_-]{1,100}$/;
 
 /** Payload de plan.generate (profile e timeBase reservados; hoje sempre null). */
+/**
+ * Converte o perfil para o EditorialProfileDto do C# (TravelCut.Contracts/Dtos/PlanDtos.cs):
+ * 10 campos, sem extras. reviewAmbiguous é sempre true na v1. Perfil incompleto vira null
+ * (o host usa o perfil persistido do projeto em vez de rejeitar a requisição).
+ */
+export function toGenerateProfile(profile: EditorialProfileDto | null | undefined): EditorialProfileDto | null {
+  if (!profile) return null;
+  const { profileId, version, silencePolicy, pace, jokePreservation, zoomStrength, speedBroll, musicPolicy } = profile;
+  if (
+    !profileId || typeof version !== 'number' || !silencePolicy || !pace || !jokePreservation ||
+    !zoomStrength || !speedBroll || !musicPolicy
+  ) {
+    return null;
+  }
+  return {
+    profileId,
+    version,
+    silencePolicy,
+    pace,
+    jokePreservation,
+    zoomStrength,
+    speedBroll,
+    musicPolicy,
+    reviewAmbiguous: true,
+    autoApplyTrivialCuts: profile.autoApplyTrivialCuts ?? false,
+  };
+}
+
 export interface GenerateEditPlanRequest {
   projectId: string;
   profile?: EditorialProfileDto | null;
@@ -2401,7 +2429,7 @@ class IpcBridgeService {
   /** Cria nova revisão a partir das mídias analisadas. Erros: NO_MEDIA_TO_PLAN, PROJECT_NOT_FOUND. */
   /** profile null usa o perfil persistido do projeto; informe o perfil da base para reproduzi-lo. */
   public async generateEditPlan(projectId: string, profile: EditorialProfileDto | null = null): Promise<EditPlanDto> {
-    const request: GenerateEditPlanRequest = { projectId, profile, timeBase: null };
+    const request: GenerateEditPlanRequest = { projectId, profile: toGenerateProfile(profile), timeBase: null };
     return this.send<EditPlanDto>('plan.generate', request, { timeoutMs: PLAN_IPC_TIMEOUT_MS });
   }
 
