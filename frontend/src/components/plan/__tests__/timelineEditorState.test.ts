@@ -6,6 +6,7 @@ import {
   createHistory,
   currentPlan,
   classifySaveError,
+  decideAcceptPayload,
   decideIncoming,
   isBaseOutdated,
   isHistoryDirty,
@@ -258,6 +259,31 @@ describe('reaplicação das operações sobre a revisão nova (B-1)', () => {
     const latest = planWith(4, [clip('a', 0, 30)]);
     const result = reapplyOperations(latest, [editOp('s', 'SPLIT', 'a', { splitAtFrame: 90 })], 'T');
     expect(result.dropped.map((o) => o.operationId)).toEqual(['s']);
+  });
+});
+
+describe('decisão do payload de Aceitar a prévia (A-1)', () => {
+  const preview = planWith(5, [clip('p', 0, 10)]);
+  const base = { planId: 'plan-1', revision: 3 };
+
+  it('grava o plano exibido na prévia com baseRevision = revisão vigente', () => {
+    const d = decideAcceptPayload({ preview, base, latestKnown: 5, dirty: false });
+    expect(d).toEqual({ kind: 'save', plan: preview, baseRevision: 5 });
+    expect(d.kind === 'save' && d.plan).toBe(preview);
+  });
+
+  it('sem revisão vigente conhecida usa a base do editor', () => {
+    expect(decideAcceptPayload({ preview, base, latestKnown: null, dirty: false })).toEqual({
+      kind: 'save',
+      plan: preview,
+      baseRevision: 3
+    });
+  });
+
+  it('bloqueia com edições não salvas, sem prévia ou sem base', () => {
+    expect(decideAcceptPayload({ preview, base, latestKnown: 5, dirty: true })).toEqual({ kind: 'blocked', reason: 'dirty' });
+    expect(decideAcceptPayload({ preview: null, base, latestKnown: 5, dirty: false })).toEqual({ kind: 'blocked', reason: 'no-preview' });
+    expect(decideAcceptPayload({ preview, base: null, latestKnown: 5, dirty: false })).toEqual({ kind: 'blocked', reason: 'no-base' });
   });
 });
 

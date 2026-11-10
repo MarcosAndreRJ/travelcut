@@ -9,6 +9,7 @@ import {
   canUndoHistory,
   createHistory,
   currentPlan,
+  decideAcceptPayload,
   decideIncoming,
   isBaseOutdated,
   isHistoryDirty,
@@ -540,29 +541,41 @@ export function useTimelineEditor({
 
   // Aceitar: plan.generate com o perfil da base grava UMA revisão nova e o editor adota essa revisão.
   const acceptReconcile = useCallback(async () => {
-    const current = currentPlan(histRef.current);
-    if (!projectId || !reconcilePreview || !current) return null;
-    if (isHistoryDirty(histRef.current)) {
-      setSaveError({ code: null, message: 'Salve ou descarte as edições antes de aceitar a reconciliação.', reloadable: false });
+    if (!projectId) return null;
+    const decision = decideAcceptPayload({
+      preview: reconcilePreview?.plan ?? null,
+      base: baseRef.current,
+      latestKnown: latestKnown,
+      dirty: isHistoryDirty(histRef.current),
+    });
+    if (decision.kind === 'blocked') {
+      if (decision.reason === 'dirty') {
+        setSaveError({ code: null, message: 'Salve ou descarte as edições antes de aceitar a reconciliação.', reloadable: false });
+      }
       return null;
     }
+    // Grava o plano exibido na prévia (não um plano gerado de novo), com baseRevision = revisão vigente.
+    setIsSaving(true);
+    setSaveError(null);
     try {
-      const created = await ipc.generateEditPlan(projectId, current.profile ?? null);
-      const incoming = { planId: created.planId, revision: created.revision };
-      setKnownLatest((prev) => (prev === null ? incoming.revision : Math.max(prev, incoming.revision)));
-      updateBase(incoming);
+      const saved = await ipc.savePlanRevision(projectId, decision.plan, decision.baseRevision, 'user', []);
+      updateBase({ planId: saved.planId, revision: saved.revision });
+      setKnownLatest((prev) => (prev === null ? saved.revision : Math.max(prev, saved.revision)));
       setExternal(null);
-      setHist(createHistory(created));
-      setConflicts(reconcilePreview.conflicts);
+      setHist(createHistory(saved));
+      setConflicts(reconcilePreview?.conflicts ?? []);
       setReconcilePreview(null);
-      onPlanChanged?.(created);
-      return created;
+      setReapplyDropped(0);
+      onPlanChanged?.(saved);
+      return saved;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      setSaveError({ code: null, message: `Falha ao aceitar a reconciliação: ${msg}`, reloadable: false });
+      setSaveError(classifySaveError(err instanceof IpcError ? err.code : null, `Falha ao aceitar a reconciliação: ${msg}`));
       return null;
+    } finally {
+      setIsSaving(false);
     }
-  }, [projectId, reconcilePreview, onPlanChanged, updateBase]);
+  }, [projectId, reconcilePreview, latestKnown, onPlanChanged, updateBase]);
 
   // Atalhos de teclado (Ctrl+Z, Ctrl+Y, S, Delete, Backspace, Ctrl+D)
   useEffect(() => {

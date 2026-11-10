@@ -218,6 +218,29 @@ export function reapplyOperations(
   return { history: h, dropped };
 }
 
+export interface AcceptPayloadInput {
+  preview: EditPlanDto | null;
+  base: PlanRef | null;
+  latestKnown: number | null;
+  dirty: boolean;
+}
+
+export type AcceptPayloadDecision =
+  | { kind: 'save'; plan: EditPlanDto; baseRevision: number }
+  | { kind: 'blocked'; reason: 'no-preview' | 'no-base' | 'dirty' };
+
+/**
+ * Aceitar a prévia de reconciliação: grava o plano EXIBIDO na prévia, com baseRevision = revisão
+ * vigente. Bloqueado se houver edições não salvas (elas seriam perdidas ou misturadas).
+ */
+export function decideAcceptPayload(input: AcceptPayloadInput): AcceptPayloadDecision {
+  if (!input.preview) return { kind: 'blocked', reason: 'no-preview' };
+  if (!input.base) return { kind: 'blocked', reason: 'no-base' };
+  if (input.dirty) return { kind: 'blocked', reason: 'dirty' };
+  const baseRevision = resolveLatestRevision(input.base.revision, input.latestKnown) ?? input.base.revision;
+  return { kind: 'save', plan: input.preview, baseRevision };
+}
+
 export interface SaveErrorInfo {
   code: string | null;
   message: string;
