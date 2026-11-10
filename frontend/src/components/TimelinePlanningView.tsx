@@ -233,6 +233,28 @@ export const TimelinePlanningView: React.FC<TimelinePlanningViewProps> = ({ proj
             </div>
           )}
 
+          {timelineEditor.reapplyDropped > 0 && (
+            <div
+              role="status"
+              data-testid="plan-reapply-dropped-banner"
+              className="mx-4 mt-3 flex flex-wrap items-center gap-2 px-3 py-2 rounded-xl bg-amber-950/50 border border-amber-500/30 text-xs text-amber-200"
+            >
+              <AlertCircle className="w-4 h-4 shrink-0" aria-hidden="true" />
+              <span className="flex-1">
+                {timelineEditor.reapplyDropped === 1
+                  ? '1 edição não pôde ser reaplicada na revisão nova (clipe inexistente).'
+                  : `${timelineEditor.reapplyDropped} edições não puderam ser reaplicadas na revisão nova (clipes inexistentes).`}
+              </span>
+              <button
+                type="button"
+                onClick={timelineEditor.dismissReapplyNotice}
+                className="px-3 py-1 rounded-lg text-[11px] font-semibold text-amber-100 hover:bg-amber-500/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+              >
+                Fechar
+              </button>
+            </div>
+          )}
+
           {timelineEditor.externalRevision !== null && (
             <div
               role="status"

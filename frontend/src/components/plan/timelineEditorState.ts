@@ -1,4 +1,5 @@
-import type { EditPlanDto, PlanEditorialOperationDto } from '../../types/ipc';
+import type { EditPlanDto, PlanClipDto, PlanEditorialOperationDto } from '../../types/ipc';
+import { deleteClips, duplicateClips, moveClips, splitClips } from './timelineOperations';
 
 /**
  * Estado puro do editor de timeline (sem React), usado por useTimelineEditor.
@@ -128,6 +129,93 @@ export function decideIncoming(
   if (!dirty) return 'adopt';
   if (mode === 'reload' && base && base.planId === incoming.planId) return 'rebase';
   return 'banner';
+}
+
+/** Recalcula a duração da timeline no summary (mesma regra do commit do editor). */
+export function withTimelineDuration(plan: EditPlanDto): EditPlanDto {
+  const maxEnd = (plan.clips ?? []).reduce((acc, c) => Math.max(acc, c.timelineStartFrame + c.durationFrames), 0);
+  return { ...plan, summary: { ...plan.summary, timelineDurationFrames: maxEnd } };
+}
+
+function operationClipIds(op: PlanEditorialOperationDto): Set<string> {
+  return new Set([op.clipId, ...(op.linkedClipId ? [op.linkedClipId] : [])]);
+}
+
+/**
+ * Reaplica UMA operação do log do editor sobre a lista de clipes da revisão nova.
+ * Retorna null quando a operação não é aplicável (clipe ou par vinculado inexistente,
+ * limites inválidos, tipo sem suporte). Reutiliza as funções puras de timelineOperations.
+ */
+export function applyOperationToClips(
+  clips: PlanClipDto[],
+  op: PlanEditorialOperationDto,
+  timeBase: EditPlanDto['timeBase'],
+  idSuffix: string
+): PlanClipDto[] | null {
+  if (!clips.some((c) => c.clipId === op.clipId)) return null;
+  if (op.linkedClipId && !clips.some((c) => c.clipId === op.linkedClipId)) return null;
+
+  switch (op.type) {
+    case 'MOVE': {
+      if (op.newStartFrame == null) return null;
+      return moveClips(clips, op.clipId, op.newStartFrame);
+    }
+    case 'TRIM': {
+      const { newStartFrame, newDurationFrames, sourceInUs, sourceOutUs } = op;
+      if (newStartFrame == null || newDurationFrames == null || sourceInUs == null || sourceOutUs == null) return null;
+      if (newDurationFrames <= 0 || sourceOutUs <= sourceInUs) return null;
+      const ids = operationClipIds(op);
+      return clips.map((c) =>
+        ids.has(c.clipId)
+          ? { ...c, timelineStartFrame: newStartFrame, durationFrames: newDurationFrames, sourceInUs, sourceOutUs }
+          : c
+      );
+    }
+    case 'SPLIT': {
+      if (op.splitAtFrame == null) return null;
+      const out = splitClips(clips, op.clipId, op.splitAtFrame, timeBase, idSuffix);
+      return out === clips ? null : out;
+    }
+    case 'DUPLICATE':
+      return duplicateClips(clips, op.clipId, idSuffix);
+    case 'DELETE':
+      return deleteClips(clips, op.clipId);
+    default:
+      return null;
+  }
+}
+
+export interface ReapplyResult {
+  /** Histórico sobre a revisão nova: entrada 0 = revisão nova; demais = operações reaplicadas. */
+  history: TimelineHistory;
+  /** Operações que não puderam ser reaplicadas (descartadas). */
+  dropped: PlanEditorialOperationDto[];
+}
+
+/**
+ * Reaplica as operações do usuário sobre a revisão nova. O delta contra a revisão nova passa a
+ * conter só a intenção do usuário; o salvamento seguinte nunca usa o snapshot da base antiga.
+ * `idStamp` torna os IDs das partes novas únicos dentro da reaplicação.
+ */
+export function reapplyOperations(
+  latest: EditPlanDto,
+  ops: PlanEditorialOperationDto[],
+  idStamp: string = String(Date.now())
+): ReapplyResult {
+  let h = createHistory(latest);
+  const dropped: PlanEditorialOperationDto[] = [];
+  let seq = 0;
+  for (const op of ops) {
+    const current = currentPlan(h);
+    seq += 1;
+    const clips = current ? applyOperationToClips(current.clips ?? [], op, current.timeBase, `${idStamp}_${seq}`) : null;
+    if (!current || !clips) {
+      dropped.push(op);
+      continue;
+    }
+    h = pushHistory(h, withTimelineDuration({ ...current, clips }), op);
+  }
+  return { history: h, dropped };
 }
 
 export interface SaveErrorInfo {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { EditPlanDto, PlanEditorialOperationDto } from '../../../types/ipc';
+import type { EditPlanDto, PlanClipDto, PlanEditorialOperationDto } from '../../../types/ipc';
 import {
   canRedoHistory,
   canUndoHistory,
@@ -10,12 +10,37 @@ import {
   isBaseOutdated,
   isHistoryDirty,
   markHistorySaved,
+  reapplyOperations,
   resolveLatestRevision,
   operationsSinceSaved,
   pushHistory,
   redoHistory,
   undoHistory
 } from '../timelineEditorState';
+
+const TB = { frameDurationNum: 1, frameDurationDen: 25 };
+const clip = (clipId: string, timelineStartFrame: number, durationFrames: number, extra: Partial<PlanClipDto> = {}) =>
+  ({
+    clipId,
+    timelineStartFrame,
+    durationFrames,
+    sourceInUs: 0,
+    sourceOutUs: durationFrames * 40000,
+    linkedClipId: null,
+    ...extra
+  } as unknown as PlanClipDto);
+const planWith = (revision: number, clips: PlanClipDto[]) =>
+  ({
+    planId: 'plan-1',
+    projectId: 'proj-1',
+    revision,
+    timeBase: TB,
+    summary: { timelineDurationFrames: 0 },
+    clips
+  } as unknown as EditPlanDto);
+const clipIds = (p: EditPlanDto) => (p.clips ?? []).map((c) => c.clipId).sort();
+const editOp = (id: string, type: PlanEditorialOperationDto['type'], clipId: string, extra: Partial<PlanEditorialOperationDto> = {}): PlanEditorialOperationDto =>
+  ({ operationId: id, type, clipId, timestampUtc: '2026-11-09T00:00:00Z', ...extra } as PlanEditorialOperationDto);
 
 const plan = (revision: number, planId = 'plan-1') =>
   ({ planId, projectId: 'proj-1', revision, clips: [] } as unknown as EditPlanDto);
@@ -153,6 +178,86 @@ describe('classifySaveError (save com baseRevision)', () => {
 
   it('sem código nem mensagem usa texto genérico', () => {
     expect(classifySaveError(null, '').message).toBe('Falha ao salvar a revisão.');
+  });
+});
+
+describe('reaplicação das operações sobre a revisão nova (B-1)', () => {
+  it('base antiga + edição X, revisão nova com corte automático Y: resultado contém X e Y; delta contra a nova base é só X', () => {
+    // Usuário excluiu "b" sobre a base antiga R3 (edição X); o log do ramo guarda só essa operação.
+    const userOps = [editOp('x', 'DELETE', 'b')];
+
+    // Revisão nova: corte automático Y divide "a" em "a" + "a_auto".
+    const latest = planWith(4, [clip('a', 0, 30), clip('a_auto', 30, 30), clip('b', 60, 50)]);
+    const result = reapplyOperations(latest, userOps, 'T');
+    const reapplied = currentPlan(result.history)!;
+
+    expect(result.dropped).toHaveLength(0);
+    // Contém Y (corte automático) e o efeito de X (b removido).
+    expect(clipIds(reapplied)).toEqual(['a', 'a_auto']);
+    // Delta contra a revisão nova: removidos = {b}, adicionados = {}.
+    const base = new Set(clipIds(latest));
+    const cur = new Set(clipIds(reapplied));
+    expect([...base].filter((id) => !cur.has(id))).toEqual(['b']);
+    expect([...cur].filter((id) => !base.has(id))).toEqual([]);
+    // Log do histórico = só a intenção do usuário.
+    expect(operationsSinceSaved(result.history).map((o) => o.operationId)).toEqual(['x']);
+    expect(isHistoryDirty(result.history)).toBe(true);
+  });
+
+  it('operação com clipe inexistente na revisão nova é descartada e as demais são aplicadas', () => {
+    const latest = planWith(4, [clip('a', 0, 60), clip('c', 60, 40)]);
+    const ops = [editOp('x1', 'DELETE', 'b'), editOp('x2', 'DELETE', 'c')];
+    const result = reapplyOperations(latest, ops, 'T');
+    expect(result.dropped.map((o) => o.operationId)).toEqual(['x1']);
+    expect(clipIds(currentPlan(result.history)!)).toEqual(['a']);
+  });
+
+  it('sem operações aplicáveis o histórico fica limpo (não sujo) sobre a revisão nova', () => {
+    const latest = planWith(4, [clip('a', 0, 60)]);
+    const result = reapplyOperations(latest, [editOp('x', 'DELETE', 'zzz')], 'T');
+    expect(result.dropped).toHaveLength(1);
+    expect(isHistoryDirty(result.history)).toBe(false);
+    expect(currentPlan(result.history)).toBe(latest);
+  });
+
+  it('MOVE e TRIM reaplicam valores absolutos da operação, inclusive no par vinculado', () => {
+    const latest = planWith(4, [
+      clip('v', 0, 60, { linkedClipId: 'ar' }),
+      clip('ar', 0, 60, { linkedClipId: 'v' })
+    ]);
+    const ops = [
+      editOp('m', 'MOVE', 'v', { linkedClipId: 'ar', newStartFrame: 10 }),
+      editOp('t', 'TRIM', 'v', {
+        linkedClipId: 'ar',
+        newStartFrame: 10,
+        newDurationFrames: 20,
+        sourceInUs: 0,
+        sourceOutUs: 800000
+      })
+    ];
+    const result = reapplyOperations(latest, ops, 'T');
+    const reapplied = currentPlan(result.history)!;
+    const v = reapplied.clips.find((c) => c.clipId === 'v')!;
+    const ar = reapplied.clips.find((c) => c.clipId === 'ar')!;
+    expect(result.dropped).toHaveLength(0);
+    expect([v.timelineStartFrame, v.durationFrames]).toEqual([10, 20]);
+    expect([ar.timelineStartFrame, ar.durationFrames]).toEqual([10, 20]);
+  });
+
+  it('SPLIT reaplicado gera partes com IDs únicos mesmo com o mesmo sufixo de relógio em operações seguidas', () => {
+    const latest = planWith(4, [clip('a', 0, 100)]);
+    const ops = [editOp('s1', 'SPLIT', 'a', { splitAtFrame: 40 }), editOp('s2', 'SPLIT', 'a', { splitAtFrame: 20 })];
+    const result = reapplyOperations(latest, ops, 'T');
+    const ids = clipIds(currentPlan(result.history)!);
+    expect(result.dropped).toHaveLength(0);
+    expect(ids).toHaveLength(3);
+    expect(new Set(ids).size).toBe(3);
+  });
+
+  it('split fora dos limites do clipe da revisão nova é descartado', () => {
+    const latest = planWith(4, [clip('a', 0, 30)]);
+    const result = reapplyOperations(latest, [editOp('s', 'SPLIT', 'a', { splitAtFrame: 90 })], 'T');
+    expect(result.dropped.map((o) => o.operationId)).toEqual(['s']);
   });
 });
 

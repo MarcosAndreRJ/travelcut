@@ -13,11 +13,13 @@ import {
   isBaseOutdated,
   isHistoryDirty,
   markHistorySaved,
+  reapplyOperations,
   resolveLatestRevision,
   operationsSinceSaved,
   pushHistory,
   redoHistory,
   undoHistory,
+  withTimelineDuration,
   type PlanRef,
   type TimelineHistory
 } from './timelineEditorState';
@@ -63,6 +65,8 @@ export function useTimelineEditor({
   const [saveError, setSaveError] = useState<SaveErrorInfo | null>(null);
   const [conflicts, setConflicts] = useState<PlanConflictDto[]>([]);
   const [reconcilePreview, setReconcilePreview] = useState<{ plan: EditPlanDto; conflicts: PlanConflictDto[] } | null>(null);
+  // Operações do usuário que não couberam na revisão nova após "Recarregar" (aviso ao usuário).
+  const [reapplyDropped, setReapplyDropped] = useState(0);
 
   const updateBase = useCallback((next: PlanRef) => {
     baseRef.current = next;
@@ -94,8 +98,12 @@ export function useTimelineEditor({
       setKnownLatest((prev) => (prev === null ? incoming.revision : Math.max(prev, incoming.revision)));
       const decision = decideIncoming(baseRef.current, incoming, isHistoryDirty(histRef.current), 'reload');
       if (decision === 'rebase') {
+        // Nunca reaproveita o snapshot antigo: reaplica só as operações do usuário sobre a revisão nova.
+        const reapplied = reapplyOperations(latest, operationsSinceSaved(histRef.current));
         updateBase(incoming);
         setExternal(null);
+        setHist(reapplied.history);
+        setReapplyDropped(reapplied.dropped.length);
       } else if (decision === 'adopt') {
         updateBase(incoming);
         setExternal(null);
@@ -122,7 +130,10 @@ export function useTimelineEditor({
     updateBase({ planId: next.planId, revision: next.revision });
     setExternal(null);
     setHist(createHistory(next));
+    setReapplyDropped(0);
   }, [updateBase]);
+
+  const dismissReapplyNotice = useCallback(() => setReapplyDropped(0), []);
 
   const canUndo = canUndoHistory(hist);
   const canRedo = canRedoHistory(hist);
@@ -605,6 +616,8 @@ export function useTimelineEditor({
     reloadLatest,
     dismissSaveError,
     saveError,
+    reapplyDropped,
+    dismissReapplyNotice,
     conflicts,
     selectedClipId,
     snappingEnabled,
