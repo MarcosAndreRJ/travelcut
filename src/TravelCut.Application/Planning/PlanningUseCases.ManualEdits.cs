@@ -19,13 +19,27 @@ public sealed partial class PlanningUseCases
     {
         if (request.ProjectId == Guid.Empty)
             return PlanOutcome<EditPlanDto>.Fail("INVALID_ARGUMENT", "ID de projeto invalido.");
+        if (request.Plan is null)
+            return PlanOutcome<EditPlanDto>.Fail("INVALID_ARGUMENT", "Plano ausente.");
 
         var project = await _projects.GetByIdAsync(request.ProjectId, ct);
         if (project is null || string.IsNullOrWhiteSpace(project.RootPath))
             return PlanOutcome<EditPlanDto>.Fail("PROJECT_NOT_FOUND", "Projeto nao encontrado.");
 
         var manualPlan = request.Plan;
+
+        // O ProjectId do cliente nunca e confiado: o plano precisa pertencer ao projeto da requisicao.
+        if (manualPlan.ProjectId != project.ProjectId)
+        {
+            _logger.LogWarning("Save manual recusado: plano {PlanId} declara o projeto {Declared}, requisicao e do projeto {Project}",
+                manualPlan.PlanId, manualPlan.ProjectId, project.ProjectId);
+            return PlanOutcome<EditPlanDto>.Fail(PlanProjectMismatchCode, "O plano enviado pertence a outro projeto.");
+        }
+
         var clips = manualPlan.Clips ?? new List<PlanClipDto>();
+
+        if (clips.Select(c => c.ClipId).Distinct().Count() != clips.Count)
+            return PlanOutcome<EditPlanDto>.Fail("INVALID_ARGUMENT", "O plano contem ClipId duplicado.");
 
         // Validacao V1 / A1 sync
         var clipMap = clips.ToDictionary(c => c.ClipId);
@@ -74,36 +88,80 @@ public sealed partial class PlanningUseCases
             }
         }
 
-        var indexLatest = await _revisions.GetLatestAsync(manualPlan.PlanId, ct);
-        var nextRevision = await NextRevisionAsync(project.RootPath, manualPlan.PlanId, indexLatest?.Revision, ct);
-
-        long maxEndFrame = clips.Count > 0 ? clips.Max(c => c.TimelineStartFrame + c.DurationFrames) : 0;
-        var updatedSummary = manualPlan.Summary with { TimelineDurationFrames = maxEndFrame };
-
-        var candidatePlan = manualPlan with
+        // Leitura da revisao vigente, CAS e gravacao sob o mesmo lock do projeto que GenerateAsync/RevertAsync usam.
+        return await WithProjectLockAsync(project.ProjectId, async () =>
         {
-            Revision = nextRevision,
-            BaseRevision = indexLatest?.Revision ?? manualPlan.Revision,
-            CreatedAtUtc = DateTime.UtcNow,
-            Author = request.Author ?? "user",
-            Summary = updatedSummary
-        };
+            var latest = await _revisions.GetLatestAsync(project.ProjectId, ct);
+            if (latest is null)
+                return PlanOutcome<EditPlanDto>.Fail("PLAN_NOT_FOUND", "O projeto nao tem plano para receber a edicao manual.");
 
-        var derivedValidation = await DeriveValidationAsync(project.ProjectId, project.RootPath, candidatePlan, null, ct);
-        var domainModel = PlanMapping.ToDomain(candidatePlan with { Validation = derivedValidation });
-        var fingerprint = PlanFingerprint.ComputePlan(domainModel);
+            if (manualPlan.PlanId != latest.PlanId)
+            {
+                _logger.LogWarning("Save manual recusado: PlanId {PlanId} difere do plano vigente {Latest} do projeto {Project}",
+                    manualPlan.PlanId, latest.PlanId, project.ProjectId);
+                return PlanOutcome<EditPlanDto>.Fail(PlanIdMismatchCode, "O plano enviado nao e o plano vigente do projeto.");
+            }
 
-        var finalPlan = candidatePlan with
-        {
-            Validation = derivedValidation,
-            PlanFingerprint = fingerprint
-        };
+            if (request.BaseRevision != latest.Revision)
+            {
+                _logger.LogInformation("Save manual recusado: baseRevision {Base} difere da revisao vigente {Latest} (PLAN_STALE_BASE)",
+                    request.BaseRevision, latest.Revision);
+                return PlanOutcome<EditPlanDto>.Fail(PlanStaleBaseCode,
+                    $"O plano foi alterado (revisao {latest.Revision}) desde a revisao base {request.BaseRevision}. Recarregue antes de salvar.");
+            }
 
-        var conflict = await TryPersistAsync(project.RootPath, finalPlan, inputsFingerprint: null, ct);
-        if (conflict is not null)
-            return conflict;
+            var baseRead = await ReadPlanAsync(project.RootPath, latest, ct);
+            if (baseRead.ErrorCode is not null)
+                return PlanOutcome<EditPlanDto>.Fail(baseRead.ErrorCode, baseRead.ErrorMessage!);
+            var basis = baseRead.Plan!;
 
-        return PlanOutcome<EditPlanDto>.Ok(finalPlan);
+            var media = await _media.ListByProjectAsync(project.ProjectId, ct);
+            var analyses = await LoadAnalysesAsync(project.ProjectId, media, ct);
+            var now = _clock.GetUtcNow().UtcDateTime;
+            var nextRevision = await NextRevisionAsync(project.RootPath, latest.PlanId, latest.Revision, ct);
+
+            long maxEndFrame = clips.Count > 0 ? clips.Max(c => c.TimelineStartFrame + c.DurationFrames) : 0;
+            // Uma edicao manual nunca e gravada como autor automatico (senao burlaria a protecao da regeneracao).
+            var author = string.IsNullOrWhiteSpace(request.Author) || IsAutomaticAuthor(request.Author)
+                ? AuthorUser
+                : request.Author!;
+
+            // Identidade, perfil, base de tempo, fuso e fingerprint de midias vem da revisao vigente, nao do cliente.
+            var candidate = manualPlan with
+            {
+                ProjectId = project.ProjectId,
+                PlanId = latest.PlanId,
+                Revision = nextRevision,
+                BaseRevision = latest.Revision,
+                CreatedAtUtc = now,
+                Author = author,
+                Profile = basis.Profile,
+                TimeBase = basis.TimeBase,
+                TimeZoneId = basis.TimeZoneId,
+                MediaSetFingerprint = basis.MediaSetFingerprint,
+                Summary = manualPlan.Summary with { TimelineDurationFrames = maxEndFrame }
+            };
+
+            // Persistido: so a validacao estrutural (sem issues de estado externo), como no revert.
+            var structural = PlanValidation.Run(PlanMapping.ToDomain(candidate), media, analyses)
+                .Where(i => !DerivedIssueCodes.Contains(i.Code))
+                .ToList();
+            candidate = candidate with { Validation = PlanMapping.ToValidationDto(structural, now) };
+
+            var finalPlan = candidate with { PlanFingerprint = PlanFingerprint.ComputePlan(PlanMapping.ToDomain(candidate)) };
+
+            var suggestions = await _suggestionsAndDecisions.ListSuggestionsByProjectAsync(project.ProjectId, ct);
+            var decisions = await _suggestionsAndDecisions.ListDecisionsByProjectAsync(project.ProjectId, ct);
+            var inputsFingerprint = InputsFingerprintOf(finalPlan, media, suggestions, decisions);
+
+            var conflict = await TryPersistAsync(project.RootPath, finalPlan, inputsFingerprint, ct);
+            if (conflict is not null) return conflict;
+
+            _logger.LogInformation("Plano {PlanId}: revisao manual {Revision} gravada (base {Base})",
+                finalPlan.PlanId, finalPlan.Revision, finalPlan.BaseRevision);
+            var derived = await DeriveValidationAsync(project.ProjectId, project.RootPath, finalPlan, inputsFingerprint, ct);
+            return PlanOutcome<EditPlanDto>.Ok(finalPlan with { Validation = derived });
+        }, ct);
     }
 
     public async Task<PlanOutcome<ReconcilePlanResponse>> ReconcileAsync(

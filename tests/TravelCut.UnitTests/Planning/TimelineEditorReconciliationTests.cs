@@ -11,6 +11,7 @@ using TravelCut.Application.Ports;
 using TravelCut.Application.Services;
 using TravelCut.Contracts.Dtos;
 using TravelCut.Domain.Entities;
+using TravelCut.Domain.Planning;
 using TravelCut.Infrastructure.Persistence;
 using TravelCut.Infrastructure.Planning;
 using TravelCut.Infrastructure.Repositories;
@@ -293,19 +294,149 @@ public class TimelineEditorReconciliationTests : IDisposable
         Assert.Equal("INVALID_FRAME_INTERVAL", result.ErrorCode);
     }
 
+    // F14.7a/E11: o save manual parte de uma revisao vigente do projeto (antes GetLatestAsync recebia o PlanId e
+    // sempre devolvia null, entao o "salvar" era uma revisao 1 solta). Agora o plano base precisa existir: a revisao
+    // gravada e a seguinte a vigente (2), com baseRevision = vigente.
     [Fact]
     public async Task SaveManualRevision_SucceedsAndBumpsRevision()
     {
         var projectId = Guid.NewGuid();
         await _projects.SaveAsync(new Project { ProjectId = projectId, Name = "Teste", RootPath = _root });
-        var plan = CreateTestPlan(projectId, 1);
+        var seeded = await SeedLatestAsync(projectId);
 
-        var req = new SavePlanRevisionRequest(projectId, 1, plan, Author: "user");
+        var req = new SavePlanRevisionRequest(projectId, 1, seeded, Author: "user");
         var result = await _useCases.SaveManualRevisionAsync(req);
 
-        Assert.True(result.Success);
+        Assert.True(result.Success, result.ErrorCode);
         Assert.NotNull(result.Value);
-        Assert.Equal(1, result.Value.Revision);
+        Assert.Equal(2, result.Value.Revision);
+        Assert.Equal(1, result.Value.BaseRevision);
         Assert.Equal("user", result.Value.Author);
+        Assert.Equal(seeded.PlanId, result.Value.PlanId);
+    }
+
+    private async Task<EditPlanDto> SeedLatestAsync(Guid projectId, int revision = 1, string author = "planner-rules/1", string? root = null)
+    {
+        var plan = CreateTestPlan(projectId, revision) with { Author = author };
+        plan = plan with { PlanFingerprint = PlanFingerprint.ComputePlan(PlanMapping.ToDomain(plan)) };
+        await _store.WriteRevisionAsync(root ?? _root, plan.PlanId, plan.Revision, PlanJson.Serialize(plan));
+        await _revisions.AddAsync(PlanMapping.ToIndexEntry(plan));
+        return plan;
+    }
+
+    /// <summary>Hash de todos os arquivos sob a raiz + linhas do indice dos projetos informados.</summary>
+    private async Task<string> SnapshotAsync(params Guid[] projectIds)
+    {
+        var sb = new System.Text.StringBuilder();
+        foreach (var f in Directory.EnumerateFiles(_root, "*", SearchOption.AllDirectories).OrderBy(x => x, StringComparer.Ordinal))
+        {
+            sb.Append(Path.GetRelativePath(_root, f)).Append('=')
+              .Append(Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(await File.ReadAllBytesAsync(f)))).Append('\n');
+        }
+        foreach (var id in projectIds)
+        {
+            foreach (var e in await _revisions.ListAsync(id))
+                sb.Append(id).Append('|').Append(e.Revision).Append('|').Append(e.PlanFingerprint).Append('|').Append(e.InputsFingerprint).Append('|').Append(e.Author).Append('\n');
+        }
+        return sb.ToString();
+    }
+
+    [Fact]
+    public async Task SaveManualRevision_StoresRealInputsFingerprint_AndPinsBasisProfile()
+    {
+        var projectId = Guid.NewGuid();
+        await _projects.SaveAsync(new Project { ProjectId = projectId, Name = "Teste", RootPath = _root });
+        var seeded = await SeedLatestAsync(projectId);
+
+        // O cliente tenta trocar perfil/base de tempo/fuso e se declarar autor automatico: nada disso vale.
+        var tampered = seeded with
+        {
+            Profile = seeded.Profile with { SilencePolicy = "aggressive" },
+            TimeBase = new TimelineTimeBaseDto(1, 24, "24 fps"),
+            TimeZoneId = "UTC",
+            Author = "planner-rules/1"
+        };
+        var result = await _useCases.SaveManualRevisionAsync(
+            new SavePlanRevisionRequest(projectId, 1, tampered, Author: "planner-rules/1"));
+
+        Assert.True(result.Success, result.ErrorCode);
+        Assert.Equal("user", result.Value!.Author);
+        Assert.Equal(seeded.Profile, result.Value.Profile);
+        Assert.Equal(seeded.TimeBase, result.Value.TimeBase);
+        Assert.Equal(seeded.TimeZoneId, result.Value.TimeZoneId);
+
+        var entry = await _revisions.GetLatestAsync(projectId);
+        Assert.Equal(2, entry!.Revision);
+        Assert.False(string.IsNullOrWhiteSpace(entry.InputsFingerprint));
+        Assert.Equal(projectId, entry.ProjectId);
+
+        // O JSON gravado so tem validacao estrutural e fingerprint conferido.
+        var json = await _store.ReadRevisionAsync(_root, entry.PlanId, entry.Revision);
+        Assert.True(PlanJson.TryDeserialize(json!, out var stored));
+        Assert.Equal(PlanFingerprint.ComputePlan(PlanMapping.ToDomain(stored!)), stored!.PlanFingerprint);
+        Assert.DoesNotContain(stored.Validation.Issues, i => i.Code is "SOURCE_FILE_MISSING" or "PLAN_OUTDATED" or "MEDIA_CHANGED" or "PLAN_TAMPERED");
+    }
+
+    [Fact]
+    public async Task SaveManualRevision_StaleBase_IsRejectedWithoutWriting()
+    {
+        var projectId = Guid.NewGuid();
+        await _projects.SaveAsync(new Project { ProjectId = projectId, Name = "Teste", RootPath = _root });
+        var seeded = await SeedLatestAsync(projectId);
+        var first = await _useCases.SaveManualRevisionAsync(new SavePlanRevisionRequest(projectId, 1, seeded, Author: "user"));
+        Assert.True(first.Success, first.ErrorCode);
+
+        var before = await SnapshotAsync(projectId);
+        // Segundo save ainda com baseRevision 1, mas a vigente ja e a 2.
+        var stale = await _useCases.SaveManualRevisionAsync(new SavePlanRevisionRequest(projectId, 1, seeded, Author: "user"));
+
+        Assert.False(stale.Success);
+        Assert.Equal("PLAN_STALE_BASE", stale.ErrorCode);
+        Assert.Equal(before, await SnapshotAsync(projectId));
+    }
+
+    [Fact]
+    public async Task SaveManualRevision_WithoutBasePlan_IsRejected()
+    {
+        var projectId = Guid.NewGuid();
+        await _projects.SaveAsync(new Project { ProjectId = projectId, Name = "Teste", RootPath = _root });
+
+        var result = await _useCases.SaveManualRevisionAsync(new SavePlanRevisionRequest(projectId, 1, CreateTestPlan(projectId, 1)));
+
+        Assert.False(result.Success);
+        Assert.Equal("PLAN_NOT_FOUND", result.ErrorCode);
+        Assert.Empty(await _revisions.ListAsync(projectId));
+    }
+
+    // R8: projeto cruzado. Nada pode ser gravado em outro projeto nem no proprio quando a identidade nao confere.
+    [Fact]
+    public async Task SaveManualRevision_CrossProject_WritesNothingAnywhere()
+    {
+        var projectA = Guid.NewGuid();
+        var projectB = Guid.NewGuid();
+        await _projects.SaveAsync(new Project { ProjectId = projectA, Name = "A", RootPath = _root });
+        await _projects.SaveAsync(new Project { ProjectId = projectB, Name = "B", RootPath = Path.Combine(_root, "b") });
+        var planA = await SeedLatestAsync(projectA);
+        var planB = await SeedLatestAsync(projectB, root: Path.Combine(_root, "b"));
+        var before = await SnapshotAsync(projectA, projectB);
+
+        // 1) Plano do projeto B enviado na requisicao do projeto A.
+        var wrongProject = await _useCases.SaveManualRevisionAsync(new SavePlanRevisionRequest(projectA, 1, planB, Author: "user"));
+        Assert.False(wrongProject.Success);
+        Assert.Equal("PLAN_PROJECT_MISMATCH", wrongProject.ErrorCode);
+
+        // 2) ProjectId do cliente "corrigido" para A, mas com o PlanId do plano de B.
+        var wrongPlanId = await _useCases.SaveManualRevisionAsync(
+            new SavePlanRevisionRequest(projectA, 1, planB with { ProjectId = projectA }, Author: "user"));
+        Assert.False(wrongPlanId.Success);
+        Assert.Equal("PLAN_ID_MISMATCH", wrongPlanId.ErrorCode);
+
+        // 3) Projeto B recebe plano de A.
+        var reverse = await _useCases.SaveManualRevisionAsync(
+            new SavePlanRevisionRequest(projectB, 1, planA with { ProjectId = projectB }, Author: "user"));
+        Assert.False(reverse.Success);
+        Assert.Equal("PLAN_ID_MISMATCH", reverse.ErrorCode);
+
+        Assert.Equal(before, await SnapshotAsync(projectA, projectB));
     }
 }

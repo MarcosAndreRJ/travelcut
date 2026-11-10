@@ -52,6 +52,20 @@ public sealed partial class PlanningUseCases
     private const string SourceFileMissingMessage = "Arquivo da mídia não encontrado em disco: ";
 
     public const string AuthorRevert = "revert";
+    public const string AuthorUser = "user";
+
+    /// <summary>A revisão base do save manual mudou (outra gravação, decisão ou geração): o cliente deve recarregar.</summary>
+    public const string PlanStaleBaseCode = "PLAN_STALE_BASE";
+
+    /// <summary>O ProjectId do plano enviado não é o do projeto da requisição.</summary>
+    public const string PlanProjectMismatchCode = "PLAN_PROJECT_MISMATCH";
+
+    /// <summary>O PlanId do plano enviado não é o do plano vigente do projeto.</summary>
+    public const string PlanIdMismatchCode = "PLAN_ID_MISMATCH";
+
+    /// <summary>Autor de revisão gerada pelo planejador (único autor "automático"); os demais são edição humana ou revert.</summary>
+    public static bool IsAutomaticAuthor(string? author) =>
+        author is not null && author.StartsWith("planner-rules/", StringComparison.Ordinal);
     public const string NoProjectMessage = "Projeto não encontrado.";
 
     /// <summary>Código de erro (fail) ou de issue de validação quando o conteúdo não confere com o fingerprint gravado.</summary>
