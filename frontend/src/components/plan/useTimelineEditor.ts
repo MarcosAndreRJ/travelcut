@@ -1,6 +1,22 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { EditPlanDto, PlanClipDto, PlanConflictDto, PlanEditorialOperationDto } from '../../types/ipc';
 import { ipc } from '../../services/ipcBridge';
+import {
+  EMPTY_HISTORY,
+  canRedoHistory,
+  canUndoHistory,
+  createHistory,
+  currentPlan,
+  decideIncoming,
+  isHistoryDirty,
+  markHistorySaved,
+  operationsSinceSaved,
+  pushHistory,
+  redoHistory,
+  undoHistory,
+  type PlanRef,
+  type TimelineHistory
+} from './timelineEditorState';
 
 export interface SnapResult {
   snappedFrame: number;
@@ -20,33 +36,33 @@ export function useTimelineEditor({
   currentFrame = 0,
   onPlanChanged,
 }: UseTimelineEditorOptions) {
-  const [plan, setPlan] = useState<EditPlanDto | null>(initialPlan);
-  const [history, setHistory] = useState<EditPlanDto[]>(initialPlan ? [initialPlan] : []);
-  const [historyIndex, setHistoryIndex] = useState(0);
+  const [hist, setHist] = useState<TimelineHistory>(() => (initialPlan ? createHistory(initialPlan) : EMPTY_HISTORY));
+  const histRef = useRef(hist);
+  histRef.current = hist;
+  // Revisão sobre a qual o editor está baseado (base do próximo save).
+  const baseRef = useRef<PlanRef | null>(initialPlan ? { planId: initialPlan.planId, revision: initialPlan.revision } : null);
+  const plan = currentPlan(hist);
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
   const [snappingEnabled, setSnappingEnabled] = useState(true);
   const [snapGuide, setSnapGuide] = useState<number | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [conflicts, setConflicts] = useState<PlanConflictDto[]>([]);
-  const operationsLogRef = useRef<PlanEditorialOperationDto[]>([]);
 
-  // Atualiza quando initialPlan muda externamente (p. ex. reabertura ou nova revisão)
+  // Revisão vinda de fora (reabertura, nova revisão). Sem edições: adota. Com edições: preserva (ver item 2).
   useEffect(() => {
-    if (initialPlan) {
-      setPlan(initialPlan);
-      setHistory([initialPlan]);
-      setHistoryIndex(0);
-      operationsLogRef.current = [];
+    if (!initialPlan) return;
+    const incoming = { planId: initialPlan.planId, revision: initialPlan.revision };
+    const decision = decideIncoming(baseRef.current, incoming, isHistoryDirty(histRef.current), 'external');
+    if (decision === 'adopt') {
+      baseRef.current = incoming;
+      setHist(createHistory(initialPlan));
     }
   }, [initialPlan?.planId, initialPlan?.revision]);
 
-  const canUndo = historyIndex > 0;
-  const canRedo = historyIndex < history.length - 1;
-  const isDirty = useMemo(() => {
-    if (!initialPlan || !plan) return false;
-    return initialPlan.revision !== plan.revision || historyIndex > 0;
-  }, [initialPlan, plan, historyIndex]);
+  const canUndo = canUndoHistory(hist);
+  const canRedo = canRedoHistory(hist);
+  const isDirty = isHistoryDirty(hist);
 
   const commitPlan = useCallback(
     (newPlan: EditPlanDto, op?: PlanEditorialOperationDto) => {
@@ -63,39 +79,19 @@ export function useTimelineEditor({
         },
       };
 
-      if (op) {
-        operationsLogRef.current.push(op);
-      }
-
-      setHistory((prev) => {
-        const next = prev.slice(0, historyIndex + 1);
-        next.push(updatedPlan);
-        return next;
-      });
-      setHistoryIndex((prev) => prev + 1);
-      setPlan(updatedPlan);
-      onPlanChanged?.(updatedPlan);
+      setHist((h) => pushHistory(h, updatedPlan, op ?? null));
     },
-    [historyIndex, onPlanChanged]
+    []
   );
 
+  // Undo/redo só movem o ponteiro do histórico; a gravação continua explícita (Salvar).
   const undo = useCallback(() => {
-    if (!canUndo) return;
-    const targetIdx = historyIndex - 1;
-    const targetPlan = history[targetIdx];
-    setHistoryIndex(targetIdx);
-    setPlan(targetPlan);
-    onPlanChanged?.(targetPlan);
-  }, [canUndo, history, historyIndex, onPlanChanged]);
+    setHist((h) => undoHistory(h));
+  }, []);
 
   const redo = useCallback(() => {
-    if (!canRedo) return;
-    const targetIdx = historyIndex + 1;
-    const targetPlan = history[targetIdx];
-    setHistoryIndex(targetIdx);
-    setPlan(targetPlan);
-    onPlanChanged?.(targetPlan);
-  }, [canRedo, history, historyIndex, onPlanChanged]);
+    setHist((h) => redoHistory(h));
+  }, []);
 
   // Snapping: encontra o ponto de snap mais próximo dentro do limiar (default: 8 frames)
   const calculateSnap = useCallback(
@@ -408,20 +404,22 @@ export function useTimelineEditor({
 
   // Salvar revisao persistente no backend C#
   const saveRevision = useCallback(async () => {
-    if (!plan || !projectId) return null;
+    const snapshot = histRef.current;
+    const sent = currentPlan(snapshot);
+    if (!sent || !projectId) return null;
+    const idx = snapshot.index;
     setIsSaving(true);
     setSaveError(null);
     try {
       const saved = await ipc.savePlanRevision(
         projectId,
-        plan,
+        sent,
         'user',
-        operationsLogRef.current
+        operationsSinceSaved(snapshot)
       );
-      setPlan(saved);
-      setHistory([saved]);
-      setHistoryIndex(0);
-      operationsLogRef.current = [];
+      // Mantém o histórico: a entrada salva passa a ser a revisão devolvida pelo host.
+      setHist((h) => markHistorySaved(h, idx, sent, saved));
+      baseRef.current = { planId: saved.planId, revision: saved.revision };
       onPlanChanged?.(saved);
       return saved;
     } catch (err) {
@@ -431,7 +429,7 @@ export function useTimelineEditor({
     } finally {
       setIsSaving(false);
     }
-  }, [plan, projectId, onPlanChanged]);
+  }, [projectId, onPlanChanged]);
 
   // Reconciliar plano manual com nova revisao automatica (F14.1)
   const reconcile = useCallback(async () => {
