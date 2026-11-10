@@ -56,8 +56,9 @@ export const TimelinePlanningView: React.FC<TimelinePlanningViewProps> = ({ proj
     currentFrame,
     projectId: project?.projectId ?? '',
     latestRevision: planState.latestRevision,
-    onPlanChanged: (newPlan) => {
-      planState.selectRevision(newPlan.revision);
+    onPlanChanged: () => {
+      // Mesmo mecanismo de recarga do useEditPlan: atualiza a lista de revisões e a revisão exibida.
+      planState.reload();
     },
   });
 
