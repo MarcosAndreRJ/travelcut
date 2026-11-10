@@ -10,6 +10,7 @@ import { ReviewDecisionsView } from './components/ReviewDecisionsView';
 import {
   describeDecisionError,
   decisionPlanErrorMessage,
+  describePlanSkippedReason,
   type ReviewDecisionAction,
   type ReviewErrorInfo,
   type ReviewNotice
@@ -276,14 +277,16 @@ export const App: React.FC = () => {
     }
 
     const missing = result.missingSuggestionIds ?? [];
-    if (missing.length > 0 || result.planError) {
-      // Os dois avisos podem coexistir: não esconder o erro do plano atrás do aviso de ids ausentes.
+    const skippedPlanMessage = describePlanSkippedReason(result.planSkippedReason);
+    if (missing.length > 0 || result.planError || skippedPlanMessage) {
+      // Os avisos podem coexistir: não esconder o erro do plano atrás do aviso de ids ausentes.
       const parts: string[] = [];
       if (missing.length > 0) {
         parts.push(`${missing.length} candidato(s) não foram encontrados no host; a lista foi recarregada.`);
         setSuggestionsReloadKey((k) => k + 1);
       }
       if (result.planError) parts.push(decisionPlanErrorMessage(result.planError));
+      if (skippedPlanMessage) parts.push(skippedPlanMessage);
       setReviewNotice({ tone: 'warning', text: parts.join(' ') });
     } else if (result.planChanged && result.planRevision !== null) {
       setReviewNotice({ tone: 'info', text: `Plano atualizado: revisão r${result.planRevision}.` });
