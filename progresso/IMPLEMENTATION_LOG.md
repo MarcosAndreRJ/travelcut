@@ -561,3 +561,10 @@ Escrito: PlanningUseCases.Overlay.cs, ManualPrecedence.cs, PlanManualOverlayTest
 Testado: `dotnet test TravelCutStudio.sln` = UnitTests 1427 ok, Mcp.Tests 122 ok.
 Observação: limitação de Compact documentada (exclude -> re-include vira restore com a velocidade do automático). Pendente: frontend (histórico/baseRevision), aceite integrado via IPC, ADR.
 Próximo: incremento 4 (frontend) e aceite integrado.
+
+### F14.7 incremento 5 — lacunas do overlay e aceite integrado (Sonnet A)
+Feito: `ReconcileAsync` devolve `PLAN_MANUAL_PROTECTED` (via IPC com `suggestedActions:reconcile,discard_manual_edit`) quando o overlay é recusado, em vez de `AUTOGEN_FAILED`. R1 endurecido (aprovar S1 força regeneração real: revisão manual+1, autor `planner-rules/1+manual`, overlay e JSON da revisão manual intactos, reprocesso idempotente). Precedência ponta a ponta (edição exclui [8 s,10 s) de M1; decisão `modify` 9,0–12,4 s vence e a edição fica ignorada, não apagada; desfazer reativa). Aceite IPC com reinício e SHA-256 dos originais.
+Escrito: PlanningUseCases.ManualEdits.cs; PlanManualOverlayTests.cs; EndToEnd/EndToEndManualOverlayAcceptanceTests.cs; docs/adr/ADR-overlay-edicoes-manuais.md; docs/workstreams/F14.7-TIMELINE-FOUNDATIONS.md.
+Testado: `dotnet test TravelCutStudio.sln` = UnitTests 1430 ok, Mcp.Tests 122 ok, 0 falhas.
+Observação: ADR criado em docs/adr/ (a pasta não existia; os ADR-001..015 ficam na tabela de docs/15). Limitações: Compact exclude->re-include; Apply sem PlanValidation.Run completo. Frontend (incremento 4) não tocado.
+Próximo: incremento 4 (frontend: histórico/baseRevision).
