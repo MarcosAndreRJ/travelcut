@@ -187,7 +187,7 @@ const MOCK_IDEMPOTENCY_KEY_PATTERN = /^[A-Za-z0-9_-]{1,100}$/;
 /** Payload de plan.generate (profile e timeBase reservados; hoje sempre null). */
 export interface GenerateEditPlanRequest {
   projectId: string;
-  profile?: null;
+  profile?: EditorialProfileDto | null;
   timeBase?: null;
 }
 
@@ -2399,8 +2399,9 @@ class IpcBridgeService {
   }
 
   /** Cria nova revisão a partir das mídias analisadas. Erros: NO_MEDIA_TO_PLAN, PROJECT_NOT_FOUND. */
-  public async generateEditPlan(projectId: string): Promise<EditPlanDto> {
-    const request: GenerateEditPlanRequest = { projectId, profile: null, timeBase: null };
+  /** profile null usa o perfil persistido do projeto; informe o perfil da base para reproduzi-lo. */
+  public async generateEditPlan(projectId: string, profile: EditorialProfileDto | null = null): Promise<EditPlanDto> {
+    const request: GenerateEditPlanRequest = { projectId, profile, timeBase: null };
     return this.send<EditPlanDto>('plan.generate', request, { timeoutMs: PLAN_IPC_TIMEOUT_MS });
   }
 

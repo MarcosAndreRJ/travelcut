@@ -157,6 +157,17 @@ export const TimelinePlanningView: React.FC<TimelinePlanningViewProps> = ({ proj
             </span>
           )}
         </div>
+        {plan && (
+          <button
+            type="button"
+            onClick={timelineEditor.previewReconcile}
+            disabled={timelineEditor.isDirty || planState.busy !== null || timelineEditor.isSaving}
+            title={timelineEditor.isDirty ? 'Salve ou descarte as edições antes de reconciliar' : undefined}
+            className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+          >
+            Prévia de reconciliação
+          </button>
+        )}
         {plan && onNavigateToExport && (
           <button
             type="button"
@@ -252,6 +263,33 @@ export const TimelinePlanningView: React.FC<TimelinePlanningViewProps> = ({ proj
               className="mx-4 mt-3 px-3 py-2 rounded-xl bg-amber-950/50 border border-amber-500/30 text-xs text-amber-200"
             >
               Suas edições partem da R{timelineEditor.baseRevision} e a revisão vigente é R{timelineEditor.latestKnownRevision}. Carregue a nova revisão para continuar editando.
+            </div>
+          )}
+
+          {timelineEditor.reconcilePreview && (
+            <div
+              role="status"
+              data-testid="plan-reconcile-preview"
+              className="mx-4 mt-3 flex flex-wrap items-center gap-2 px-3 py-2 rounded-xl bg-indigo-950/50 border border-indigo-500/30 text-xs text-indigo-100"
+            >
+              <AlertCircle className="w-4 h-4 shrink-0" aria-hidden="true" />
+              <span className="flex-1">
+                Prévia de reconciliação (não gravada): {timelineEditor.reconcilePreview.conflicts.length} conflito(s). Aceitar grava uma nova revisão.
+              </span>
+              <button
+                type="button"
+                onClick={timelineEditor.acceptReconcile}
+                className="px-3 py-1 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-500/40 text-[11px] font-semibold text-indigo-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+              >
+                Aceitar
+              </button>
+              <button
+                type="button"
+                onClick={timelineEditor.discardReconcile}
+                className="px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-[11px] font-semibold text-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+              >
+                Descartar
+              </button>
             </div>
           )}
 

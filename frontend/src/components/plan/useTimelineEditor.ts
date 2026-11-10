@@ -57,6 +57,7 @@ export function useTimelineEditor({
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<SaveErrorInfo | null>(null);
   const [conflicts, setConflicts] = useState<PlanConflictDto[]>([]);
+  const [reconcilePreview, setReconcilePreview] = useState<{ plan: EditPlanDto; conflicts: PlanConflictDto[] } | null>(null);
 
   const updateBase = useCallback((next: PlanRef) => {
     baseRef.current = next;
@@ -495,13 +496,13 @@ export function useTimelineEditor({
   }, [projectId, onPlanChanged, updateBase]);
 
   // Reconciliar plano manual com nova revisao automatica (F14.1)
-  const reconcile = useCallback(async () => {
+  // Prévia de reconciliação: não entra no histórico, não é "salva" e não grava revisão.
+  const previewReconcile = useCallback(async () => {
     if (!projectId) return null;
     try {
       const res = await ipc.reconcilePlan(projectId);
       if (res.reconciledPlan) {
-        commitPlan(res.reconciledPlan);
-        setConflicts(res.conflicts ?? []);
+        setReconcilePreview({ plan: res.reconciledPlan, conflicts: res.conflicts ?? [] });
       }
       return res;
     } catch (err) {
@@ -509,7 +510,35 @@ export function useTimelineEditor({
       setSaveError({ code: null, message: `Falha ao reconciliar: ${msg}`, reloadable: false });
       return null;
     }
-  }, [projectId, commitPlan]);
+  }, [projectId]);
+
+  const discardReconcile = useCallback(() => setReconcilePreview(null), []);
+
+  // Aceitar: plan.generate com o perfil da base grava UMA revisão nova e o editor adota essa revisão.
+  const acceptReconcile = useCallback(async () => {
+    const current = currentPlan(histRef.current);
+    if (!projectId || !reconcilePreview || !current) return null;
+    if (isHistoryDirty(histRef.current)) {
+      setSaveError({ code: null, message: 'Salve ou descarte as edições antes de aceitar a reconciliação.', reloadable: false });
+      return null;
+    }
+    try {
+      const created = await ipc.generateEditPlan(projectId, current.profile ?? null);
+      const incoming = { planId: created.planId, revision: created.revision };
+      setKnownLatest((prev) => (prev === null ? incoming.revision : Math.max(prev, incoming.revision)));
+      updateBase(incoming);
+      setExternal(null);
+      setHist(createHistory(created));
+      setConflicts(reconcilePreview.conflicts);
+      setReconcilePreview(null);
+      onPlanChanged?.(created);
+      return created;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setSaveError({ code: null, message: `Falha ao aceitar a reconciliação: ${msg}`, reloadable: false });
+      return null;
+    }
+  }, [projectId, reconcilePreview, onPlanChanged, updateBase]);
 
   // Atalhos de teclado (Ctrl+Z, Ctrl+Y, S, Delete, Backspace, Ctrl+D)
   useEffect(() => {
@@ -579,6 +608,9 @@ export function useTimelineEditor({
     undo,
     redo,
     saveRevision,
-    reconcile,
+    reconcilePreview,
+    previewReconcile,
+    acceptReconcile,
+    discardReconcile,
   };
 }
