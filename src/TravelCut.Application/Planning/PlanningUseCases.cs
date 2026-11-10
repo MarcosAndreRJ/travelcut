@@ -149,17 +149,9 @@ public sealed partial class PlanningUseCases
             }
 
             var latest = await _revisions.GetLatestAsync(project.ProjectId, ct);
-            var planId = latest?.PlanId ?? Guid.NewGuid();
-            var revision = await NextRevisionAsync(project.RootPath, planId, latest?.Revision, ct);
-            var input = await LoadInputAsync(project.ProjectId, profile, request.TimeBase, zone, zoneId, ct);
-            var context = new PlanBuildContext(
-                PlanId: planId,
-                Revision: revision,
-                BaseRevision: latest?.Revision,
-                CreatedAtUtc: _clock.GetUtcNow().UtcDateTime,
-                Author: EditPlanner.Author);
-
-            var built = EditPlanner.Build(input, context);
+            var candidate = await BuildCandidateCoreAsync(project, profile, request.TimeBase, zone, zoneId, latest, ct);
+            var input = candidate.Input;
+            var built = candidate.Built;
             if (built.Plan is null)
                 return PlanOutcome<EditPlanDto>.Fail(built.ErrorCode ?? "NO_MEDIA_TO_PLAN", built.ErrorMessage ?? EditPlanner.NoMediaMessage);
 
@@ -188,6 +180,35 @@ public sealed partial class PlanningUseCases
             var derived = await DeriveValidationAsync(project.ProjectId, project.RootPath, plan, inputsFingerprint, ct);
             return PlanOutcome<EditPlanDto>.Ok(plan with { Validation = derived });
         }, ct);
+    }
+
+    /// <summary>Entradas lidas e plano candidato construído (não persistido) por <see cref="BuildCandidateCoreAsync"/>.</summary>
+    private sealed record CandidateBuild(PlanningInput Input, PlanBuildResult Built, Guid PlanId, int Revision);
+
+    /// <summary>
+    /// Núcleo de construção do plano automático candidato: relê o snapshot de entradas e roda o planejador. NÃO toma o lock
+    /// do projeto (o SemaphoreSlim não é reentrante: quem trava, como <see cref="GenerateAsync"/>, chama este núcleo já
+    /// dentro do lock; nunca o contrário) e NÃO grava nada (nem artefato nem índice). Revision = próxima após a vigente.
+    /// </summary>
+    private async Task<CandidateBuild> BuildCandidateCoreAsync(
+        Project project,
+        EditorialProfileDto profile,
+        TimelineTimeBaseDto? timeBase,
+        TimeZoneInfo zone,
+        string zoneId,
+        PlanRevisionIndexEntry? latest,
+        CancellationToken ct)
+    {
+        var planId = latest?.PlanId ?? Guid.NewGuid();
+        var revision = await NextRevisionAsync(project.RootPath, planId, latest?.Revision, ct);
+        var input = await LoadInputAsync(project.ProjectId, profile, timeBase, zone, zoneId, ct);
+        var context = new PlanBuildContext(
+            PlanId: planId,
+            Revision: revision,
+            BaseRevision: latest?.Revision,
+            CreatedAtUtc: _clock.GetUtcNow().UtcDateTime,
+            Author: EditPlanner.Author);
+        return new CandidateBuild(input, EditPlanner.Build(input, context), planId, revision);
     }
 
     /// <summary>Sem plano no projeto retorna sucesso com valor null.</summary>

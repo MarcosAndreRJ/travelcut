@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using TravelCut.Contracts.Dtos;
+using TravelCut.Domain.Planning;
 
 namespace TravelCut.Application.Planning;
 
@@ -98,11 +99,28 @@ public static class PlanReconciler
             ? orderedClips.Max(c => c.TimelineStartFrame + c.DurationFrames)
             : 0;
 
+        // O candidato e uma previa (nunca gravada): so mantem do plano automatico o que ainda descreve o resultado.
+        // Transicoes so entre clipes presentes; secoes do plano automatico mais as do manual que os clipes referenciam;
+        // BaseRevision aponta para a revisao manual sobre a qual a previa foi calculada; o fingerprint e recalculado
+        // sobre o conteudo final (o herdado era o do plano automatico puro).
+        var present = orderedClips.Select(c => c.ClipId).ToHashSet();
+        var sections = candidateAuto.Sections
+            .Concat(manualPlan.Sections.Where(ms => candidateAuto.Sections.All(s => s.SectionId != ms.SectionId)))
+            .ToList();
         var reconciledPlan = candidateAuto with
         {
             Clips = orderedClips,
             Author = "planner+reconciler",
+            BaseRevision = manualPlan.Revision,
+            Sections = sections,
+            Transitions = candidateAuto.Transitions
+                .Where(t => present.Contains(t.FromClipId) && present.Contains(t.ToClipId))
+                .ToList(),
             Summary = candidateAuto.Summary with { TimelineDurationFrames = maxEndFrame }
+        };
+        reconciledPlan = reconciledPlan with
+        {
+            PlanFingerprint = PlanFingerprint.ComputePlan(PlanMapping.ToDomain(reconciledPlan))
         };
 
         return new ReconcilePlanResponse(

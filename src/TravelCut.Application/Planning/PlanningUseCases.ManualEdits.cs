@@ -176,13 +176,26 @@ public sealed partial class PlanningUseCases
             return PlanOutcome<ReconcilePlanResponse>.Fail(planOutcome.ErrorCode ?? "NOT_FOUND", planOutcome.ErrorMessage ?? "Plano nao encontrado.");
 
         var manualPlan = planOutcome.Value;
-        var autoGenOutcome = await GenerateAsync(new GeneratePlanRequest(request.ProjectId, null, null), ct);
-        if (!autoGenOutcome.Success || autoGenOutcome.Value is null)
-            return PlanOutcome<ReconcilePlanResponse>.Fail("AUTOGEN_FAILED", $"Falha ao gerar plano candidato: {autoGenOutcome.ErrorMessage}");
 
-        var candidateAuto = autoGenOutcome.Value;
-        var result = PlanReconciler.Reconcile(candidateAuto, manualPlan);
+        // Previa pura: perfil, base de tempo e fuso vem da revisao base (nao do padrao); nada e gravado (nem indice, nem
+        // artefato) e o lock nao e necessario porque nao ha escrita. Usa o nucleo, nunca GenerateAsync.
+        if (!TryResolveZone(manualPlan.TimeZoneId, out var zone, out var zoneId, out var zoneError))
+            return PlanOutcome<ReconcilePlanResponse>.Fail("INVALID_ARGUMENT", zoneError!);
 
-        return PlanOutcome<ReconcilePlanResponse>.Ok(result);
+        var project = await _projects.GetByIdAsync(request.ProjectId, ct);
+        if (project is null || string.IsNullOrWhiteSpace(project.RootPath))
+            return PlanOutcome<ReconcilePlanResponse>.Fail("PROJECT_NOT_FOUND", NoProjectMessage);
+
+        var latest = await _revisions.GetLatestAsync(project.ProjectId, ct);
+        var candidate = await BuildCandidateCoreAsync(
+            project, manualPlan.Profile, manualPlan.TimeBase, zone, zoneId, latest, ct);
+        if (candidate.Built.Plan is null)
+            return PlanOutcome<ReconcilePlanResponse>.Fail("AUTOGEN_FAILED",
+                $"Falha ao gerar plano candidato: {candidate.Built.ErrorMessage ?? candidate.Built.ErrorCode}");
+
+        var result = PlanReconciler.Reconcile(candidate.Built.Plan, manualPlan);
+        // A validacao do candidato e derivada agora, sobre o conteudo reconciliado (nao herdada do plano automatico).
+        var validation = await DeriveValidationAsync(project.ProjectId, project.RootPath, result.ReconciledPlan, null, ct);
+        return PlanOutcome<ReconcilePlanResponse>.Ok(result with { ReconciledPlan = result.ReconciledPlan with { Validation = validation } });
     }
 }
