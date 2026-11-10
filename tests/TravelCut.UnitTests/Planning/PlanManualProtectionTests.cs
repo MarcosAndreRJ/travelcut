@@ -106,6 +106,43 @@ public sealed class PlanManualProtectionTests : IDisposable
         Assert.False(result.Value.PlanChanged);
         Assert.Equal(manual.Revision, result.Value.PlanRevision);
         Assert.Equal(manual.Revision, await LatestRevisionAsync());
+        // A-2: o plano preservado e informado como aviso nao bloqueante (nao e erro).
+        Assert.Equal(PlanningUseCases.PlanManualEditsUnreadableCode, result.Value.PlanSkippedReason);
+    }
+
+    // A-2: overlay recusado na regeneracao (PLAN_MANUAL_PROTECTED): decisao gravada, plano intacto e a UI e avisada.
+    [Fact]
+    public async Task Decision_WhenOverlayIsRefused_ReportsPlanSkippedReason_WithoutErrorOrNewRevision()
+    {
+        var manual = await GenerateThenSaveManualAsync();
+        var tampered = manual with { ManualEdits = manual.ManualEdits!.Select(e => e with { SourceOutUs = e.SourceOutUs + 1 }).ToList() };
+        _rig.Artifacts.Replace(manual.PlanId, manual.Revision, PlanJson.Serialize(tampered));
+        var filesBefore = _rig.Artifacts.Files.Count;
+
+        var result = await _rig.UseCases.SubmitDecisionAsync(
+            new SubmitDecisionRequest(TravelFixture.S(1), "approve", "user", null, null, null));
+
+        Assert.True(result.Success, result.ErrorCode);
+        Assert.Equal(1, result.Value!.RecordedCount);
+        Assert.Null(result.Value.PlanError);
+        Assert.False(result.Value.PlanChanged);
+        Assert.Equal(PlanningUseCases.PlanManualProtectedCode, result.Value.PlanSkippedReason);
+        Assert.Equal(manual.Revision, result.Value.PlanRevision);
+        Assert.Equal(manual.Revision, await LatestRevisionAsync());
+        Assert.Equal(filesBefore, _rig.Artifacts.Files.Count);
+    }
+
+    // Caminho normal (regeneracao possivel): nenhum aviso.
+    [Fact]
+    public async Task Decision_WhenPlanRegenerates_HasNoSkippedReason()
+    {
+        await GenerateAsync();
+
+        var result = await _rig.UseCases.SubmitDecisionAsync(
+            new SubmitDecisionRequest(TravelFixture.S(1), "approve", "user", null, null, null));
+
+        Assert.True(result.Success, result.ErrorCode);
+        Assert.Null(result.Value!.PlanSkippedReason);
     }
 }
 

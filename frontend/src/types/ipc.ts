@@ -114,6 +114,9 @@ export interface DecisionResultDto {
   planRevision: number | null;        // null = projeto sem plano
   planChanged: boolean;               // nova revisão criada por esta decisão
   planError: string | null;           // regeneração falhou (decisão continua gravada)
+  // Aviso não bloqueante (aditivo): decisão gravada, plano NÃO regenerado pela proteção do plano manual
+  // (PLAN_MANUAL_PROTECTED | PLAN_MANUAL_EDITS_UNREADABLE). planError continua null nesse caso.
+  planSkippedReason?: string | null;
 }
 
 export interface EditSuggestion {
