@@ -126,6 +126,30 @@ public static class PlanFingerprint
                 w.WriteEndObject();
             }
             w.WriteEndArray();
+
+            // Overlay manual: só entra quando não vazio (planos sem edição mantêm o fingerprint histórico). Forma canônica:
+            // include/exclude disjuntos ordenados por mídia/entrada, depois split/place/duplicate/property na ordem final; sem Seq/datas/EditId.
+            if (p.ManualEdits is { Count: > 0 })
+            {
+                var canonical = ManualEdits.Compact(p.ManualEdits);
+                if (canonical.Count > 0)
+                {
+                    w.WriteStartArray("manualEdits");
+                    foreach (var e in canonical)
+                    {
+                        w.WriteStartObject();
+                        w.WriteString("kind", e.Kind); w.WriteString("media", e.MediaId.ToString("D"));
+                        w.WriteNumber("inUs", e.SourceInUs); w.WriteNumber("outUs", e.SourceOutUs);
+                        if (e.AfterMediaId is Guid am) w.WriteString("afterMedia", am.ToString("D"));
+                        if (e.AfterSourceInUs is long ai) w.WriteNumber("afterInUs", ai);
+                        if (e.Zoom is double z) w.WriteNumber("zoom", z);
+                        if (e.SpeedNum is int sn) w.WriteNumber("spN", sn);
+                        if (e.SpeedDen is int sd) w.WriteNumber("spD", sd);
+                        w.WriteEndObject();
+                    }
+                    w.WriteEndArray();
+                }
+            }
             w.WriteEndObject();
         }
         return ms.ToArray();

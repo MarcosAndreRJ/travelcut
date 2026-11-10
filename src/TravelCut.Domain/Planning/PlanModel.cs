@@ -52,7 +52,9 @@ public sealed record PlanRevision(Guid PlanId, Guid ProjectId, int Revision, int
     string Author, PlanProfileSnapshot Profile, RationalTimeBase TimeBase, string TimeZoneId, string MediaSetFingerprint,
     IReadOnlyList<PlanTrack> Tracks, IReadOnlyList<PlanSection> Sections, IReadOnlyList<PlanClip> Clips,
     IReadOnlyList<PlanTransition> Transitions, IReadOnlyList<PlanAppliedCut> AppliedCuts,
-    IReadOnlyList<PlanPendingItem> Pending, IReadOnlyList<PlanAppliedEffect>? AppliedEffects = null);
+    IReadOnlyList<PlanPendingItem> Pending, IReadOnlyList<PlanAppliedEffect>? AppliedEffects = null,
+    // F14.7b (aditivo): overlay de edições manuais; null/vazio em planos antigos e automáticos (vazio não entra no fingerprint).
+    IReadOnlyList<PlanManualEdit>? ManualEdits = null);
 
 /// <summary>F14.8: efeito aplicado (cut | zoom) com origem auto | human. Informativo: NÃO entra no fingerprint do plano.</summary>
 public sealed record PlanAppliedEffect(Guid SuggestionId, Guid MediaId, string Kind, string Origin,

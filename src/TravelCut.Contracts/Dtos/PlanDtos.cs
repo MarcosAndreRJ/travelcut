@@ -165,7 +165,28 @@ public record EditPlanDto(
     [property: JsonPropertyName("pending")] List<PlanPendingItemDto> Pending,
     [property: JsonPropertyName("summary")] PlanSummaryDto Summary,
     [property: JsonPropertyName("validation")] PlanValidationDto Validation,
-    [property: JsonPropertyName("appliedEffects")] List<PlanAppliedEffectDto>? AppliedEffects = null // F14.8 (aditivo; null em planos antigos)
+    [property: JsonPropertyName("appliedEffects")] List<PlanAppliedEffectDto>? AppliedEffects = null, // F14.8 (aditivo; null em planos antigos)
+    [property: JsonPropertyName("manualEdits")] List<PlanManualEditDto>? ManualEdits = null // F14.7b (aditivo; null em planos antigos e automáticos)
+);
+
+/// <summary>
+/// F14.7b (aditivo): edição manual ancorada na fonte (µs por mídia), reaplicada sobre cada plano automático regenerado.
+/// kind: exclude | include | split (in == out == ponto) | place | duplicate | property. place/duplicate: depois do segmento que
+/// contém (afterMediaId, afterSourceInUs); âncora nula = início. property: zoom e/ou velocidade (speedNum/speedDen).
+/// </summary>
+public record PlanManualEditDto(
+    [property: JsonPropertyName("editId")] Guid EditId,
+    [property: JsonPropertyName("seq")] int Seq,
+    [property: JsonPropertyName("kind")] string Kind,
+    [property: JsonPropertyName("mediaId")] Guid MediaId,
+    [property: JsonPropertyName("sourceInUs")] long SourceInUs,
+    [property: JsonPropertyName("sourceOutUs")] long SourceOutUs,
+    [property: JsonPropertyName("afterMediaId")] Guid? AfterMediaId = null,
+    [property: JsonPropertyName("afterSourceInUs")] long? AfterSourceInUs = null,
+    [property: JsonPropertyName("zoom")] double? Zoom = null,
+    [property: JsonPropertyName("speedNum")] int? SpeedNum = null,
+    [property: JsonPropertyName("speedDen")] int? SpeedDen = null,
+    [property: JsonPropertyName("introducedInRevision")] int IntroducedInRevision = 0
 );
 
 public record PlanRevisionInfoDto(

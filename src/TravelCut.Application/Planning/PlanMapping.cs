@@ -40,7 +40,16 @@ public static class PlanMapping
             Validation: validation,
             AppliedEffects: plan.AppliedEffects?.Select(e => new PlanAppliedEffectDto(
                 e.SuggestionId, e.MediaId, e.Kind, e.Origin, e.PolicyVersion, e.Reason, e.Scale, e.FocalPointX, e.FocalPointY,
-                e.DurationSeconds, e.ZoomCurve)).ToList());
+                e.DurationSeconds, e.ZoomCurve)).ToList(),
+            ManualEdits: plan.ManualEdits?.Select(ToDto).ToList());
+
+    public static PlanManualEditDto ToDto(PlanManualEdit e) => new(
+        e.EditId, e.Seq, e.Kind, e.MediaId, e.SourceInUs, e.SourceOutUs, e.AfterMediaId, e.AfterSourceInUs,
+        e.Zoom, e.SpeedNum, e.SpeedDen, e.IntroducedInRevision);
+
+    public static PlanManualEdit ToDomain(PlanManualEditDto e) => new(
+        e.EditId, e.Seq, e.Kind, e.MediaId, e.SourceInUs, e.SourceOutUs, e.AfterMediaId, e.AfterSourceInUs,
+        e.Zoom, e.SpeedNum, e.SpeedDen, e.IntroducedInRevision);
 
     /// <summary>Reconstrói o modelo de domínio a partir do contrato (usado por plan.validate, revert e verificação de fingerprint).</summary>
     public static PlanRevision ToDomain(EditPlanDto dto) => new(
@@ -70,7 +79,8 @@ public static class PlanMapping
         Pending: dto.Pending.Select(p => new PlanPendingItem(p.SuggestionId, p.MediaId, p.Kind, p.Message, p.ClipId)).ToList(),
         AppliedEffects: dto.AppliedEffects?.Select(e => new PlanAppliedEffect(
             e.SuggestionId, e.MediaId, e.Kind, e.Origin, e.PolicyVersion, e.Reason, e.Scale, e.FocalPointX, e.FocalPointY,
-            e.DurationSeconds, e.ZoomCurve)).ToList());
+            e.DurationSeconds, e.ZoomCurve)).ToList(),
+        ManualEdits: dto.ManualEdits?.Select(ToDomain).ToList());
 
     public static PlanProfileSnapshot ToProfileSnapshot(EditorialProfileDto p) => new(
         p.ProfileId, p.Version, p.SilencePolicy, p.Pace, p.JokePreservation, p.ZoomStrength,
