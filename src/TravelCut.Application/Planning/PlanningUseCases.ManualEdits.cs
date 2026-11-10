@@ -127,7 +127,10 @@ public sealed partial class PlanningUseCases
 
             // Dos clipes do cliente so se usa a DIFERENCA em relacao a rBase (estado, nao log de operacoes).
             var basisDomain = PlanMapping.ToDomain(basis) with { ManualEdits = baseOverlay.Edits.Count > 0 ? baseOverlay.Edits.ToList() : null };
-            var delta = ManualEditDeriver.DeriveDelta(basisDomain, PlanMapping.ToDomain(manualPlan).Clips);
+            // IntroducedInRevision = revisao que sera realmente gravada (mesma regra e mesmo lock de BuildAutoCoreAsync; com revisao
+            // orfa em disco difere de base+1).
+            var assignedRevision = await NextRevisionAsync(project.RootPath, latest.PlanId, latest.Revision, ct);
+            var delta = ManualEditDeriver.DeriveDelta(basisDomain, PlanMapping.ToDomain(manualPlan).Clips, assignedRevision);
             if (delta.Count == 0)
             {
                 // Derive(r, r) = vazio: nada mudou, nenhuma revisao nova (idempotente).

@@ -10,16 +10,16 @@ namespace TravelCut.Application.Planning;
 public static class ManualEditDeriver
 {
     /// <summary>Overlay completo = Compact(E_base ⊕ delta). Sem mudança de estado: devolve Compact(E_base) (∅ quando a base não tem overlay).</summary>
-    public static IReadOnlyList<PlanManualEdit> Derive(PlanRevision basePlan, IReadOnlyList<PlanClip> editedClips)
-        => ManualEdits.Compact((basePlan.ManualEdits ?? Array.Empty<PlanManualEdit>()).Concat(DeriveDelta(basePlan, editedClips)));
+    public static IReadOnlyList<PlanManualEdit> Derive(PlanRevision basePlan, IReadOnlyList<PlanClip> editedClips, int? introducedInRevision = null)
+        => ManualEdits.Compact((basePlan.ManualEdits ?? Array.Empty<PlanManualEdit>()).Concat(DeriveDelta(basePlan, editedClips, introducedInRevision)));
 
     /// <summary>Somente as edições novas implicadas por (base → editado). Derive(r, clipes de r) = ∅.</summary>
-    public static IReadOnlyList<PlanManualEdit> DeriveDelta(PlanRevision basePlan, IReadOnlyList<PlanClip> editedClips)
+    public static IReadOnlyList<PlanManualEdit> DeriveDelta(PlanRevision basePlan, IReadOnlyList<PlanClip> editedClips, int? introducedInRevision = null)
     {
         var b = SegOps.FromClips(basePlan.Clips);
         var t = SegOps.FromClips(editedClips);
         int seq = basePlan.ManualEdits is { Count: > 0 } be ? be.Max(e => e.Seq) : 0;
-        int rev = basePlan.Revision + 1;
+        int rev = introducedInRevision ?? basePlan.Revision + 1;   // revisão REALMENTE atribuída ao gravar (pode ser > base+1 com revisão órfã em disco)
         var delta = new List<PlanManualEdit>();
         PlanManualEdit Add(string kind, Guid m, long a, long z, Guid? am = null, long? ai = null, double? zoom = null, int? sn = null, int? sd = null)
         {

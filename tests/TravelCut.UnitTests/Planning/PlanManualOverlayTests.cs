@@ -202,6 +202,20 @@ public sealed class PlanManualOverlayTests : IDisposable
         Assert.Equal(filesBefore, _rig.Artifacts.Files.Count);
     }
 
+    // B-a: com revisao orfa em disco a revisao gravada e base+2; IntroducedInRevision das edicoes acompanha a revisao REAL.
+    [Fact]
+    public async Task Ba_Save_WithOrphanRevisionOnDisk_StampsIntroducedInRevisionWithTheAssignedRevision()
+    {
+        var generated = await GenerateAsync();
+        await _rig.Artifacts.WriteRevisionAsync(DecisionRig.Root, generated.PlanId, generated.Revision + 1, "{}");   // orfa: sem linha de indice
+
+        var saved = await SaveAsync(generated, ManualPlanEdits.DropLastPair(generated));
+
+        Assert.Equal(generated.Revision + 2, saved.Revision);
+        Assert.NotEmpty(saved.ManualEdits!);
+        Assert.All(saved.ManualEdits!, e => Assert.Equal(saved.Revision, e.IntroducedInRevision));
+    }
+
     // M-1: base manual adulterada no save e PLAN_TAMPERED (integridade antes do overlay), nada gravado.
     [Fact]
     public async Task M1_Save_OverTamperedManualBasis_ReturnsPlanTampered_NotManualProtected()

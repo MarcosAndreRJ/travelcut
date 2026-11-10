@@ -68,7 +68,7 @@ public sealed partial class PlanningUseCases
             ManualEdits = baseOverlay.Edits.Count > 0 ? baseOverlay.Edits.ToList() : null,
         };
         // Revert de uma base idêntica: Derive(r, r) é vazio (nada além do que a base já carrega).
-        return new Overlay(ManualEditDeriver.Derive(baseDomain, PlanMapping.ToDomain(plan).Clips));
+        return new Overlay(ManualEditDeriver.Derive(baseDomain, PlanMapping.ToDomain(plan).Clips, plan.Revision));   // revisão real da manual legada (não base+1)
     }
 
     /// <summary>Resultado de reaplicar o overlay: plano (com overlay COMPLETO gravado) ou recusa estrutural.</summary>
