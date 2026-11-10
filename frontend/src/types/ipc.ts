@@ -1124,6 +1124,8 @@ export interface PlanEditorialOperationDto {
 export interface SavePlanRevisionRequest {
   projectId: string;
   plan: EditPlanDto;
+  /** Revisão vigente sobre a qual a edição foi feita (exigida pelo host). */
+  baseRevision: number;
   operations?: PlanEditorialOperationDto[] | null;
   author?: string | null;
 }

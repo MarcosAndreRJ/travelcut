@@ -5,6 +5,7 @@ import {
   canUndoHistory,
   createHistory,
   currentPlan,
+  classifySaveError,
   decideIncoming,
   isHistoryDirty,
   markHistorySaved,
@@ -125,5 +126,30 @@ describe('decideIncoming (revisão vinda de fora)', () => {
   it('plano de outro projeto com edições não é tratado como rebase', () => {
     expect(decideIncoming(base, { planId: 'plan-2', revision: 1 }, true, 'reload')).toBe('banner');
     expect(decideIncoming(null, { planId: 'plan-2', revision: 1 }, true, 'external')).toBe('banner');
+  });
+});
+
+describe('classifySaveError (save com baseRevision)', () => {
+  it('PLAN_STALE_BASE oferece recarregar sem descartar edições', () => {
+    const info = classifySaveError('PLAN_STALE_BASE', 'x');
+    expect(info.reloadable).toBe(true);
+    expect(info.code).toBe('PLAN_STALE_BASE');
+    expect(info.message).toContain('suas edições continuam aqui'.toLowerCase().length > 0 ? 'Suas edições' : '');
+  });
+
+  it('projeto cruzado e identificador divergente são recarregáveis', () => {
+    expect(classifySaveError('PLAN_PROJECT_MISMATCH', '').reloadable).toBe(true);
+    expect(classifySaveError('PLAN_ID_MISMATCH', '').reloadable).toBe(true);
+    expect(classifySaveError('PLAN_NOT_FOUND', '').reloadable).toBe(true);
+  });
+
+  it('erro desconhecido usa a mensagem recebida e não oferece recarga', () => {
+    const info = classifySaveError('PLAN_FILE_CORRUPT', 'arquivo corrompido');
+    expect(info.reloadable).toBe(false);
+    expect(info.message).toBe('arquivo corrompido');
+  });
+
+  it('sem código nem mensagem usa texto genérico', () => {
+    expect(classifySaveError(null, '').message).toBe('Falha ao salvar a revisão.');
   });
 });

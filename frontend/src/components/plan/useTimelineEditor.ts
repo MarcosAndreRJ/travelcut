@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { EditPlanDto, PlanClipDto, PlanConflictDto, PlanEditorialOperationDto } from '../../types/ipc';
-import { ipc } from '../../services/ipcBridge';
+import { IpcError, ipc } from '../../services/ipcBridge';
 import {
   EMPTY_HISTORY,
+  classifySaveError,
+  type SaveErrorInfo,
   canRedoHistory,
   canUndoHistory,
   createHistory,
@@ -53,7 +55,7 @@ export function useTimelineEditor({
   const [snappingEnabled, setSnappingEnabled] = useState(true);
   const [snapGuide, setSnapGuide] = useState<number | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<SaveErrorInfo | null>(null);
   const [conflicts, setConflicts] = useState<PlanConflictDto[]>([]);
 
   const updateBase = useCallback((next: PlanRef) => {
@@ -75,6 +77,34 @@ export function useTimelineEditor({
       setExternal(incoming);
     }
   }, [initialPlan?.planId, initialPlan?.revision, updateBase]);
+
+  // "Recarregar" (após erro de base): busca a vigente. Mesmo plano: rebase leve; sem edições: adota.
+  const reloadLatest = useCallback(async () => {
+    if (!projectId) return;
+    try {
+      const latest = await ipc.getEditPlan(projectId, null);
+      if (!latest) return;
+      const incoming = { planId: latest.planId, revision: latest.revision };
+      setKnownLatest((prev) => (prev === null ? incoming.revision : Math.max(prev, incoming.revision)));
+      const decision = decideIncoming(baseRef.current, incoming, isHistoryDirty(histRef.current), 'reload');
+      if (decision === 'rebase') {
+        updateBase(incoming);
+        setExternal(null);
+      } else if (decision === 'adopt') {
+        updateBase(incoming);
+        setExternal(null);
+        setHist(createHistory(latest));
+      } else if (decision === 'banner') {
+        setExternal(incoming);
+      }
+      setSaveError(null);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setSaveError({ code: null, message: `Não foi possível recarregar a revisão vigente: ${msg}`, reloadable: true });
+    }
+  }, [projectId, updateBase]);
+
+  const dismissSaveError = useCallback(() => setSaveError(null), []);
 
   // "Manter minhas edições": preserva o histórico; a base continua antiga (marcada como desatualizada).
   const keepLocalEdits = useCallback(() => setExternal(null), []);
@@ -436,7 +466,8 @@ export function useTimelineEditor({
   const saveRevision = useCallback(async () => {
     const snapshot = histRef.current;
     const sent = currentPlan(snapshot);
-    if (!sent || !projectId) return null;
+    const base = baseRef.current;
+    if (!sent || !projectId || !base) return null;
     const idx = snapshot.index;
     setIsSaving(true);
     setSaveError(null);
@@ -444,6 +475,7 @@ export function useTimelineEditor({
       const saved = await ipc.savePlanRevision(
         projectId,
         sent,
+        base.revision,
         'user',
         operationsSinceSaved(snapshot)
       );
@@ -455,7 +487,7 @@ export function useTimelineEditor({
       return saved;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      setSaveError(msg);
+      setSaveError(classifySaveError(err instanceof IpcError ? err.code : null, msg));
       return null;
     } finally {
       setIsSaving(false);
@@ -474,7 +506,7 @@ export function useTimelineEditor({
       return res;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      setSaveError(`Falha ao reconciliar: ${msg}`);
+      setSaveError({ code: null, message: `Falha ao reconciliar: ${msg}`, reloadable: false });
       return null;
     }
   }, [projectId, commitPlan]);
@@ -528,6 +560,8 @@ export function useTimelineEditor({
     latestKnownRevision: knownLatest,
     keepLocalEdits,
     loadExternalRevision,
+    reloadLatest,
+    dismissSaveError,
     saveError,
     conflicts,
     selectedClipId,

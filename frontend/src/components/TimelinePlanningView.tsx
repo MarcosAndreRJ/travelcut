@@ -191,6 +191,33 @@ export const TimelinePlanningView: React.FC<TimelinePlanningViewProps> = ({ proj
 
           {planState.actionError && <ActionError message={planState.actionError} onDismiss={planState.dismissActionError} />}
 
+          {timelineEditor.saveError && (
+            <div
+              role="alert"
+              data-testid="plan-save-error"
+              className="mx-4 mt-3 flex flex-wrap items-center gap-2 px-3 py-2 rounded-xl bg-red-950/50 border border-red-500/30 text-xs text-red-200"
+            >
+              <AlertCircle className="w-4 h-4 shrink-0" aria-hidden="true" />
+              <span className="flex-1">{timelineEditor.saveError.message}</span>
+              {timelineEditor.saveError.reloadable && (
+                <button
+                  type="button"
+                  onClick={timelineEditor.reloadLatest}
+                  className="px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-[11px] font-semibold text-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+                >
+                  Recarregar
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={timelineEditor.dismissSaveError}
+                className="px-3 py-1 rounded-lg text-[11px] font-semibold text-red-100 hover:bg-red-500/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+              >
+                Fechar
+              </button>
+            </div>
+          )}
+
           {timelineEditor.externalRevision !== null && (
             <div
               role="status"

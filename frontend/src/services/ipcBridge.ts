@@ -885,6 +885,12 @@ class IpcBridgeService {
         this.assertMockProject(payload?.projectId);
         const plan = payload?.plan as EditPlanDto;
         const latestRev = this.mockPlanRevisions[this.mockPlanRevisions.length - 1]?.revision ?? 0;
+        if (payload?.baseRevision !== latestRev) {
+          throw new IpcError(
+            `DEMO: baseRevision R${payload?.baseRevision ?? '?'} difere da revisão vigente R${latestRev}.`,
+            'PLAN_STALE_BASE'
+          );
+        }
         const rev = latestRev + 1;
         const copy = clonePlanData(plan);
         copy.revision = rev;
@@ -2414,15 +2420,17 @@ class IpcBridgeService {
   }
 
   /** F14.2: Grava uma revisão editorial manual (não destrutiva) no plano. */
+  /** baseRevision deve ser a revisão vigente carregada (senão o host recusa com PLAN_STALE_BASE). */
   public async savePlanRevision(
     projectId: string,
     plan: EditPlanDto,
+    baseRevision: number,
     author: string = 'user',
     operations?: PlanEditorialOperationDto[]
   ): Promise<EditPlanDto> {
     return this.send<EditPlanDto>(
       'plan.saveManualRevision',
-      { projectId, plan, author, operations },
+      { projectId, plan, baseRevision, author, operations },
       { timeoutMs: PLAN_IPC_TIMEOUT_MS }
     );
   }

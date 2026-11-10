@@ -115,3 +115,42 @@ export function decideIncoming(
   if (mode === 'reload' && base && base.planId === incoming.planId) return 'rebase';
   return 'banner';
 }
+
+export interface SaveErrorInfo {
+  code: string | null;
+  message: string;
+  /** Oferece a ação "Recarregar" (rebase sobre a revisão vigente, sem perder as edições). */
+  reloadable: boolean;
+}
+
+/** Mensagens PT-BR para os erros de plan.saveManualRevision (contrato F14.7a). */
+export function classifySaveError(code: string | null, fallback: string): SaveErrorInfo {
+  switch (code) {
+    case 'PLAN_STALE_BASE':
+      return {
+        code,
+        message: 'A revisão vigente mudou desde que você começou a editar. Suas edições continuam aqui; recarregue a base e salve de novo.',
+        reloadable: true
+      };
+    case 'PLAN_PROJECT_MISMATCH':
+      return {
+        code,
+        message: 'Este plano pertence a outro projeto. Recarregue o projeto ativo; suas edições continuam aqui.',
+        reloadable: true
+      };
+    case 'PLAN_ID_MISMATCH':
+      return {
+        code,
+        message: 'O plano editado não corresponde ao plano deste projeto. Recarregue; suas edições continuam aqui.',
+        reloadable: true
+      };
+    case 'PLAN_NOT_FOUND':
+      return {
+        code,
+        message: 'Não há plano base para gravar esta edição. Recarregue o plano; suas edições continuam aqui.',
+        reloadable: true
+      };
+    default:
+      return { code, message: fallback || 'Falha ao salvar a revisão.', reloadable: false };
+  }
+}
