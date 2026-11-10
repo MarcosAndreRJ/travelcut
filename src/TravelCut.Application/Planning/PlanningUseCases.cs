@@ -78,7 +78,8 @@ public sealed partial class PlanningUseCases
 
     /// <summary>Autor de revisão gerada pelo planejador (único autor "automático"); os demais são edição humana ou revert.</summary>
     public static bool IsAutomaticAuthor(string? author) =>
-        author is not null && author.StartsWith("planner-rules/", StringComparison.Ordinal);
+        author is not null && author.StartsWith("planner-rules/", StringComparison.Ordinal)
+        && !author.EndsWith(ManualAuthorSuffix, StringComparison.Ordinal);
     public const string NoProjectMessage = "Projeto não encontrado.";
 
     /// <summary>Código de erro (fail) ou de issue de validação quando o conteúdo não confere com o fingerprint gravado.</summary>
@@ -179,6 +180,8 @@ public sealed partial class PlanningUseCases
             var candidate = await BuildCandidateCoreAsync(project, profile, request.TimeBase, zone, zoneId, latest, ct);
             var input = candidate.Input;
             var built = candidate.Built;
+            if (built.Plan is null && candidate.Refused)
+                return PlanOutcome<EditPlanDto>.Fail(built.ErrorCode!, built.ErrorMessage!);
             if (built.Plan is null)
                 return PlanOutcome<EditPlanDto>.Fail(built.ErrorCode ?? "NO_MEDIA_TO_PLAN", built.ErrorMessage ?? EditPlanner.NoMediaMessage);
 
@@ -210,7 +213,7 @@ public sealed partial class PlanningUseCases
     }
 
     /// <summary>Entradas lidas e plano candidato construído (não persistido) por <see cref="BuildCandidateCoreAsync"/>.</summary>
-    private sealed record CandidateBuild(PlanningInput Input, PlanBuildResult Built, Guid PlanId, int Revision);
+    private sealed record CandidateBuild(PlanningInput Input, PlanBuildResult Built, Guid PlanId, int Revision, bool Refused = false);
 
     /// <summary>
     /// Núcleo de construção do plano automático candidato: relê o snapshot de entradas e roda o planejador. NÃO toma o lock
@@ -218,6 +221,30 @@ public sealed partial class PlanningUseCases
     /// dentro do lock; nunca o contrário) e NÃO grava nada (nem artefato nem índice). Revision = próxima após a vigente.
     /// </summary>
     private async Task<CandidateBuild> BuildCandidateCoreAsync(
+        Project project,
+        EditorialProfileDto profile,
+        TimelineTimeBaseDto? timeBase,
+        TimeZoneInfo zone,
+        string zoneId,
+        PlanRevisionIndexEntry? latest,
+        CancellationToken ct)
+    {
+        var candidate = await BuildAutoCoreAsync(project, profile, timeBase, zone, zoneId, latest, ct);
+        if (candidate.Built.Plan is null || latest is null) return candidate;
+
+        // Overlay da revisão vigente (E herdado): decisão, pós-análise e plan.generate não supersedem edições manuais.
+        var overlay = await ResolveOverlayAsync(project, latest, ct);
+        if (overlay.ErrorCode is not null)
+            return candidate with { Built = new PlanBuildResult(null, overlay.ErrorCode, overlay.ErrorMessage), Refused = true };
+        if (overlay.Edits.Count == 0) return candidate;
+        var applied = ApplyOverlay(candidate.Built.Plan, overlay.Edits, candidate.Input);
+        if (applied.Plan is null)
+            return candidate with { Built = new PlanBuildResult(null, applied.ErrorCode, applied.ErrorMessage), Refused = true };
+        return candidate with { Built = candidate.Built with { Plan = applied.Plan } };
+    }
+
+    /// <summary>Plano automático puro (sem overlay), usado por <see cref="BuildCandidateCoreAsync"/> e pelo save manual.</summary>
+    private async Task<CandidateBuild> BuildAutoCoreAsync(
         Project project,
         EditorialProfileDto profile,
         TimelineTimeBaseDto? timeBase,
@@ -559,7 +586,8 @@ public sealed partial class PlanningUseCases
     {
         var effective = EffectiveSuggestionStatus.ResolveDetailed(suggestions, decisions).Values;
         return PlanInputsFingerprint.Compute(
-            PlanValidation.MediaSetFingerprintOf(media), plan.Profile, plan.TimeBase, plan.TimeZoneId, effective);
+            PlanValidation.MediaSetFingerprintOf(media), plan.Profile, plan.TimeBase, plan.TimeZoneId, effective,
+            plan.ManualEdits?.Select(PlanMapping.ToDomain).ToList());
     }
 
     /// <summary>

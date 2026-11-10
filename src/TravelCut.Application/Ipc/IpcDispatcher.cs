@@ -966,7 +966,8 @@ public class IpcDispatcher
     private static IpcResponse PlanResponse<T>(string requestId, PlanOutcome<T> outcome) =>
         outcome.Success
             ? IpcResponse.Success(requestId, outcome.Value)
-            : IpcResponse.Fail(requestId, outcome.ErrorCode!, outcome.ErrorMessage ?? "Falha no plano editorial.");
+            : IpcResponse.Fail(requestId, outcome.ErrorCode!, outcome.ErrorMessage ?? "Falha no plano editorial.",
+                outcome.ErrorCode == PlanningUseCases.PlanManualProtectedCode ? "suggestedActions:" + PlanningUseCases.ManualProtectedSuggestedActions : null);
 
     // Códigos de erro do pipeline lançados pelo IPipelineJobManager (InvalidOperationException.Message).
     private static bool IsKnownPipelineCode(string message) => message is

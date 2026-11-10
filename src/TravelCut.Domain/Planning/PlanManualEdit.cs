@@ -76,6 +76,8 @@ public static class ManualEdits
     /// adjacentes do mesmo tipo são fundidas) e vêm PRIMEIRO; depois split/place/duplicate/property na ordem de Seq, sem duplicatas
     /// (EditId repetido: fica a mais recente; property superados por outro posterior de faixa ⊇ são descartados).
     /// Seq é renumerado 1..n; IntroducedInRevision de faixas fundidas = máximo das contribuintes. Idempotente.
+    /// LIMITAÇÃO CONHECIDA: exclude seguido de re-include do mesmo trecho vira "restore" com a velocidade/propriedades do plano automático
+    /// (a velocidade anterior à exclusão não é lembrada); o estado final em µs é o mesmo, só as propriedades por trecho se perdem.
     /// </summary>
     public static IReadOnlyList<PlanManualEdit> Compact(IEnumerable<PlanManualEdit>? edits)
     {

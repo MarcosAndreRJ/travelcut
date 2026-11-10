@@ -26,7 +26,7 @@ public sealed class PlanFoundationsTests : IDisposable
 
     private async Task<EditPlanDto> SaveManualAsync(EditPlanDto basis, string author = "user")
     {
-        var saved = await _rig.UseCases.SaveManualRevisionAsync(new SavePlanRevisionRequest(ProjectId, basis.Revision, basis, Author: author));
+        var saved = await _rig.UseCases.SaveManualRevisionAsync(new SavePlanRevisionRequest(ProjectId, basis.Revision, ManualPlanEdits.DropLastPair(basis), Author: author));
         Assert.True(saved.Success, saved.ErrorCode + " " + saved.ErrorMessage);
         return saved.Value!;
     }

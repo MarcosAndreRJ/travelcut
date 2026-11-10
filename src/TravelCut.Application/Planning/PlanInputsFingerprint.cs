@@ -20,7 +20,8 @@ public static class PlanInputsFingerprint
         EditorialProfileDto profile,
         TimelineTimeBaseDto timeBase,
         string timeZoneId,
-        IEnumerable<EffectiveSuggestion> suggestions)
+        IEnumerable<EffectiveSuggestion> suggestions,
+        IReadOnlyList<TravelCut.Domain.Planning.PlanManualEdit>? manualEdits = null)
     {
         var inv = CultureInfo.InvariantCulture;
         var sb = new StringBuilder();
@@ -50,6 +51,14 @@ public static class PlanInputsFingerprint
             if (s.ParametersJson is not null) sb.Append("|p:").Append(s.ParametersJson);
             sb.Append('\n');
         }
+        // F14.7/04: só quando há overlay manual (fingerprints de projetos sem edição manual permanecem idênticos).
+        if (manualEdits is { Count: > 0 })
+            foreach (var e in manualEdits.OrderBy(x => x.Seq).ThenBy(x => x.EditId))
+                sb.Append("me|").Append(e.Seq.ToString(inv)).Append('|').Append(e.Kind).Append('|').Append(e.MediaId.ToString("D")).Append('|')
+                  .Append(e.SourceInUs.ToString(inv)).Append('|').Append(e.SourceOutUs.ToString(inv)).Append('|')
+                  .Append(e.AfterMediaId?.ToString("D") ?? "-").Append('|').Append(e.AfterSourceInUs?.ToString(inv) ?? "-").Append('|')
+                  .Append(e.Zoom?.ToString("R", inv) ?? "-").Append('|').Append(e.SpeedNum?.ToString(inv) ?? "-").Append('|')
+                  .Append(e.SpeedDen?.ToString(inv) ?? "-").Append('|').Append(e.IntroducedInRevision.ToString(inv)).Append('\n');
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(sb.ToString()))).ToLowerInvariant();
     }
 }

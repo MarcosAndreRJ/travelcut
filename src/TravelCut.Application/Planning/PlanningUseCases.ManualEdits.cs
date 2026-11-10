@@ -115,50 +115,63 @@ public sealed partial class PlanningUseCases
                 return PlanOutcome<EditPlanDto>.Fail(baseRead.ErrorCode, baseRead.ErrorMessage!);
             var basis = baseRead.Plan!;
 
-            var media = await _media.ListByProjectAsync(project.ProjectId, ct);
-            var analyses = await LoadAnalysesAsync(project.ProjectId, media, ct);
-            var now = _clock.GetUtcNow().UtcDateTime;
-            var nextRevision = await NextRevisionAsync(project.RootPath, latest.PlanId, latest.Revision, ct);
+            // Overlay da revisao base (inclui migracao de manual legada); base adulterada/ilegivel recusa sem gravar nada.
+            var baseOverlay = await ResolveOverlayAsync(project, latest, ct);
+            if (baseOverlay.ErrorCode is not null)
+                return PlanOutcome<EditPlanDto>.Fail(baseOverlay.ErrorCode, baseOverlay.ErrorMessage!);
+            if (!IsFingerprintIntact(basis))
+                return PlanOutcome<EditPlanDto>.Fail(TamperedCode, "A revisao base esta adulterada: save recusado. Gere um novo plano.");
 
-            long maxEndFrame = clips.Count > 0 ? clips.Max(c => c.TimelineStartFrame + c.DurationFrames) : 0;
+            // Dos clipes do cliente so se usa a DIFERENCA em relacao a rBase (estado, nao log de operacoes).
+            var basisDomain = PlanMapping.ToDomain(basis) with { ManualEdits = baseOverlay.Edits.Count > 0 ? baseOverlay.Edits.ToList() : null };
+            var delta = ManualEditDeriver.DeriveDelta(basisDomain, PlanMapping.ToDomain(manualPlan).Clips);
+            if (delta.Count == 0)
+            {
+                // Derive(r, r) = vazio: nada mudou, nenhuma revisao nova (idempotente).
+                _logger.LogInformation("Save manual sem diferenca em relacao a revisao {Revision}; nenhuma revisao nova criada", latest.Revision);
+                var same = await ReadDerivedAsync(project.ProjectId, project.RootPath, latest, latest.InputsFingerprint, ct);
+                return same;
+            }
+            var eNew = ManualEdits.Compact((basisDomain.ManualEdits ?? Array.Empty<PlanManualEdit>()).Concat(delta));
+
+            if (!TryResolveZone(basis.TimeZoneId, out var zone, out var zoneId, out var zoneError))
+                return PlanOutcome<EditPlanDto>.Fail("INVALID_ARGUMENT", zoneError!);
+
+            // Perfil, base de tempo e fuso vem da revisao vigente (nao do cliente); o servidor grava Apply(Build(entradas atuais), E_new).
+            var auto = await BuildAutoCoreAsync(project, basis.Profile, basis.TimeBase, zone, zoneId, latest, ct);
+            if (auto.Built.Plan is null)
+                return PlanOutcome<EditPlanDto>.Fail("AUTOGEN_FAILED",
+                    $"Falha ao gerar o plano base da edicao manual: {auto.Built.ErrorMessage ?? auto.Built.ErrorCode}");
+
             // Uma edicao manual nunca e gravada como autor automatico (senao burlaria a protecao da regeneracao).
-            var author = string.IsNullOrWhiteSpace(request.Author) || IsAutomaticAuthor(request.Author)
+            var author = string.IsNullOrWhiteSpace(request.Author) || request.Author!.StartsWith("planner-rules/", StringComparison.Ordinal)
                 ? AuthorUser
                 : request.Author!;
 
-            // Identidade, perfil, base de tempo, fuso e fingerprint de midias vem da revisao vigente, nao do cliente.
-            var candidate = manualPlan with
-            {
-                ProjectId = project.ProjectId,
-                PlanId = latest.PlanId,
-                Revision = nextRevision,
-                BaseRevision = latest.Revision,
-                CreatedAtUtc = now,
-                Author = author,
-                Profile = basis.Profile,
-                TimeBase = basis.TimeBase,
-                TimeZoneId = basis.TimeZoneId,
-                MediaSetFingerprint = basis.MediaSetFingerprint,
-                Summary = manualPlan.Summary with { TimelineDurationFrames = maxEndFrame }
-            };
+            var applied = ApplyOverlay(auto.Built.Plan, eNew, auto.Input, author);
+            if (applied.Plan is null)
+                return PlanOutcome<EditPlanDto>.Fail(applied.ErrorCode!, applied.ErrorMessage!);
+
+            var now = _clock.GetUtcNow().UtcDateTime;
+            var candidate = applied.Plan with { CreatedAtUtc = now };
 
             // Persistido: so a validacao estrutural (sem issues de estado externo), como no revert.
-            var structural = PlanValidation.Run(PlanMapping.ToDomain(candidate), media, analyses)
+            var analyses = auto.Input.Analyses;
+            var structural = PlanValidation.Run(PlanMapping.ToDomain(candidate), auto.Input.Media, analyses)
                 .Where(i => !DerivedIssueCodes.Contains(i.Code))
                 .ToList();
-            candidate = candidate with { Validation = PlanMapping.ToValidationDto(structural, now) };
+            var finalPlan = candidate with { Validation = PlanMapping.ToValidationDto(structural, now) };
 
-            var finalPlan = candidate with { PlanFingerprint = PlanFingerprint.ComputePlan(PlanMapping.ToDomain(candidate)) };
-
-            var suggestions = await _suggestionsAndDecisions.ListSuggestionsByProjectAsync(project.ProjectId, ct);
-            var decisions = await _suggestionsAndDecisions.ListDecisionsByProjectAsync(project.ProjectId, ct);
-            var inputsFingerprint = InputsFingerprintOf(finalPlan, media, suggestions, decisions);
+            // Idempotente tambem pelo conteudo: o resultado igual ao da revisao vigente nao cria revisao nova.
+            var inputsFingerprint = InputsFingerprintOf(finalPlan, auto.Input.Media, auto.Input.Suggestions, auto.Input.Decisions);
+            if (string.Equals(latest.PlanFingerprint, finalPlan.PlanFingerprint, StringComparison.OrdinalIgnoreCase))
+                return await ReadDerivedAsync(project.ProjectId, project.RootPath, latest, latest.InputsFingerprint, ct);
 
             var conflict = await TryPersistAsync(project.RootPath, finalPlan, inputsFingerprint, ct);
             if (conflict is not null) return conflict;
 
-            _logger.LogInformation("Plano {PlanId}: revisao manual {Revision} gravada (base {Base})",
-                finalPlan.PlanId, finalPlan.Revision, finalPlan.BaseRevision);
+            _logger.LogInformation("Plano {PlanId}: revisao manual {Revision} gravada (base {Base}, {Edits} edicao(oes) no overlay)",
+                finalPlan.PlanId, finalPlan.Revision, finalPlan.BaseRevision, finalPlan.ManualEdits?.Count ?? 0);
             var derived = await DeriveValidationAsync(project.ProjectId, project.RootPath, finalPlan, inputsFingerprint, ct);
             return PlanOutcome<EditPlanDto>.Ok(finalPlan with { Validation = derived });
         }, ct);

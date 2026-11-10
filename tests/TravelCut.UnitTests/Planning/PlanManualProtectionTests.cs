@@ -30,7 +30,7 @@ public sealed class PlanManualProtectionTests : IDisposable
     {
         var generated = await GenerateAsync();
         var saved = await _rig.UseCases.SaveManualRevisionAsync(
-            new SavePlanRevisionRequest(ProjectId, generated.Revision, generated, Author: author));
+            new SavePlanRevisionRequest(ProjectId, generated.Revision, ManualPlanEdits.DropLastPair(generated), Author: author));
         Assert.True(saved.Success, saved.ErrorCode + " " + saved.ErrorMessage);
         return saved.Value!;
     }
@@ -125,7 +125,7 @@ public sealed class PlanManualProtectionPostAnalysisTests : PostAnalysisHostBase
         {
             var planning = scope.ServiceProvider.GetRequiredService<PlanningUseCases>();
             var latest = (await planning.GetAsync(new GetPlanRequest(_projectId, null))).Value!;
-            var saved = await planning.SaveManualRevisionAsync(new SavePlanRevisionRequest(_projectId, latest.Revision, latest, Author: "user"));
+            var saved = await planning.SaveManualRevisionAsync(new SavePlanRevisionRequest(_projectId, latest.Revision, ManualPlanEdits.DropLastPair(latest), Author: "user"));
             Assert.True(saved.Success, saved.ErrorCode);
             manual = saved.Value!;
             root = (await scope.ServiceProvider.GetRequiredService<IProjectRepository>().GetByIdAsync(_projectId))!.RootPath;

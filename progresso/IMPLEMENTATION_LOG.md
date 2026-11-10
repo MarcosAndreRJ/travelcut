@@ -554,3 +554,10 @@ Próximo: <passo específico>
 ```
 
 **Não registrar plano futuro como "feito". Registrar imediatamente após cada microentrega, antes de prosseguir para a próxima.**
+
+### F14.7 incremento 3 (prompt 04) — motor de overlay ligado ao fluxo real
+Feito: SaveManualRevisionAsync grava Apply(Build(entradas atuais), Compact(E_base + DeriveDelta(rBase, clipes))) com autor user e PlanApplyContext real; sem diferença de estado = sem revisão nova. GenerateAsync/BuildCandidateCoreAsync reaplicam o overlay vigente (autor `planner-rules/1+manual`); erro estrutural/base adulterada = PLAN_MANUAL_PROTECTED (IPC details `suggestedActions:reconcile,discard_manual_edit`). Precedência decisão humana posterior (BaseRevision >= IntroducedInRevision) em `ManualPrecedence` (ignora na leitura, não apaga). Migração de manual legada por Derive(base do disco, manual). InputsFingerprint reflete o overlay só quando existe.
+Escrito: PlanningUseCases.Overlay.cs, ManualPrecedence.cs, PlanManualOverlayTests.cs; ajustes em TimelineEditorReconciliationTests (contrato: save sem mudança não cria revisão), PlanFoundationsTests e PlanManualProtectionTests (edição real nos helpers).
+Testado: `dotnet test TravelCutStudio.sln` = UnitTests 1427 ok, Mcp.Tests 122 ok.
+Observação: limitação de Compact documentada (exclude -> re-include vira restore com a velocidade do automático). Pendente: frontend (histórico/baseRevision), aceite integrado via IPC, ADR.
+Próximo: incremento 4 (frontend) e aceite integrado.

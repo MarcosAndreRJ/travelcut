@@ -298,7 +298,7 @@ public class TimelineEditorReconciliationTests : IDisposable
     // sempre devolvia null, entao o "salvar" era uma revisao 1 solta). Agora o plano base precisa existir: a revisao
     // gravada e a seguinte a vigente (2), com baseRevision = vigente.
     [Fact]
-    public async Task SaveManualRevision_SucceedsAndBumpsRevision()
+    public async Task SaveManualRevision_WithoutStateChange_CreatesNoRevision()
     {
         var projectId = Guid.NewGuid();
         await _projects.SaveAsync(new Project { ProjectId = projectId, Name = "Teste", RootPath = _root });
@@ -309,11 +309,12 @@ public class TimelineEditorReconciliationTests : IDisposable
 
         Assert.True(result.Success, result.ErrorCode);
         Assert.NotNull(result.Value);
-        Assert.Equal(2, result.Value.Revision);
-        Assert.Equal(1, result.Value.BaseRevision);
-        Assert.Equal("user", result.Value.Author);
-        Assert.Equal(seeded.PlanId, result.Value.PlanId);
+        // F14.7/04 (contrato alterado): Derive(r, r) = vazio cai no dedupe, sem revisao nova (antes: sempre revisao 2).
+        Assert.Equal(1, result.Value.Revision);
+        Assert.Equal(seeded.PlanFingerprint, result.Value.PlanFingerprint);
+        Assert.Single(await _revisions.ListAsync(projectId));
     }
+
 
     private async Task<EditPlanDto> SeedLatestAsync(Guid projectId, int revision = 1, string author = "planner-rules/1", string? root = null)
     {
@@ -342,49 +343,16 @@ public class TimelineEditorReconciliationTests : IDisposable
     }
 
     [Fact]
-    public async Task SaveManualRevision_StoresRealInputsFingerprint_AndPinsBasisProfile()
-    {
-        var projectId = Guid.NewGuid();
-        await _projects.SaveAsync(new Project { ProjectId = projectId, Name = "Teste", RootPath = _root });
-        var seeded = await SeedLatestAsync(projectId);
-
-        // O cliente tenta trocar perfil/base de tempo/fuso e se declarar autor automatico: nada disso vale.
-        var tampered = seeded with
-        {
-            Profile = seeded.Profile with { SilencePolicy = "aggressive" },
-            TimeBase = new TimelineTimeBaseDto(1, 24, "24 fps"),
-            TimeZoneId = "UTC",
-            Author = "planner-rules/1"
-        };
-        var result = await _useCases.SaveManualRevisionAsync(
-            new SavePlanRevisionRequest(projectId, 1, tampered, Author: "planner-rules/1"));
-
-        Assert.True(result.Success, result.ErrorCode);
-        Assert.Equal("user", result.Value!.Author);
-        Assert.Equal(seeded.Profile, result.Value.Profile);
-        Assert.Equal(seeded.TimeBase, result.Value.TimeBase);
-        Assert.Equal(seeded.TimeZoneId, result.Value.TimeZoneId);
-
-        var entry = await _revisions.GetLatestAsync(projectId);
-        Assert.Equal(2, entry!.Revision);
-        Assert.False(string.IsNullOrWhiteSpace(entry.InputsFingerprint));
-        Assert.Equal(projectId, entry.ProjectId);
-
-        // O JSON gravado so tem validacao estrutural e fingerprint conferido.
-        var json = await _store.ReadRevisionAsync(_root, entry.PlanId, entry.Revision);
-        Assert.True(PlanJson.TryDeserialize(json!, out var stored));
-        Assert.Equal(PlanFingerprint.ComputePlan(PlanMapping.ToDomain(stored!)), stored!.PlanFingerprint);
-        Assert.DoesNotContain(stored.Validation.Issues, i => i.Code is "SOURCE_FILE_MISSING" or "PLAN_OUTDATED" or "MEDIA_CHANGED" or "PLAN_TAMPERED");
-    }
-
-    [Fact]
     public async Task SaveManualRevision_StaleBase_IsRejectedWithoutWriting()
     {
         var projectId = Guid.NewGuid();
         await _projects.SaveAsync(new Project { ProjectId = projectId, Name = "Teste", RootPath = _root });
         var seeded = await SeedLatestAsync(projectId);
-        var first = await _useCases.SaveManualRevisionAsync(new SavePlanRevisionRequest(projectId, 1, seeded, Author: "user"));
-        Assert.True(first.Success, first.ErrorCode);
+        // F14.7/04: um save sem diferenca nao cria revisao; a vigente 2 vem de outra gravacao (copia da 1 com revisao 2).
+        var second = seeded with { Revision = 2, BaseRevision = 1, Author = "user" };
+        second = second with { PlanFingerprint = PlanFingerprint.ComputePlan(PlanMapping.ToDomain(second)) };
+        await _store.WriteRevisionAsync(_root, second.PlanId, 2, PlanJson.Serialize(second));
+        await _revisions.AddAsync(PlanMapping.ToIndexEntry(second));
 
         var before = await SnapshotAsync(projectId);
         // Segundo save ainda com baseRevision 1, mas a vigente ja e a 2.
