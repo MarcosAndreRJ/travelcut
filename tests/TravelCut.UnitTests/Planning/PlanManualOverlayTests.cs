@@ -108,18 +108,23 @@ public sealed class PlanManualOverlayTests : IDisposable
         var entry = (await _rig.Revisions.GetAsync(ProjectId, manual.Revision))!;
         var jsonBefore = await _rig.Artifacts.ReadRevisionAsync(DecisionRig.Root, manual.PlanId, manual.Revision);
 
-        var decided = await _rig.UseCases.SubmitDecisionAsync(new SubmitDecisionRequest(TravelFixture.S(5), "defer", "user", null, null, null));
+        // S1 (M1, 10,0-12,4 s) nao toca o trecho removido (ultimo par): aprovar muda o estado efetivo e FORCA uma regeneracao real
+        // (um defer seria deduplicado e deixaria a revisao do usuario como vigente, sem exercitar a reaplicacao).
+        var decided = await _rig.UseCases.SubmitDecisionAsync(new SubmitDecisionRequest(TravelFixture.S(1), "approve", "user", null, null, null));
         Assert.True(decided.Success, decided.ErrorCode);
         var regenerated = await _rig.UseCases.GenerateAsync(new GeneratePlanRequest(ProjectId, null, null)); // pos-analise / plan.generate
         Assert.True(regenerated.Success, regenerated.ErrorCode);
 
         var latest = await LatestAsync();
+        Assert.Equal(manual.Revision + 1, latest.Revision);
+        Assert.Equal("planner-rules/1+manual", latest.Author);
         Assert.False(Contains(latest, dropped));
-        Assert.Equal(manual.ManualEdits!.Count, latest.ManualEdits!.Count);
-        Assert.Equal("planner-rules/1+manual", latest.Author == "user" ? "planner-rules/1+manual" : latest.Author);
+        Assert.Equal(manual.ManualEdits!.Select(e => e.EditId), latest.ManualEdits!.Select(e => e.EditId));
         Assert.Equal(jsonBefore, await _rig.Artifacts.ReadRevisionAsync(DecisionRig.Root, manual.PlanId, manual.Revision));
         Assert.Equal(entry.PlanFingerprint, (await _rig.Revisions.GetAsync(ProjectId, manual.Revision))!.PlanFingerprint);
-        Assert.Equal(manual.Clips.Count, latest.Clips.Count);
+        // reprocessar de novo e idempotente: nao cria outra revisao
+        Assert.True((await _rig.UseCases.GenerateAsync(new GeneratePlanRequest(ProjectId, null, null))).Success);
+        Assert.Equal(latest.Revision, (await LatestAsync()).Revision);
     }
 
     [Fact]
