@@ -202,6 +202,25 @@ public sealed class PlanManualOverlayTests : IDisposable
         Assert.Equal(filesBefore, _rig.Artifacts.Files.Count);
     }
 
+    // M-1: base manual adulterada no save e PLAN_TAMPERED (integridade antes do overlay), nada gravado.
+    [Fact]
+    public async Task M1_Save_OverTamperedManualBasis_ReturnsPlanTampered_NotManualProtected()
+    {
+        var generated = await GenerateAsync();
+        var manual = await SaveAsync(generated, ManualPlanEdits.DropLastPair(generated));
+        var tampered = manual with { ManualEdits = manual.ManualEdits!.Select(e => e with { SourceOutUs = e.SourceOutUs + 1 }).ToList() };
+        _rig.Artifacts.Replace(manual.PlanId, manual.Revision, PlanJson.Serialize(tampered));
+        var filesBefore = _rig.Artifacts.Files.Count;
+
+        var r = await _rig.UseCases.SaveManualRevisionAsync(
+            new SavePlanRevisionRequest(ProjectId, manual.Revision, ManualPlanEdits.DropLastPair(manual), Author: "user"));
+
+        Assert.False(r.Success);
+        Assert.Equal(PlanningUseCases.TamperedCode, r.ErrorCode);
+        Assert.Equal(filesBefore, _rig.Artifacts.Files.Count);
+        Assert.Equal(manual.Revision, (await _rig.Revisions.GetLatestAsync(ProjectId))!.Revision);
+    }
+
     // Reconcile (previa) com overlay recusado devolve a protecao do trabalho do usuario, nao uma falha de geracao.
     [Fact]
     public async Task R4_Reconcile_WhenOverlayIsRefused_ReturnsManualProtected_NotAutogenFailed()

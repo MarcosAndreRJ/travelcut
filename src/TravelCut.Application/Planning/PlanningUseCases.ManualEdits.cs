@@ -115,12 +115,15 @@ public sealed partial class PlanningUseCases
                 return PlanOutcome<EditPlanDto>.Fail(baseRead.ErrorCode, baseRead.ErrorMessage!);
             var basis = baseRead.Plan!;
 
-            // Overlay da revisao base (inclui migracao de manual legada); base adulterada/ilegivel recusa sem gravar nada.
+            // Integridade ANTES do overlay: base adulterada e PLAN_TAMPERED (nao PLAN_MANUAL_PROTECTED, que o overlay devolveria
+            // para a mesma causa em revisao manual). Nada e gravado.
+            if (!IsFingerprintIntact(basis))
+                return PlanOutcome<EditPlanDto>.Fail(TamperedCode, "A revisao base esta adulterada: save recusado. Gere um novo plano.");
+
+            // Overlay da revisao base (inclui migracao de manual legada); base legada ilegivel/ausente recusa sem gravar nada.
             var baseOverlay = await ResolveOverlayAsync(project, latest, ct);
             if (baseOverlay.ErrorCode is not null)
                 return PlanOutcome<EditPlanDto>.Fail(baseOverlay.ErrorCode, baseOverlay.ErrorMessage!);
-            if (!IsFingerprintIntact(basis))
-                return PlanOutcome<EditPlanDto>.Fail(TamperedCode, "A revisao base esta adulterada: save recusado. Gere um novo plano.");
 
             // Dos clipes do cliente so se usa a DIFERENCA em relacao a rBase (estado, nao log de operacoes).
             var basisDomain = PlanMapping.ToDomain(basis) with { ManualEdits = baseOverlay.Edits.Count > 0 ? baseOverlay.Edits.ToList() : null };
