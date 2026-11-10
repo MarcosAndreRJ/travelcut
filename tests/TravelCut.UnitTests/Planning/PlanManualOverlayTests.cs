@@ -355,6 +355,54 @@ public sealed class PlanManualOverlayTests : IDisposable
         Assert.Single(ManualPrecedence.Active([edit], sugs, [Dec(s.SuggestionId, "defer", 1, 9)]));
     }
 
+    private static bool HasMediaRange(EditPlanDto p, Guid media, long inUs, long outUs) =>
+        p.Clips.Any(c => c.MediaId == media && c.SourceInUs == inUs && c.SourceOutUs == outUs);
+
+    /// <summary>Ponta a ponta: edicao manual exclui [8 s, 10 s) de M1; decisao humana posterior sobre S1 (modify 9,0-12,4 s) sobrepoe o
+    /// trecho e vence no plano GERADO; a edicao permanece gravada (ignorada na leitura); desfazer a decisao reativa a edicao.</summary>
+    [Fact]
+    public async Task Precedence_EndToEnd_LaterDecisionWins_EditIgnoredNotErased_UndoReactivatesEdit()
+    {
+        var m1 = TravelFixture.M(1);
+        var generated = await GenerateAsync();
+        Assert.True(HasMediaRange(generated, m1, 0, 10_000_000)); // plano automatico: [0, 10 s) antes do corte S1 (10,0-12,4 s)
+
+        // 1) edicao manual: corta [8 s, 10 s) de M1 (par V1/A1)
+        var trimmed = generated with
+        {
+            Clips = generated.Clips.Select(c => c.MediaId == m1 && c.SourceInUs == 0 && c.SourceOutUs == 10_000_000
+                ? c with { SourceOutUs = 8_000_000, DurationFrames = c.DurationFrames - 60 }
+                : c).ToList(),
+        };
+        var manual = await SaveAsync(generated, trimmed);
+        Assert.True(HasMediaRange(manual, m1, 0, 8_000_000));
+        Assert.Contains(manual.ManualEdits!, e => e.Kind == ManualEditKinds.Exclude && e.MediaId == m1 && e.SourceInUs == 8_000_000 && e.SourceOutUs == 10_000_000);
+        var editIds = manual.ManualEdits!.Select(e => e.EditId).ToList();
+
+        // 2) decisao humana posterior (BaseRevision = revisao manual >= IntroducedInRevision) sobrepondo o trecho: a decisao vence
+        var decided = await _rig.UseCases.SubmitDecisionAsync(new SubmitDecisionRequest(TravelFixture.S(1), "modify", "user", null, 9.0, 12.4));
+        Assert.True(decided.Success, decided.ErrorCode);
+        var afterDecision = await LatestAsync();
+        Assert.True(afterDecision.Revision > manual.Revision);
+        Assert.True(HasMediaRange(afterDecision, m1, 0, 9_000_000));          // o corte da decisao (9,0-12,4 s) prevalece
+        Assert.False(HasMediaRange(afterDecision, m1, 0, 8_000_000));         // a edicao manual nao se aplica na leitura
+        Assert.Equal(editIds, afterDecision.ManualEdits!.Select(e => e.EditId)); // ...mas continua no overlay (nao apagada)
+
+        // regeneracao (pos-analise / plan.generate) mantem a precedencia, sem criar revisao nova
+        Assert.True((await _rig.UseCases.GenerateAsync(new GeneratePlanRequest(ProjectId, null, null))).Success);
+        var regenerated = await LatestAsync();
+        Assert.Equal(afterDecision.Revision, regenerated.Revision);
+        Assert.True(HasMediaRange(regenerated, m1, 0, 9_000_000));
+
+        // 3) desfazer a decisao: a edicao volta a valer
+        var undone = await _rig.UseCases.UndoDecisionAsync(new UndoDecisionRequest(TravelFixture.S(1)));
+        Assert.True(undone.Success, undone.ErrorCode);
+        var afterUndo = await LatestAsync();
+        Assert.True(HasMediaRange(afterUndo, m1, 0, 8_000_000));
+        Assert.False(HasMediaRange(afterUndo, m1, 0, 9_000_000));
+        Assert.Equal(editIds, afterUndo.ManualEdits!.Select(e => e.EditId));
+    }
+
     [Fact]
     public async Task Precedence_LaterDecision_DoesNotEraseTheOverlay()
     {
