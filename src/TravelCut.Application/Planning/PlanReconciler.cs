@@ -6,7 +6,7 @@ using TravelCut.Domain.Planning;
 
 namespace TravelCut.Application.Planning;
 
-public static class PlanReconciler
+public static partial class PlanReconciler
 {
     public static ReconcilePlanResponse Reconcile(
         EditPlanDto candidateAuto,

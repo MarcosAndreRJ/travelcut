@@ -74,10 +74,33 @@ public static class ManualEdits
     /// <summary>
     /// Forma canônica e mínima. include/exclude: por mídia, faixas disjuntas e ordenadas (por µs vence a de maior Seq; faixas
     /// adjacentes do mesmo tipo são fundidas) e vêm PRIMEIRO; depois split/place/duplicate/property na ordem de Seq, sem duplicatas
-    /// (EditId repetido: fica a mais recente; place/property superados por outro posterior de faixa ⊇ são descartados).
+    /// (EditId repetido: fica a mais recente; property superados por outro posterior de faixa ⊇ são descartados).
     /// Seq é renumerado 1..n; IntroducedInRevision de faixas fundidas = máximo das contribuintes. Idempotente.
     /// </summary>
     public static IReadOnlyList<PlanManualEdit> Compact(IEnumerable<PlanManualEdit>? edits)
+    {
+        // A posição de uma inclusão depende da ordem da sequência (vizinho na fonte, adjacência), portanto include/exclude NÃO
+        // atravessam edições que mexem na ordem/estrutura (split/place/duplicate/property): cada "época" é compactada à parte.
+        var all = (edits ?? Enumerable.Empty<PlanManualEdit>()).Where(e => e.IsWellFormed())
+            .Select((e, i) => (E: e, I: i)).OrderBy(x => x.E.Seq).ThenBy(x => x.I).Select(x => x.E).ToList();
+        bool IsIe(PlanManualEdit e) => e.Kind is ManualEditKinds.Include or ManualEditKinds.Exclude;
+        var keptRest = CompactCore(all.Where(e => !IsIe(e))).ToDictionary(e => e.EditId);
+        var lastPos = new Dictionary<Guid, int>();
+        for (int i = 0; i < all.Count; i++) if (!IsIe(all[i])) lastPos[all[i].WithComputedId().EditId] = i;
+        var output = new List<PlanManualEdit>();
+        var epoch = new List<PlanManualEdit>();
+        for (int i = 0; i < all.Count; i++)
+        {
+            if (IsIe(all[i])) { epoch.Add(all[i]); continue; }
+            output.AddRange(CompactCore(epoch)); epoch.Clear();
+            var id = all[i].WithComputedId().EditId;
+            if (lastPos[id] == i && keptRest.TryGetValue(id, out var kept)) output.Add(kept);
+        }
+        output.AddRange(CompactCore(epoch));
+        return output.Select((e, i) => e with { Seq = i + 1 }).ToList();
+    }
+
+    private static IReadOnlyList<PlanManualEdit> CompactCore(IEnumerable<PlanManualEdit>? edits)
     {
         var all = (edits ?? Enumerable.Empty<PlanManualEdit>()).Where(e => e.IsWellFormed())
             .Select((e, i) => (E: e, I: i)).OrderBy(x => x.E.Seq).ThenBy(x => x.I).Select(x => x.E).ToList();
@@ -120,7 +143,6 @@ public static class ManualEdits
                 if (l.Kind != e.Kind || l.MediaId != e.MediaId || l.SourceInUs > e.SourceInUs || l.SourceOutUs < e.SourceOutUs) continue;
                 superseded = e.Kind switch
                 {
-                    ManualEditKinds.Place => true,
                     ManualEditKinds.Property => (l.Zoom is not null || e.Zoom is null) && (l.SpeedNum is not null || e.SpeedNum is null),
                     _ => false,
                 };
