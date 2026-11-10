@@ -48,6 +48,20 @@ export function isHistoryDirty(h: TimelineHistory): boolean {
   return h.index !== h.savedIndex;
 }
 
+/** Maior revisão conhecida entre as fontes informadas (ignora nulos). */
+export function resolveLatestRevision(...values: (number | null | undefined)[]): number | null {
+  let max: number | null = null;
+  for (const v of values) {
+    if (typeof v === 'number' && (max === null || v > max)) max = v;
+  }
+  return max;
+}
+
+/** A base do editor é anterior à revisão mais nova conhecida: edição bloqueada. */
+export function isBaseOutdated(base: PlanRef | null, latest: number | null): boolean {
+  return base !== null && latest !== null && base.revision < latest;
+}
+
 /** Nova edição: descarta o ramo de refazer. Se o estado salvo estava nesse ramo, fica sujo. */
 export function pushHistory(
   h: TimelineHistory,

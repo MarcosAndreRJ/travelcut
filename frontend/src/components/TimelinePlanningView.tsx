@@ -55,6 +55,7 @@ export const TimelinePlanningView: React.FC<TimelinePlanningViewProps> = ({ proj
     initialPlan: plan,
     currentFrame,
     projectId: project?.projectId ?? '',
+    latestRevision: planState.latestRevision,
     onPlanChanged: (newPlan) => {
       planState.selectRevision(newPlan.revision);
     },

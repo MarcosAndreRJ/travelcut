@@ -10,8 +10,10 @@ import {
   createHistory,
   currentPlan,
   decideIncoming,
+  isBaseOutdated,
   isHistoryDirty,
   markHistorySaved,
+  resolveLatestRevision,
   operationsSinceSaved,
   pushHistory,
   redoHistory,
@@ -30,6 +32,8 @@ export interface UseTimelineEditorOptions {
   projectId: string;
   currentFrame?: number;
   onPlanChanged?: (plan: EditPlanDto) => void;
+  /** Revisão mais nova da lista do host (planState.latestRevision). */
+  latestRevision?: number | null;
 }
 
 export function useTimelineEditor({
@@ -37,6 +41,7 @@ export function useTimelineEditor({
   projectId,
   currentFrame = 0,
   onPlanChanged,
+  latestRevision = null,
 }: UseTimelineEditorOptions) {
   const [hist, setHist] = useState<TimelineHistory>(() => (initialPlan ? createHistory(initialPlan) : EMPTY_HISTORY));
   const histRef = useRef(hist);
@@ -123,11 +128,14 @@ export function useTimelineEditor({
   const canRedo = canRedoHistory(hist);
   const isDirty = isHistoryDirty(hist);
   // Edição só sobre a revisão vigente: a base precisa ser a mais nova conhecida.
-  const editable = base !== null && (knownLatest === null || base.revision >= knownLatest);
+  const externalRevision = external?.revision ?? null;
+  // Maior revisão conhecida: editor, lista do host e revisão recebida de fora.
+  const latestKnown = resolveLatestRevision(knownLatest, latestRevision, externalRevision);
+  const baseOutdated = isBaseOutdated(base, latestKnown);
+  // Edição só sobre a revisão vigente.
+  const editable = base !== null && !baseOutdated;
   const editableRef = useRef(editable);
   editableRef.current = editable;
-  const externalRevision = external?.revision ?? null;
-  const baseOutdated = base !== null && knownLatest !== null && base.revision < knownLatest;
 
   const commitPlan = useCallback(
     (newPlan: EditPlanDto, op?: PlanEditorialOperationDto) => {
@@ -591,7 +599,7 @@ export function useTimelineEditor({
     externalRevision,
     baseRevision: base?.revision ?? null,
     baseOutdated,
-    latestKnownRevision: knownLatest,
+    latestKnownRevision: latestKnown,
     keepLocalEdits,
     loadExternalRevision,
     reloadLatest,

@@ -7,8 +7,10 @@ import {
   currentPlan,
   classifySaveError,
   decideIncoming,
+  isBaseOutdated,
   isHistoryDirty,
   markHistorySaved,
+  resolveLatestRevision,
   operationsSinceSaved,
   pushHistory,
   redoHistory,
@@ -151,5 +153,26 @@ describe('classifySaveError (save com baseRevision)', () => {
 
   it('sem código nem mensagem usa texto genérico', () => {
     expect(classifySaveError(null, '').message).toBe('Falha ao salvar a revisão.');
+  });
+});
+
+describe('revisão mais nova conhecida (base de revisão antiga)', () => {
+  it('abrir revisão antiga sem edições não é editável quando a lista mostra revisão mais nova', () => {
+    const latest = resolveLatestRevision(3, 5, null);
+    expect(latest).toBe(5);
+    expect(isBaseOutdated({ planId: 'plan-1', revision: 3 }, latest)).toBe(true);
+  });
+
+  it('base na revisão vigente não fica desatualizada', () => {
+    expect(isBaseOutdated({ planId: 'plan-1', revision: 5 }, resolveLatestRevision(5, 5, null))).toBe(false);
+  });
+
+  it('resolveLatestRevision ignora nulos e usa o maior valor', () => {
+    expect(resolveLatestRevision(null, null, null)).toBeNull();
+    expect(resolveLatestRevision(2, undefined, 7)).toBe(7);
+  });
+
+  it('sem revisão conhecida não há base desatualizada', () => {
+    expect(isBaseOutdated(null, null)).toBe(false);
   });
 });
