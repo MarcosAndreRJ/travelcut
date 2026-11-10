@@ -30,7 +30,10 @@ public record EditSuggestionDto(
     [property: JsonPropertyName("policyVersion")] string? PolicyVersion = null,   // só origin "auto" (ex.: "auto-editorial-policy/2")
     [property: JsonPropertyName("policyReason")] string? PolicyReason = null,     // só origin "auto": razão legível da política
     // Parâmetros EFETIVOS (decisão humana ativa; senão os da própria sugestão, ex.: zoom do recomendador). Null = nenhum.
-    [property: JsonPropertyName("parameters")] DecisionParametersDto? Parameters = null
+    [property: JsonPropertyName("parameters")] DecisionParametersDto? Parameters = null,
+    // Elegibilidade ao lote decidida pela AutoEditorialPolicy (aditivo): true só quando o veredito seria Apply (corte pendente, sem
+    // decisão explícita). Null = não calculado (o frontend usa a regra local de compatibilidade).
+    [property: JsonPropertyName("batchApprovable")] bool? BatchApprovable = null
 );
 
 /// <summary>
@@ -98,5 +101,8 @@ public record DecisionResultDto(
     [property: JsonPropertyName("missingSuggestionIds")] List<Guid> MissingSuggestionIds,
     [property: JsonPropertyName("planRevision")] int? PlanRevision,       // revisão vigente após a decisão (null = projeto sem plano)
     [property: JsonPropertyName("planChanged")] bool PlanChanged,         // true = nova revisão criada por esta decisão
-    [property: JsonPropertyName("planError")] string? PlanError           // código se a regeneração falhou (decisão continua gravada)
+    [property: JsonPropertyName("planError")] string? PlanError,          // código se a regeneração falhou (decisão continua gravada)
+    // Aviso NÃO bloqueante (aditivo): a decisão foi gravada mas o plano NÃO foi regenerado porque a proteção do plano manual o
+    // preservou (PLAN_MANUAL_PROTECTED | PLAN_MANUAL_EDITS_UNREADABLE). Não é erro: planError continua null. null = nada a avisar.
+    [property: JsonPropertyName("planSkippedReason")] string? PlanSkippedReason = null
 );

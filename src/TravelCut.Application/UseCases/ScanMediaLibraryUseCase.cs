@@ -13,14 +13,18 @@ public class ScanMediaLibraryUseCase
     private readonly IMediaScannerService _scannerService;
     private readonly IFfprobeExtractor _metadataExtractor;
     private readonly ILogger<ScanMediaLibraryUseCase> _logger;
+    /// <summary>P11: avisado quando o fingerprint de uma mídia existente muda (análise stale + reanálise).</summary>
+    private readonly TravelCut.Application.Audio.IPipelineJobManager? _pipeline;
 
     public ScanMediaLibraryUseCase(
         IProjectRepository projectRepo,
         IMediaRepository mediaRepo,
         IMediaScannerService scannerService,
         IFfprobeExtractor metadataExtractor,
-        ILogger<ScanMediaLibraryUseCase> logger)
+        ILogger<ScanMediaLibraryUseCase> logger,
+        TravelCut.Application.Audio.IPipelineJobManager? pipeline = null)
     {
+        _pipeline = pipeline;
         _projectRepo = projectRepo;
         _mediaRepo = mediaRepo;
         _scannerService = scannerService;
@@ -115,6 +119,7 @@ public class ScanMediaLibraryUseCase
         double totalDuration = 0;
 
         var assetsToSave = new List<MediaAsset>();
+        var changedMediaIds = new List<Guid>();
 
         foreach (var file in discovered)
         {
@@ -228,6 +233,7 @@ public class ScanMediaLibraryUseCase
             else
             {
                 updatedCount++;
+                if (!string.Equals(asset!.Fingerprint, fingerprint, StringComparison.Ordinal)) changedMediaIds.Add(mediaId);
             }
 
             if (metaInfo.MetadataStatus == MediaMetadataStatus.Ok)
@@ -238,6 +244,18 @@ public class ScanMediaLibraryUseCase
         if (assetsToSave.Count > 0)
         {
             await _mediaRepo.SaveBatchAsync(assetsToSave, ct);
+        }
+
+        if (changedMediaIds.Count > 0 && _pipeline is not null)
+        {
+            try
+            {
+                await _pipeline.MarkMediaStaleAsync(projectId, changedMediaIds, ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogWarning(ex, "Não foi possível marcar a análise de {Count} mídia(s) alterada(s) como stale", changedMediaIds.Count);
+            }
         }
 
         var result = new ScanMediaResultDto(

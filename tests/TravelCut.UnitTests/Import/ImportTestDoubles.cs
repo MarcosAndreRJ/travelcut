@@ -191,9 +191,12 @@ internal sealed class FakePipelineJobManager : IPipelineJobManager
             Reasons: Reasons));
     }
 
+    /// <summary>P14: análise já existente por mídia (null = nunca analisada).</summary>
+    public Func<Guid, MediaAnalysisDto?>? AnalysisByMedia { get; set; }
+
     public Task<MediaAnalysisDto?> GetMediaAnalysisAsync(Guid projectId, Guid mediaId, CancellationToken ct = default)
     {
-        return Task.FromResult<MediaAnalysisDto?>(null);
+        return Task.FromResult(AnalysisByMedia?.Invoke(mediaId));
     }
 }
 

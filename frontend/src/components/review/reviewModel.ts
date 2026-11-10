@@ -212,6 +212,21 @@ export const decisionPlanErrorMessage = (code: string): string =>
     : `Decisão gravada, mas o plano não foi regenerado (código ${code}).`;
 
 /**
+ * Aviso PT-BR quando a decisão foi gravada mas o plano NÃO foi regenerado por edições manuais protegidas
+ * (DecisionResultDto.planSkippedReason). null/undefined/vazio => null (sem aviso).
+ */
+export const describePlanSkippedReason = (code: string | null | undefined): string | null => {
+  if (code === null || code === undefined || code === '') return null;
+  if (code === 'PLAN_MANUAL_PROTECTED') {
+    return 'Decisão registrada. O plano não foi atualizado porque há edições manuais protegidas — abra a Timeline e escolha reconciliar ou descartar a edição manual.';
+  }
+  if (code === 'PLAN_MANUAL_EDITS_UNREADABLE') {
+    return 'Decisão registrada. O plano não foi atualizado porque a revisão manual não pôde ser lida; o plano foi preservado.';
+  }
+  return 'Decisão registrada. O plano não foi atualizado por causa de edições manuais protegidas.';
+};
+
+/**
  * Janela de revisão de um candidato, em segundos da mídia fonte (início limitado a zero).
  * Ancorada no intervalo ORIGINAL do candidato: um ajuste não desloca a própria janela.
  */

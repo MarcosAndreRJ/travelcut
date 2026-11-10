@@ -49,7 +49,7 @@ public sealed partial class PlanningUseCases
     private sealed record ModifiedInterval(long StartMs, long EndMs);
 
     /// <summary>Resultado da regeneração disparada por uma decisão (a decisão já está gravada).</summary>
-    private sealed record PlanReaction(int? PlanRevision, bool PlanChanged, string? PlanError);
+    private sealed record PlanReaction(int? PlanRevision, bool PlanChanged, string? PlanError, string? SkippedReason = null);
 
     /// <summary>Aprova, rejeita, adia ou aprova com intervalo ajustado (modify). Intervalo do modify é validado contra a mídia.</summary>
     public async Task<PlanOutcome<DecisionResultDto>> SubmitDecisionAsync(SubmitDecisionRequest request, CancellationToken ct = default)
@@ -222,7 +222,7 @@ public sealed partial class PlanningUseCases
         var reaction = await ReactToDecisionsAsync(projectId, ct);
         var affected = await AffectedSuggestionsAsync(existing, projectId, ct);
         return PlanOutcome<DecisionResultDto>.Ok(new DecisionResultDto(
-            affected, decisions.Count, missing, reaction.PlanRevision, reaction.PlanChanged, reaction.PlanError));
+            affected, decisions.Count, missing, reaction.PlanRevision, reaction.PlanChanged, reaction.PlanError, reaction.SkippedReason));
     }
 
     // ------------------------------------------------------------------ Reação do plano e resposta
@@ -234,7 +234,7 @@ public sealed partial class PlanningUseCases
         var reaction = await ReactToDecisionsAsync(projectId, ct);
         var affected = await AffectedSuggestionsAsync([suggestion], projectId, ct);
         return PlanOutcome<DecisionResultDto>.Ok(new DecisionResultDto(
-            affected, decisionsRecorded, [], reaction.PlanRevision, reaction.PlanChanged, reaction.PlanError));
+            affected, decisionsRecorded, [], reaction.PlanRevision, reaction.PlanChanged, reaction.PlanError, reaction.SkippedReason));
     }
 
     /// <summary>
@@ -282,6 +282,14 @@ public sealed partial class PlanningUseCases
             var current = await GetAsync(new GetPlanRequest(projectId, before.Revision), ct);
             if (!current.Success || current.Value is null)
             {
+                // Revisão manual ilegível: o plano é preservado de propósito (guarda B), não é falha da reação.
+                if (!IsAutomaticAuthor(before.Author))
+                {
+                    _logger.LogWarning("Decisão gravada; revisão manual {Revision} ilegível ({Code}): plano preservado, sem regenerar",
+                        before.Revision, current.ErrorCode);
+                    return new PlanReaction(before.Revision, false, null, PlanManualEditsUnreadableCode);
+                }
+
                 _logger.LogWarning("Decisão gravada, mas a revisão {Revision} do plano não pôde ser lida ({Code})",
                     before.Revision, current.ErrorCode);
                 return new PlanReaction(before.Revision, false, current.ErrorCode ?? "PLAN_NOT_FOUND");
@@ -290,6 +298,12 @@ public sealed partial class PlanningUseCases
             var basis = current.Value;
             var regenerated = await GenerateAsync(
                 new GeneratePlanRequest(projectId, basis.Profile, basis.TimeBase, basis.TimeZoneId), ct);
+            if (!regenerated.Success && IsPlanPreservedCode(regenerated.ErrorCode))
+            {
+                _logger.LogInformation("Decisão gravada; regeneração recusada pela proteção do plano manual ({Code}): plano preservado",
+                    regenerated.ErrorCode);
+                return new PlanReaction(before.Revision, false, null, regenerated.ErrorCode);
+            }
             if (!regenerated.Success)
             {
                 _logger.LogWarning("Decisão gravada, mas a regeneração do plano falhou ({Code})", regenerated.ErrorCode);
@@ -327,11 +341,20 @@ public sealed partial class PlanningUseCases
     {
         var dtos = new List<EditSuggestionDto>(suggestions.Count);
         var effects = await LoadAppliedEffectsAsync(projectId, ct);
+        var effectiveById = new Dictionary<Guid, EffectiveSuggestion>();
+        var decided = new HashSet<Guid>();
         foreach (var suggestion in suggestions)
         {
-            var effective = await CurrentStateAsync(suggestion, ct);
-            dtos.Add(SuggestionEffectiveMapper.ToDto(suggestion, effective,
-                effects.TryGetValue(suggestion.SuggestionId, out var fx) ? fx : null));
+            effectiveById[suggestion.SuggestionId] = await CurrentStateAsync(suggestion, ct);
+            if ((await _suggestionsAndDecisions.ListDecisionsBySuggestionAsync(suggestion.SuggestionId, ct)).Count > 0)
+                decided.Add(suggestion.SuggestionId);
+        }
+        var batch = await LoadBatchApprovabilityAsync(projectId, suggestions, effectiveById, decided, ct);
+        foreach (var suggestion in suggestions)
+        {
+            dtos.Add(SuggestionEffectiveMapper.ToDto(suggestion, effectiveById[suggestion.SuggestionId],
+                effects.TryGetValue(suggestion.SuggestionId, out var fx) ? fx : null,
+                batch.TryGetValue(suggestion.SuggestionId, out var ba) ? ba : null));
         }
         return dtos;
     }
@@ -455,7 +478,7 @@ public sealed partial class PlanningUseCases
         {
             var existingHistory = await _suggestionsAndDecisions.ListDecisionsBySuggestionAsync(duplicate.SuggestionId, ct);
             var existingEffective = EffectiveSuggestionStatus.ResolveDetailed([duplicate], existingHistory)[duplicate.SuggestionId];
-            return PlanOutcome<EditSuggestionDto>.Ok(SuggestionEffectiveMapper.ToDto(duplicate, existingEffective));
+            return PlanOutcome<EditSuggestionDto>.Ok(SuggestionEffectiveMapper.ToDto(duplicate, existingEffective, null, false));
         }
 
         var suggestion = new EditSuggestion
@@ -486,6 +509,6 @@ public sealed partial class PlanningUseCases
             CanRedo: false
         );
 
-        return PlanOutcome<EditSuggestionDto>.Ok(SuggestionEffectiveMapper.ToDto(suggestion, effective));
+        return PlanOutcome<EditSuggestionDto>.Ok(SuggestionEffectiveMapper.ToDto(suggestion, effective, null, false));
     }
 }

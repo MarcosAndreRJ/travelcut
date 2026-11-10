@@ -13,7 +13,7 @@ import {
   SkipForward,
   Wrench
 } from 'lucide-react';
-import type { EditPlanDto, PlanClipDto, PlaybackSourceDto } from '../../types/ipc';
+import type { EditPlanDto, PlanClipDto, PlanTransitionDto, PlaybackSourceDto, TimelineTimeBaseDto } from '../../types/ipc';
 import { formatDuration, formatSpeed, formatTimecode, framesToSeconds, isValidTimeBase, nominalFps } from './planTime';
 import { basename } from './planFormat';
 import { clipEndFrame, timelineEndFrame } from './planModel';
@@ -36,7 +36,9 @@ import { getPlaybackSource, previewErrorMessage } from '../../services/previewAp
 import { isPlayableSource } from '../media/usePlaybackSource';
 import { useProxyGeneration } from '../media/useProxyGeneration';
 import { WaveformStrip } from '../media/WaveformStrip';
+import { PreviewFidelityBadge } from '../media/PreviewFidelityBadge';
 import { formatSourceSeconds, mediaElementErrorText } from '../media/mediaTime';
+import { planZoomActiveAt, zoomCurveLabel } from '../media/zoomPresentation';
 
 interface PlanPreviewPlayerProps {
   plan: EditPlanDto | null;
@@ -86,6 +88,35 @@ const canPlayFrame = (
   return readyUrlOf(sources[sourceKey(projectId, clip.mediaId)]) !== null;
 };
 
+/**
+ * Transição com efeito (fade/dissolve/crossfade) que sai do clipe. Corte seco ('cut') e ausência retornam null.
+ * A prévia HTML5 não reproduz esses efeitos: a limitação é rotulada, nunca simulada em silêncio.
+ */
+export const effectTransitionAfter = (
+  transitions: readonly PlanTransitionDto[],
+  clipId: string | null
+): PlanTransitionDto | null => {
+  if (!clipId) return null;
+  return transitions.find((t) => t.fromClipId === clipId && t.kind !== 'cut') ?? null;
+};
+
+const TRANSITION_KIND_LABEL: Record<string, string> = { fade: 'fade', dissolve: 'dissolve', crossfade: 'crossfade' };
+
+const TransitionLimitationNote: React.FC<{ transition: PlanTransitionDto | null; timeBase: TimelineTimeBaseDto }> = ({ transition, timeBase }) => {
+  if (!transition) return null;
+  const label = TRANSITION_KIND_LABEL[transition.kind] ?? transition.kind;
+  return (
+    <span
+      role="note"
+      data-testid="program-transition-limitation"
+      className="px-2 py-0.5 rounded text-[10px] font-bold bg-sky-950 text-sky-200 border border-sky-700/50"
+      title="A prévia de programa não aplica efeitos de transição. O render final do plano é a referência."
+    >
+      Transição {label} ({formatTimecode(transition.durationFrames, timeBase)}) no plano · prévia mostra corte seco, efeito não reproduzido
+    </span>
+  );
+};
+
 export const PlanPreviewPlayer: React.FC<PlanPreviewPlayerProps> = ({ plan, selectedClip, currentFrame, onSeekFrame }) => {
   const tb = plan?.timeBase ?? DEFAULT_TIMEBASE;
   const projectId = plan?.projectId ?? '';
@@ -99,6 +130,11 @@ export const PlanPreviewPlayer: React.FC<PlanPreviewPlayerProps> = ({ plan, sele
 
   const activeClip = timeBaseValid ? activeClipAt(clips, currentFrame) : null;
   const activeClipId = activeClip?.clipId ?? null;
+  // Zoom do clipe ativo (CSS aproximado): foco e duração do plano; ausente = centro e clipe inteiro.
+  const programZoom =
+    activeClip && timeBaseValid
+      ? planZoomActiveAt(activeClip, (currentFrame - activeClip.timelineStartFrame) * spf)
+      : null;
   const activeMediaId = activeClip?.mediaId ?? null;
   const activeKey = activeMediaId ? sourceKey(projectId, activeMediaId) : null;
 
@@ -526,6 +562,10 @@ export const PlanPreviewPlayer: React.FC<PlanPreviewPlayerProps> = ({ plan, sele
           <span className="text-[10px] uppercase tracking-wider font-mono px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold">
             PRÉVIA DE PROGRAMA · V1
           </span>
+          <PreviewFidelityBadge
+            fidelity="html5_approx"
+            limitation={effectTransitionAfter(plan?.transitions ?? [], activeClipId)?.kind ? 'Efeitos de transição não são reproduzidos aqui.' : null}
+          />
         </div>
       </div>
 
@@ -537,8 +577,18 @@ export const PlanPreviewPlayer: React.FC<PlanPreviewPlayerProps> = ({ plan, sele
           aria-label="Prévia de programa (trilha V1)"
           onLoadedMetadata={handleLoadedMetadata}
           onError={handleVideoError}
+          style={{
+            transform: programZoom ? `scale(${programZoom.scale})` : undefined,
+            transformOrigin: programZoom ? `${programZoom.originX}% ${programZoom.originY}%` : 'center center',
+            transition: 'transform 0.15s ease-out'
+          }}
           className={`absolute inset-0 w-full h-full object-contain ${isLoadedMediaShown ? 'opacity-100' : 'opacity-0'}`}
         />
+        {programZoom && (
+          <span data-testid="program-zoom-approx" className="absolute top-2 left-2 px-2 py-0.5 rounded bg-sky-950/70 border border-sky-700/50 text-[10px] text-sky-200">
+            {`Zoom ${programZoom.scale.toFixed(2).replace('.', ',')}× ${zoomCurveLabel(activeClip?.zoomCurve)}`}
+          </span>
+        )}
         {overlay && (
           <div className="absolute inset-0 flex items-center justify-center">
             {overlay}
@@ -569,6 +619,7 @@ export const PlanPreviewPlayer: React.FC<PlanPreviewPlayerProps> = ({ plan, sele
               <Scissors className="w-3 h-3" aria-hidden="true" /> Revisão humana indicada no plano
             </span>
           )}
+          <TransitionLimitationNote transition={effectTransitionAfter(plan?.transitions ?? [], activeClip.clipId)} timeBase={tb} />
         </div>
       ) : (
         <p className="text-center text-[11px] text-slate-500">Nenhum clipe de V1 sob a agulha.</p>

@@ -78,7 +78,15 @@ public static class EditPlanner
 
     /// <summary>Zoom materializado em clip.zoom (Origin: approved_by_user | auto). Verdict só existe na origem auto.</summary>
     private sealed record AppliedZoomItem(Guid SuggestionId, double Scale, string Origin, PolicyVerdict? Verdict, double Coverage,
-        SmartZoomParametersDto? Human = null);
+        SmartZoomParametersDto? Human = null, ZoomFocus? Focus = null);
+
+    /// <summary>Foco (0-1), duração (s, null = clipe inteiro) e curva (punch_in | push_in) materializados em clip.zoom*.</summary>
+    private sealed record ZoomFocus(double X, double Y, double? DurationSeconds, string Curve)
+    {
+        public static ZoomFocus From(SmartZoomParametersDto p) => new(
+            p.FocalPointX, p.FocalPointY, p.DurationSeconds > 0 ? p.DurationSeconds : null,
+            string.IsNullOrWhiteSpace(p.ZoomType) ? SmartZoomConstants.TypePunchIn : p.ZoomType);
+    }
 
     /// <summary>Escalas máximas por intensidade do perfil do projeto (config); "off" = nunca autoaplicar zoom.</summary>
     private const double SubtleZoomScale = 1.05;
@@ -87,6 +95,15 @@ public static class EditPlanner
     private const double MaxZoomScale = 1.12;
     /// <summary>Cobertura mínima do clipe para materializar zoom aprovado por humano (o zoom v1 vale para o clipe inteiro).</summary>
     private const double ApprovedZoomMinCoverage = 0.5;
+
+    /// <summary>
+    /// Sugestão "transition" (E05): fronteira real entre dois clipes V1 (mídia A saída → mídia B entrada). Decidida depois do layout,
+    /// quando as bordas dos clipes são conhecidas. Fade/dissolve/crossfade materializados em plan.transitions.
+    /// </summary>
+    private sealed record TransitionItem(Guid SuggestionId, SuggestionStatus Status, TransitionSuggestionParams Params, bool Decided);
+
+    /// <summary>Janela (µs) antes do corte de saída / depois da entrada em que uma palavra transcrita conta como fala na borda.</summary>
+    private const long TransitionSpeechEdgeUs = 300_000;
 
     /// <summary>União de cortes sobrepostos na fonte (um intervalo removido).</summary>
     private sealed class CutGroup
@@ -130,6 +147,7 @@ public static class EditPlanner
         public readonly List<AppliedCutItem> SubFrameRemovals = [];
         public readonly List<SpeedItem> Speeds = [];
         public readonly List<ZoomItem> Zooms = [];
+        public readonly List<TransitionItem> Transitions = [];
         public readonly List<CutGroup> Groups = [];
         /// <summary>Pendências desta mídia; só entram no plano se a mídia permanecer incluída.</summary>
         public readonly List<PlanPendingItem> Pending = [];
@@ -330,6 +348,17 @@ public static class EditPlanner
                         DecisionParameters.Parse(eff.ParametersJson)?.Zoom));
                     break;
 
+                case "transition":
+                {
+                    // E05: decidido depois do layout (precisa das bordas reais dos clipes). Rejeitado já saiu acima.
+                    var tp = TransitionSupport.Parse(s.EvidenceRefs);
+                    if (tp is null)
+                        w.Pending.Add(SuggestionPending(s, "transição sem parâmetros válidos: não aplicada."));
+                    else
+                        w.Transitions.Add(new TransitionItem(s.SuggestionId, status, tp, input.Decisions.Any(d => d.SuggestionId == s.SuggestionId)));
+                    break;
+                }
+
                 default:
                     w.Pending.Add(SuggestionPending(s, $"ação '{s.SuggestedAction}' ainda não é aplicada pelo plano v1."));
                     break;
@@ -409,6 +438,10 @@ public static class EditPlanner
 
             foreach (var z in zooms.Where(z => z.Status == SuggestionStatus.Approved))
             {
+                // "Sem zoom" explícito: a decisão humana vence a política; a sugestão segue aprovada e o clipe fica sem zoom
+                // (sem pendência e sem autoaplicação). Desfazer a decisão devolve a sugestão a pendente.
+                if (DecisionParameters.IsNone(z.Human)) continue;
+
                 var (target, coverage) = ZoomTarget(segs, z);
                 if (target is null || target.Zoom is not null || coverage < ApprovedZoomMinCoverage)
                 {
@@ -417,7 +450,9 @@ public static class EditPlanner
                 }
                 // Decisão humana vence a política: respeita a escala escolhida (limite 1,12x).
                 double scale = Math.Clamp(z.Human?.Scale ?? z.Params?.Scale ?? SubtleZoomScale, 1.01, MaxZoomScale);
-                target.Zoom = new AppliedZoomItem(z.SuggestionId, scale, OriginApproved, null, coverage, z.Human);
+                // Foco/duração/curva só quando a decisão humana os informou (decisões legadas mantêm o plano idêntico).
+                target.Zoom = new AppliedZoomItem(z.SuggestionId, scale, OriginApproved, null, coverage, z.Human,
+                    z.Human is null ? null : ZoomFocus.From(z.Human));
                 materializedStarts.Add(z.StartUs);
             }
 
@@ -439,7 +474,9 @@ public static class EditPlanner
                     autoProfile);
                 if (verdict.Action == PolicyAction.Apply)
                 {
-                    target.Zoom = new AppliedZoomItem(z.SuggestionId, scale, OriginAuto, verdict, coverage);
+                    // Política automática: só o foco conhecido do recomendador (nunca o centro "por padrão").
+                    target.Zoom = new AppliedZoomItem(z.SuggestionId, scale, OriginAuto, verdict, coverage, null,
+                        z.Params is { FocalPointKnown: true } kp ? ZoomFocus.From(kp) : null);
                     materializedStarts.Add(z.StartUs);
                 }
                 else
@@ -544,7 +581,8 @@ public static class EditPlanner
             {
                 clips.Add(new PlanClip(v, TrackV1, mediaId, w.Media.RelativePath, sectionId, p.In, p.Out,
                     seg.StartFrame, seg.DurationFrames, seg.SpeedNum, seg.SpeedDen, a1Id, seg.Zoom?.Scale,
-                    rationale, evidence, suggestionIds, seg.Band, seg.NeedsReview));
+                    rationale, evidence, suggestionIds, seg.Band, seg.NeedsReview,
+                    seg.Zoom?.Focus?.X, seg.Zoom?.Focus?.Y, seg.Zoom?.Focus?.DurationSeconds, seg.Zoom?.Focus?.Curve));
             }
             if (a1Id is Guid a)
             {
@@ -571,6 +609,83 @@ public static class EditPlanner
             if (a.A1Id is Guid aa && b.A1Id is Guid ab)
             {
                 transitions.Add(new PlanTransition(aa, ab, "cut", 0, false));
+            }
+        }
+
+        // 14b) E05: transições por sugestão sobre as bordas REAIS dos clipes V1. Precedência (E07): aprovada pelo usuário → materializa
+        // (se os handles/tamanho permitirem); senão config do projeto (AutoApplyTrivialCuts=false desliga toda autoaplicação) → política:
+        // Apply → materializa (origem auto); Review → pendência "transition_suggestion"; Skip → corte seco preservado (sem pendência).
+        // Sem sugestão, o plano é idêntico ao anterior (projetos antigos). Desfazer a decisão devolve a sugestão a pendente e a política
+        // NÃO reaplica (decisão explícita no histórico).
+        var transitionEffects = new List<PlanAppliedEffect>();
+        var transitionItems = includedWorks.SelectMany(w => w.Transitions).OrderBy(t => t.SuggestionId).ToList();
+        if (transitionItems.Count > 0)
+        {
+            double tlFps = timeBase.FramesPerSecond;
+            long windowFrames = (long)Math.Round(AutoEditorialPolicy.TransitionWindowSeconds * tlFps);
+            var startByV1 = new Dictionary<Guid, long>();
+            foreach (var sg in segments) if (sg.V1Id is Guid sgId) startByV1[sgId] = sg.StartFrame;
+            var usedTransitions = new HashSet<Guid>();
+
+            for (int k = 0; k + 1 < segments.Count; k++)
+            {
+                var sa = segments[k];
+                var sb = segments[k + 1];
+                if (sa.V1Id is not Guid va || sb.V1Id is not Guid vb) continue;
+
+                var item = transitionItems.FirstOrDefault(t => !usedTransitions.Contains(t.SuggestionId)
+                    && t.Params.FromMediaId == sa.W.Media.MediaId && t.Params.ToMediaId == sb.W.Media.MediaId
+                    && t.Params.FromOutUs == sa.P.Out && t.Params.ToInUs == sb.P.In);
+                if (item is null) continue;
+                usedTransitions.Add(item.SuggestionId);
+
+                string kind = item.Params.TransitionKind;
+                long frames = item.Params.DurationFrames;
+                long shortest = Math.Min(sa.DurationFrames, sb.DurationFrames);
+                var handles = TransitionSupport.EvaluateHandles(kind, frames, tlFps,
+                    sa.W.Media.Metadata?.FrameRate, sa.W.DurationUs, sa.P.Out, sb.W.Media.Metadata?.FrameRate, sb.P.In);
+
+                if (item.Status == SuggestionStatus.Approved)
+                {
+                    // Decisão humana vence a política, mas não materializa o que é fisicamente impossível ou inválido no plano.
+                    if (handles != TransitionHandleState.Sufficient || shortest < frames * 2)
+                    {
+                        pending.Add(TransitionPending(item, sa.W, va, "aprovada, mas sem handles/clipes suficientes na fronteira"));
+                        continue;
+                    }
+                    ApplyTransition(transitions, sa, sb, item, kind, frames, "human", null, transitionEffects);
+                    continue;
+                }
+
+                if (item.Status != SuggestionStatus.Proposed || !profile.AutoApplyTrivialCuts)
+                {
+                    pending.Add(TransitionPending(item, sa.W, va, DescribeZoomStatus(item.Status)));
+                    continue;
+                }
+
+                bool crossFile = sa.W.Media.MediaId != sb.W.Media.MediaId;
+                bool speechAtEdge = !sa.W.SpeechKnown || !sb.W.SpeechKnown
+                    || sa.W.Words.Any(x => x.EndUs > sa.P.Out - TransitionSpeechEdgeUs && x.StartUs < sa.P.Out)
+                    || sb.W.Words.Any(x => x.EndUs > sb.P.In && x.StartUs < sb.P.In + TransitionSpeechEdgeUs);
+                int inWindow = transitions.Count(t => t.Kind != "cut" && !(t.FromClipId == va && t.ToClipId == vb)
+                    && startByV1.TryGetValue(t.ToClipId, out var st) && Math.Abs(st - sb.StartFrame) <= windowFrames);
+
+                var verdict = policy.Evaluate(
+                    new AutoEditCandidate("transition", sa.P.Out, sb.P.In, sa.W.SpeechKnown, sa.W.Words, false, item.Decided,
+                        Transition: new TransitionFacts(kind, frames, handles, crossFile,
+                            crossFile ? 0 : Math.Max(0, sb.P.In - sa.P.Out), shortest, speechAtEdge, inWindow)),
+                    autoProfile);
+                if (verdict.Action == PolicyAction.Apply)
+                    ApplyTransition(transitions, sa, sb, item, kind, frames, "auto", verdict, transitionEffects);
+                else if (verdict.Action == PolicyAction.Review)
+                    pending.Add(TransitionPending(item, sa.W, va, DescribeZoomStatus(item.Status)));
+                // Skip: corte seco preservado; nada entra na fila.
+            }
+
+            foreach (var orphan in transitionItems.Where(t => t.Status == SuggestionStatus.Approved && !usedTransitions.Contains(t.SuggestionId)))
+            {
+                var ow = includedWorks.First(w => w.Transitions.Contains(orphan));
+                pending.Add(TransitionPending(orphan, ow, null, "aprovada, mas a fronteira não existe mais no plano"));
             }
         }
 
@@ -602,8 +717,10 @@ public static class EditPlanner
             bool auto = zm.Origin == OriginAuto;
             appliedEffects.Add(new PlanAppliedEffect(zm.SuggestionId, seg.W.Media.MediaId, "zoom", auto ? "auto" : "human",
                 auto ? zm.Verdict?.PolicyVersion : null, auto ? zm.Verdict?.Reason : null,
-                zm.Scale, zm.Human?.FocalPointX, zm.Human?.FocalPointY));
+                zm.Scale, zm.Focus?.X, zm.Focus?.Y, zm.Focus?.DurationSeconds, zm.Focus?.Curve));
         }
+
+        appliedEffects.AddRange(transitionEffects);
 
         if (profile.MusicPolicy == "suggest_only" && sections.Count >= 1)
         {
@@ -931,6 +1048,38 @@ public static class EditPlanner
         // Sem o motivo da política no texto: o plano deve ser idêntico antes de aprovar e depois de desfazer (fingerprint estável).
         return new PlanPendingItem(z.SuggestionId, w.Media.MediaId, ZoomSuggestionKind,
             $"Zoom{scale} ({Seconds(z.StartUs, "0.0")}–{Seconds(z.EndUs, "0.0")} s) {state}.", clipId);
+    }
+
+    private static PlanPendingItem TransitionPending(TransitionItem t, MediaWork w, Guid? clipId, string state)
+    {
+        // Sem o motivo da política no texto: o plano deve ser idêntico antes de aprovar e depois de desfazer (fingerprint estável).
+        var p = t.Params;
+        return new PlanPendingItem(t.SuggestionId, w.Media.MediaId, TransitionSupport.TransitionSuggestionKind,
+            $"Transição {p.TransitionKind} de {p.DurationFrames} quadros {state}.", clipId);
+    }
+
+    /// <summary>
+    /// Materializa a transição no par V1 (fade/dissolve) e no par A1 vinculado (fade → fade; dissolve/crossfade → crossfade).
+    /// "crossfade" não altera o V1 (só áudio). Registra o efeito aplicado com origem auditável.
+    /// </summary>
+    private static void ApplyTransition(
+        List<PlanTransition> transitions, Segment sa, Segment sb, TransitionItem item, string kind, long frames,
+        string origin, PolicyVerdict? verdict, List<PlanAppliedEffect> effects)
+    {
+        string? policyVersion = origin == "auto" ? verdict?.PolicyVersion : null;
+        string? reason = origin == "auto" ? verdict?.Reason : null;
+
+        void Replace(Guid from, Guid to, string newKind)
+        {
+            int i = transitions.FindIndex(t => t.FromClipId == from && t.ToClipId == to);
+            var next = new PlanTransition(from, to, newKind, frames, false, origin, item.SuggestionId, policyVersion, reason);
+            if (i >= 0) transitions[i] = next; else transitions.Add(next);
+        }
+
+        if (kind != TransitionSupport.Crossfade && sa.V1Id is Guid va && sb.V1Id is Guid vb) Replace(va, vb, kind);
+        if (sa.A1Id is Guid aa && sb.A1Id is Guid ab) Replace(aa, ab, kind == TransitionSupport.Fade ? TransitionSupport.Fade : TransitionSupport.Crossfade);
+
+        effects.Add(new PlanAppliedEffect(item.SuggestionId, sa.W.Media.MediaId, "transition", origin, policyVersion, reason));
     }
 
     private static string DescribeZoomStatus(SuggestionStatus status) => status switch

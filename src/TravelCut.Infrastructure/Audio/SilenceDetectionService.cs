@@ -420,9 +420,10 @@ public class SilenceDetectionService : ISilenceDetectionService
             return new HesitationMatch("repetition", 4, s.PauseBetween(i + 1) ? "medium" : "low");
         }
 
-        if (i + 2 < s.Count && t == next && EmphasisTokens.Contains(t))
+        if (i + 1 < s.Count && t == next && EmphasisTokens.Contains(t))
         {
             // Rebaixado: possível ênfase/resposta; vai para revisão e nunca é tratado como repetição removível.
+            // Vale também para o par no fim da transcrição (sem palavra depois): "não não" final continua ênfase.
             return new HesitationMatch("emphasis", 2, "low");
         }
 

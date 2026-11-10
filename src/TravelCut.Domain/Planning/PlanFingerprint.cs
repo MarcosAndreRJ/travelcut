@@ -78,6 +78,11 @@ public static class PlanFingerprint
                 w.WriteNumber("spN", c.SpeedNum); w.WriteNumber("spD", c.SpeedDen);
                 if (c.LinkedClipId is Guid lid) w.WriteString("link", lid.ToString("D")); else w.WriteNull("link");
                 if (c.Zoom is double z) w.WriteNumber("zoom", z); else w.WriteNull("zoom"); // double: menor round-trip, invariante
+                // Foco/duração/curva do zoom: só quando existem (planos antigos mantêm o mesmo fingerprint).
+                if (c.ZoomFocalPointX is double zfx) w.WriteNumber("zfx", zfx);
+                if (c.ZoomFocalPointY is double zfy) w.WriteNumber("zfy", zfy);
+                if (c.ZoomDurationSeconds is double zdur) w.WriteNumber("zdur", zdur);
+                if (c.ZoomCurve is string zcur) w.WriteString("zcur", zcur);
                 w.WriteString("rationale", c.Rationale);
                 w.WriteStartArray("evidence"); foreach (var e in c.Evidence) w.WriteStringValue(e); w.WriteEndArray();
                 w.WriteStartArray("suggestions"); foreach (var g in c.SuggestionIds.OrderBy(g => g)) w.WriteStringValue(g.ToString("D")); w.WriteEndArray();
@@ -91,6 +96,12 @@ public static class PlanFingerprint
             {
                 w.WriteStartObject(); w.WriteString("from", t.FromClipId.ToString("D")); w.WriteString("to", t.ToClipId.ToString("D"));
                 w.WriteString("kind", t.Kind); w.WriteNumber("dur", t.DurationFrames); w.WriteBoolean("review", t.NeedsHumanReview);
+                // Só quando há origem (transição materializada por sugestão): fingerprints de planos antigos permanecem idênticos.
+                if (t.Origin is not null)
+                {
+                    w.WriteString("origin", t.Origin);
+                    if (t.SuggestionId is Guid tsid) w.WriteString("sug", tsid.ToString("D"));
+                }
                 w.WriteEndObject();
             }
             w.WriteEndArray();
@@ -115,6 +126,30 @@ public static class PlanFingerprint
                 w.WriteEndObject();
             }
             w.WriteEndArray();
+
+            // Overlay manual: só entra quando não vazio (planos sem edição mantêm o fingerprint histórico). Forma canônica:
+            // include/exclude disjuntos ordenados por mídia/entrada, depois split/place/duplicate/property na ordem final; sem Seq/datas/EditId.
+            if (p.ManualEdits is { Count: > 0 })
+            {
+                var canonical = ManualEdits.Compact(p.ManualEdits);
+                if (canonical.Count > 0)
+                {
+                    w.WriteStartArray("manualEdits");
+                    foreach (var e in canonical)
+                    {
+                        w.WriteStartObject();
+                        w.WriteString("kind", e.Kind); w.WriteString("media", e.MediaId.ToString("D"));
+                        w.WriteNumber("inUs", e.SourceInUs); w.WriteNumber("outUs", e.SourceOutUs);
+                        if (e.AfterMediaId is Guid am) w.WriteString("afterMedia", am.ToString("D"));
+                        if (e.AfterSourceInUs is long ai) w.WriteNumber("afterInUs", ai);
+                        if (e.Zoom is double z) w.WriteNumber("zoom", z);
+                        if (e.SpeedNum is int sn) w.WriteNumber("spN", sn);
+                        if (e.SpeedDen is int sd) w.WriteNumber("spD", sd);
+                        w.WriteEndObject();
+                    }
+                    w.WriteEndArray();
+                }
+            }
             w.WriteEndObject();
         }
         return ms.ToArray();

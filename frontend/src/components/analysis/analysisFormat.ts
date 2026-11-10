@@ -149,7 +149,13 @@ export const isApprovedStatus = (status: string): boolean => status === 'Approve
  * Lote "aprovar silêncios confiáveis": somente kind "silence", confiança alta (heurística não calibrada),
  * pendente e sem revisão humana. Pausas de ritmo/humor e demais categorias nunca entram no lote.
  */
-export const isBatchApprovable = (s: EditSuggestion): boolean =>
+export const isBatchApprovable = (s: EditSuggestion): boolean => {
+  // Flag do host (batchApprovable) substitui a regra local quando presente; sem ela, vale a regra abaixo.
+  if (typeof s.batchApprovable === 'boolean') return s.batchApprovable;
+  return localBatchRule(s);
+};
+
+const localBatchRule = (s: EditSuggestion): boolean =>
   suggestionKindKey(s.kind) === 'silence' &&
   s.confidenceBand === 'high' &&
   s.status === 'Proposed' &&

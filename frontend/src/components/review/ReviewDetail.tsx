@@ -8,7 +8,7 @@ import {
   formatSeconds,
   suggestedActionLabel
 } from '../analysis/analysisFormat';
-import { BeforeAfterCompare, type CompareMode } from './BeforeAfterCompare';
+import { BeforeAfterCompare, type AfterSource, type CompareMode } from './BeforeAfterCompare';
 import { DecisionActions } from './DecisionActions';
 import { ModifyEditor } from './ModifyEditor';
 import { TranscriptContext } from './TranscriptContext';
@@ -30,7 +30,7 @@ import {
   type Interval
 } from './reviewModel';
 import type { AsyncState } from './useReviewData';
-import type { SourceWindow } from '../media/mediaTime';
+import type { KeptSegment, SourceWindow } from '../media/mediaTime';
 
 interface ReviewDetailProps {
   projectId: string;
@@ -59,7 +59,7 @@ interface ReviewDetailProps {
   /** Aplica o zoom atual como decisão `approve` com parameters.zoom (ligado ao submitDecision pelo painel pai). */
   onApplyZoom?: (zoom: SmartZoomParametersDto) => void;
   /** "Depois" do plano vigente (intervalos removidos da mídia) ou só este corte quando não há plano. */
-  afterRemoved: { intervals: SourceWindow[]; source: 'plan' | 'candidate' };
+  afterRemoved: { intervals: SourceWindow[]; source: AfterSource; segments?: KeptSegment[] };
 }
 
 const Field: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
@@ -113,11 +113,11 @@ export const ReviewDetail: React.FC<ReviewDetailProps> = ({
   const zoomConfig = zoomDraft && zoomDraft.suggestionId === s.suggestionId ? zoomDraft.config : persistedZoom;
   const zoomMapping = zoomConfigToParameters(zoomConfig, effectiveDuration);
   const zoomDirty = zoomDraft !== null && zoomDraft.suggestionId === s.suggestionId;
-  const applyZoomDisabled = busy || !onApplyZoom || zoomMapping.parameters === null;
+  const applyZoomDisabled = busy || !onApplyZoom;
   const applyZoomHint = !onApplyZoom
     ? 'Envio do zoom aguardando ligação ao submitDecision no painel de revisão.'
-    : zoomMapping.parameters === null
-      ? 'Sem zoom (1.0×) não é enviável pelo contrato atual; escolha um nível acima de 1.0×.'
+    : zoomMapping.none
+      ? 'Sem zoom será enviado como parameters.zoom.none = true.'
       : zoomMapping.scaleClamped
         ? `Escala limitada a ${HOST_ZOOM_SCALE_MIN.toFixed(2)}–${HOST_ZOOM_SCALE_MAX.toFixed(2)}× pelo host.`
         : '';
@@ -180,6 +180,7 @@ export const ReviewDetail: React.FC<ReviewDetailProps> = ({
           onTimeUpdate={onTimeUpdate}
           zoomTransform={zoomConfig}
           removedIntervals={afterRemoved.intervals}
+          keptSegments={afterRemoved.segments ?? null}
           afterSource={afterRemoved.source}
         />
 
@@ -194,7 +195,7 @@ export const ReviewDetail: React.FC<ReviewDetailProps> = ({
           <button
             type="button"
             disabled={applyZoomDisabled || !zoomDirty}
-            onClick={() => zoomMapping.parameters && onApplyZoom?.(zoomMapping.parameters)}
+            onClick={() => onApplyZoom?.(zoomMapping.parameters)}
             className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-cyan-600 text-white border border-cyan-500 disabled:opacity-40"
           >
             Aplicar zoom

@@ -72,6 +72,8 @@ export interface SmartZoomParametersDto {
   endScale?: number;
   framing?: string | null;
   focalPointKnown?: boolean;
+  /** "Sem zoom" (aditivo): true remove o zoom do clipe sem rejeitar a sugestão; scale 1,0 também é aceito pelo host. */
+  none?: boolean | null;
 }
 
 /** Parâmetros opcionais da decisão (hoje só zoom). Decisão humana vence a política. */
@@ -112,6 +114,9 @@ export interface DecisionResultDto {
   planRevision: number | null;        // null = projeto sem plano
   planChanged: boolean;               // nova revisão criada por esta decisão
   planError: string | null;           // regeneração falhou (decisão continua gravada)
+  // Aviso não bloqueante (aditivo): decisão gravada, plano NÃO regenerado pela proteção do plano manual
+  // (PLAN_MANUAL_PROTECTED | PLAN_MANUAL_EDITS_UNREADABLE). planError continua null nesse caso.
+  planSkippedReason?: string | null;
 }
 
 export interface EditSuggestion {
@@ -137,6 +142,8 @@ export interface EditSuggestion {
   policyVersion?: string | null;          // só origin 'auto'
   policyReason?: string | null;           // só origin 'auto'
   parameters?: DecisionParametersDto | null; // efetivos (decisão humana, senão os da própria sugestão de zoom)
+  // Elegibilidade do lote calculada pelo host (aditivo). Ausente = o frontend usa a regra local de isBatchApprovable.
+  batchApprovable?: boolean | null;
 }
 
 // ---- Prévia (F07) — espelho de src/TravelCut.Contracts/Dtos/PreviewDtos.cs ----
@@ -635,6 +642,19 @@ export interface PipelineStatusDto {
   activity?: PipelineActivityDto | null;
   /** F14.8: processamento automático pós-análise (plano + proxies); ausente no modo demonstração. */
   postAnalysis?: PostAnalysisStatusDto | null;
+  /** P14: sinal de fim do ciclo completo (análise + lotes pendentes + pós-análise). Ausente = host antigo. */
+  completion?: PipelineCompletionDto | null;
+}
+
+/**
+ * P14: notificar quando `settled` e `token` mudar para um valor novo e não nulo (token null = nada rodou nesta sessão: não notificar
+ * ao abrir o app). `outcome` = pior resultado entre análise e pós-análise.
+ */
+export interface PipelineCompletionDto {
+  settled: boolean;
+  pendingBatches: number;
+  token: string | null;
+  outcome: 'completed' | 'completed_with_issues' | 'failed' | 'canceled' | null;
 }
 
 /** Diagnóstico do worker Whisper (pipeline.diagnostics): caminhos locais, só por ação explícita do usuário. */
@@ -834,6 +854,15 @@ export interface MediaAnalysisDto {
   scene: SceneClassificationDto | null;
   cutCandidates: EditSuggestion[];
   analyzedAtUtc: string | null;
+  /** P11: o arquivo mudou desde a análise; resultados antigos descartados e reanálise pendente. Ausente = false. */
+  stale?: boolean;
+}
+
+/** Resposta de pipeline.retryFailed (P12): "started" = job novo; "merged" = mídias entraram no lote pendente. */
+export interface RetryFailedPipelineResponse {
+  outcome: 'started' | 'merged';
+  jobId: string | null;
+  pendingMediaCount: number;
 }
 
 // ---- Plano editorial (F06) — espelho de src/TravelCut.Contracts/Dtos/PlanDtos.cs ----
@@ -953,6 +982,11 @@ export interface PlanClipDto {
   speedDen: number;
   linkedClipId: string | null;
   zoom?: number | null;
+  // Aditivos do zoom (null/ausente quando foco/duração não são conhecidos)
+  zoomFocalPointX?: number | null;      // 0–1
+  zoomFocalPointY?: number | null;      // 0–1
+  zoomDurationSeconds?: number | null;  // null = clipe inteiro
+  zoomCurve?: 'punch_in' | 'push_in' | string | null;
   rationale?: string;
   evidence?: string[];
   suggestionIds?: string[];
@@ -966,9 +1000,16 @@ export interface PlanClipDto {
 export interface PlanTransitionDto {
   fromClipId: string;
   toClipId: string;
-  kind: 'cut' | 'dissolve' | 'fade' | string;
+  kind: 'cut' | 'fade' | 'dissolve' | 'crossfade' | string;
   durationFrames: number;
   needsHumanReview: boolean;
+  /** Aditivos (espelham PlanTransitionDto.cs): null em cortes secos e planos antigos. */
+  origin?: 'auto' | 'human' | null;
+  suggestionId?: string | null;
+  /** Só origin 'auto'. */
+  policyVersion?: string | null;
+  /** Só origin 'auto'. */
+  reason?: string | null;
 }
 
 export interface PlanAppliedCutDto {
@@ -989,8 +1030,10 @@ export interface PlanAppliedEffectDto {
   policyVersion?: string | null; // só origin 'auto'
   reason?: string | null;        // só origin 'auto'
   scale?: number | null;         // zoom
-  focalPointX?: number | null;   // zoom (decisão humana)
+  focalPointX?: number | null;   // zoom (decisão humana ou foco conhecido do recomendador)
   focalPointY?: number | null;
+  durationSeconds?: number | null; // zoom (aditivo)
+  zoomCurve?: 'punch_in' | 'push_in' | string | null; // zoom (aditivo)
 }
 
 export interface PlanPendingItemDto {
@@ -1084,6 +1127,8 @@ export interface PlanEditorialOperationDto {
 export interface SavePlanRevisionRequest {
   projectId: string;
   plan: EditPlanDto;
+  /** Revisão vigente sobre a qual a edição foi feita (exigida pelo host). */
+  baseRevision: number;
   operations?: PlanEditorialOperationDto[] | null;
   author?: string | null;
 }

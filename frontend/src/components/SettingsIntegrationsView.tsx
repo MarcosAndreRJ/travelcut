@@ -16,9 +16,12 @@ import {
   type IntegrationRow
 } from './environment/integrationStatus';
 import { useIntegrationStatus } from './environment/useIntegrationStatus';
+import { AutomationPreferencesPanel } from './AutomationPreferencesPanel';
 
 interface SettingsIntegrationsViewProps {
   editorCaps: EditorCapabilities | null;
+  /** Projeto atual: habilita as preferências de automação (aba editorial). */
+  projectId?: string | null;
   /** Reconsulta o estado do DaVinci no host (editor.capabilities), feita pela App. */
   onRefreshCaps?: () => void | Promise<void>;
 }
@@ -69,7 +72,8 @@ const DemoTag: React.FC = () => (
 
 export const SettingsIntegrationsView: React.FC<SettingsIntegrationsViewProps> = ({
   editorCaps,
-  onRefreshCaps
+  onRefreshCaps,
+  projectId = null
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<SubTab>('integrations');
   const [testing, setTesting] = useState<string | null>(null);
@@ -219,6 +223,13 @@ export const SettingsIntegrationsView: React.FC<SettingsIntegrationsViewProps> =
         {/* Aba 2: perfil editorial (planejado, sem valores aplicados) */}
         {activeSubTab === 'editorial' && (
           <div className="space-y-6">
+            {projectId ? (
+              <div className="p-5 rounded-2xl bg-[#0a1424] border border-slate-800">
+                <AutomationPreferencesPanel projectId={projectId} />
+              </div>
+            ) : (
+              <p className="text-xs text-slate-400">Abra um projeto para configurar a automação.</p>
+            )}
             <div>
               <h3 className="text-sm font-bold text-white flex items-center gap-2">
                 <Sliders className="w-4 h-4 text-cyan-400" />

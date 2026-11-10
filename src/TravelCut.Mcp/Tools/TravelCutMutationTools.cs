@@ -206,6 +206,32 @@ public sealed class TravelCutMutationTools(TravelCutMcpFacade facade)
         return ToolResults.From(outcome);
     }
 
+    [McpServerTool(Name = "set_automation_profile", ReadOnly = false, Destructive = false, Idempotent = true, OpenWorld = false)]
+    [Description("Define o perfil de automação editorial do projeto (conservative, balanced ou aggressive), igual a automation.profile.set da UI. A revisão vigente do plano passa a PLAN_OUTDATED até um novo plan.generate. Exige idempotencyKey. Só aparece com --allow-mutations.")]
+    public async Task<CallToolResult> SetAutomationProfile(
+        [Description("GUID do projeto autorizado.")] string projectId,
+        [Description("conservative | balanced | aggressive.")] string profile,
+        [Description("Chave de idempotência: [A-Za-z0-9_-], 1 a 100 caracteres.")] string idempotencyKey,
+        CancellationToken cancellationToken = default)
+    {
+        var outcome = await facade.ExecuteMutationAsync("set_automation_profile", projectId, idempotencyKey,
+            validate: () =>
+            {
+                var name = TravelCutMcpFacade.RequireAutomationProfile(profile);
+                var canonical = new { projectId = TravelCutMcpFacade.Canonical(projectId), profile = name };
+                return new TravelCutMcpFacade.ValidatedMutation<string>(name, canonical);
+            },
+            body: async (pid, name, ct) =>
+            {
+                var response = await facade.DispatchAsync(
+                    TravelCutMcpFacade.IpcTypes.AutomationProfileSet, new SetAutomationProfileRequest(pid, name), ct);
+                return McpOutcome.FromResponse(response);
+            },
+            cancellationToken);
+
+        return ToolResults.From(outcome);
+    }
+
     /// <summary>Entradas validadas de submit_review (já com GUID, ação e revisor normalizados).</summary>
     private sealed record ReviewInput(
         Guid SuggestionId,

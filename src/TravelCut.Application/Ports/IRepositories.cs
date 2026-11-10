@@ -23,6 +23,9 @@ public interface ITranscriptRepository
 {
     Task<Transcript?> GetByMediaIdAsync(Guid mediaId, CancellationToken ct = default);
     Task SaveAsync(Transcript transcript, CancellationToken ct = default);
+
+    /// <summary>P11: remove a transcrição da mídia (arquivo alterado: a transcrição antiga não vale para o novo conteúdo). Padrão: nada.</summary>
+    Task DeleteByMediaIdAsync(Guid mediaId, CancellationToken ct = default) => Task.CompletedTask;
 }
 
 public interface IEditPlanRepository

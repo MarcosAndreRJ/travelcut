@@ -78,14 +78,19 @@ public static class E2ESteps
         }
     }
 
-    public static async Task<JsonElement> WaitTerminalAsync(E2EHost host, Guid projectId, TimeSpan? timeout = null)
+    /// <summary>
+    /// Aguarda o estado terminal do pipeline. Com <paramref name="notJobId"/>, só aceita um job DIFERENTE desse (marcador de job novo):
+    /// um estado terminal herdado do job anterior não encerra a espera (ex.: reanálise automática disparada pelo scan).
+    /// </summary>
+    public static async Task<JsonElement> WaitTerminalAsync(E2EHost host, Guid projectId, TimeSpan? timeout = null, Guid? notJobId = null)
     {
         var deadline = DateTime.UtcNow + (timeout ?? TimeSpan.FromSeconds(30));
         while (true)
         {
             var status = await host.Ok("pipeline.status", new ProjectRequest(projectId));
             var state = status.GetProperty("state").GetString();
-            if (state is not null && TerminalStates.Contains(state)) return status;
+            if (state is not null && TerminalStates.Contains(state)
+                && (notJobId is null || status.GetProperty("jobId").GetGuid() != notJobId)) return status;
             if (DateTime.UtcNow > deadline)
             {
                 Assert.Fail("A análise não terminou no prazo: " + status.GetRawText());

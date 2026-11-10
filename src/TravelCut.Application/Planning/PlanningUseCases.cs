@@ -52,6 +52,34 @@ public sealed partial class PlanningUseCases
     private const string SourceFileMissingMessage = "Arquivo da mídia não encontrado em disco: ";
 
     public const string AuthorRevert = "revert";
+    public const string AuthorUser = "user";
+
+    /// <summary>A revisão base do save manual mudou (outra gravação, decisão ou geração): o cliente deve recarregar.</summary>
+    public const string PlanStaleBaseCode = "PLAN_STALE_BASE";
+
+    /// <summary>O ProjectId do plano enviado não é o do projeto da requisição.</summary>
+    public const string PlanProjectMismatchCode = "PLAN_PROJECT_MISMATCH";
+
+    /// <summary>O PlanId do plano enviado não é o do plano vigente do projeto.</summary>
+    public const string PlanIdMismatchCode = "PLAN_ID_MISMATCH";
+
+    /// <summary>Regeneração recusada: a revisão vigente é manual e seu artefato não pode ser lido. O plano é preservado.</summary>
+    public const string PlanManualEditsUnreadableCode = "PLAN_MANUAL_EDITS_UNREADABLE";
+
+    /// <summary>Regeneração recusada para não perder edições manuais que não podem ser reaplicadas. O plano é preservado.</summary>
+    public const string PlanManualProtectedCode = "PLAN_MANUAL_PROTECTED";
+
+    private const string ManualUnreadableMessage =
+        "A revisão manual vigente não pôde ser lida; o plano foi preservado e não foi regenerado.";
+
+    /// <summary>Códigos de recusa da guarda B: o plano vigente foi mantido de propósito (não é falha de geração nem de job).</summary>
+    public static bool IsPlanPreservedCode(string? code) =>
+        code is PlanManualEditsUnreadableCode or PlanManualProtectedCode;
+
+    /// <summary>Autor de revisão gerada pelo planejador (único autor "automático"); os demais são edição humana ou revert.</summary>
+    public static bool IsAutomaticAuthor(string? author) =>
+        author is not null && author.StartsWith("planner-rules/", StringComparison.Ordinal)
+        && !author.EndsWith(ManualAuthorSuffix, StringComparison.Ordinal);
     public const string NoProjectMessage = "Projeto não encontrado.";
 
     /// <summary>Código de erro (fail) ou de issue de validação quando o conteúdo não confere com o fingerprint gravado.</summary>
@@ -63,7 +91,8 @@ public sealed partial class PlanningUseCases
     private const string CorruptMessage = "O arquivo desta revisão do plano está inválido (JSON corrompido ou incompleto).";
     private const string ConflictMessage = "Outra gravação ocupou o número desta revisão. Tente novamente.";
 
-    private static readonly ConcurrentDictionary<Guid, SemaphoreSlim> ProjectLocks = new();
+    // Estático: serializa entre instâncias (escopos DI). Entradas ociosas são removidas (ProjectLockRegistry).
+    private static readonly ProjectLockRegistry ProjectLocks = new();
 
     private readonly IProjectRepository _projects;
     private readonly IMediaRepository _media;
@@ -135,17 +164,25 @@ public sealed partial class PlanningUseCases
             }
 
             var latest = await _revisions.GetLatestAsync(project.ProjectId, ct);
-            var planId = latest?.PlanId ?? Guid.NewGuid();
-            var revision = await NextRevisionAsync(project.RootPath, planId, latest?.Revision, ct);
-            var input = await LoadInputAsync(project.ProjectId, profile, request.TimeBase, zone, zoneId, ct);
-            var context = new PlanBuildContext(
-                PlanId: planId,
-                Revision: revision,
-                BaseRevision: latest?.Revision,
-                CreatedAtUtc: _clock.GetUtcNow().UtcDateTime,
-                Author: EditPlanner.Author);
+            // Guarda B: a revisão vigente é manual (user/revert/outro autor não automático) e não pode ser lida: regenerar
+            // a superseria sem que o trabalho do usuário possa ser reaplicado. Recusa, nada é gravado.
+            if (latest is not null && !IsAutomaticAuthor(latest.Author))
+            {
+                var vigente = await ReadPlanAsync(project.RootPath, latest, ct);
+                if (vigente.ErrorCode is not null)
+                {
+                    _logger.LogWarning(
+                        "Regeneração recusada: revisão manual {Revision} do plano {PlanId} ilegível ({Code}); plano preservado",
+                        latest.Revision, latest.PlanId, vigente.ErrorCode);
+                    return PlanOutcome<EditPlanDto>.Fail(PlanManualEditsUnreadableCode, ManualUnreadableMessage);
+                }
+            }
 
-            var built = EditPlanner.Build(input, context);
+            var candidate = await BuildCandidateCoreAsync(project, profile, request.TimeBase, zone, zoneId, latest, ct);
+            var input = candidate.Input;
+            var built = candidate.Built;
+            if (built.Plan is null && candidate.Refused)
+                return PlanOutcome<EditPlanDto>.Fail(built.ErrorCode!, built.ErrorMessage!);
             if (built.Plan is null)
                 return PlanOutcome<EditPlanDto>.Fail(built.ErrorCode ?? "NO_MEDIA_TO_PLAN", built.ErrorMessage ?? EditPlanner.NoMediaMessage);
 
@@ -174,6 +211,73 @@ public sealed partial class PlanningUseCases
             var derived = await DeriveValidationAsync(project.ProjectId, project.RootPath, plan, inputsFingerprint, ct);
             return PlanOutcome<EditPlanDto>.Ok(plan with { Validation = derived });
         }, ct);
+    }
+
+    /// <summary>Entradas lidas e plano candidato construído (não persistido) por <see cref="BuildCandidateCoreAsync"/>.</summary>
+    private sealed record CandidateBuild(PlanningInput Input, PlanBuildResult Built, Guid PlanId, int Revision, bool Refused = false);
+
+    /// <summary>
+    /// Núcleo de construção do plano automático candidato: relê o snapshot de entradas e roda o planejador. NÃO toma o lock
+    /// do projeto (o SemaphoreSlim não é reentrante: quem trava, como <see cref="GenerateAsync"/>, chama este núcleo já
+    /// dentro do lock; nunca o contrário) e NÃO grava nada (nem artefato nem índice). Revision = próxima após a vigente.
+    /// </summary>
+    private async Task<CandidateBuild> BuildCandidateCoreAsync(
+        Project project,
+        EditorialProfileDto profile,
+        TimelineTimeBaseDto? timeBase,
+        TimeZoneInfo zone,
+        string zoneId,
+        PlanRevisionIndexEntry? latest,
+        CancellationToken ct)
+    {
+        var candidate = await BuildAutoCoreAsync(project, profile, timeBase, zone, zoneId, latest, ct);
+        if (candidate.Built.Plan is null || latest is null) return candidate;
+
+        // Overlay da revisão vigente (E herdado): decisão, pós-análise e plan.generate não supersedem edições manuais.
+        var overlay = await ResolveOverlayAsync(project, latest, ct);
+        if (overlay.ErrorCode is not null)
+            return candidate with { Built = new PlanBuildResult(null, overlay.ErrorCode, overlay.ErrorMessage), Refused = true };
+        if (overlay.Edits.Count == 0) return candidate;
+        var applied = ApplyOverlay(candidate.Built.Plan, overlay.Edits, candidate.Input);
+        if (applied.Plan is null)
+            return candidate with { Built = new PlanBuildResult(null, applied.ErrorCode, applied.ErrorMessage), Refused = true };
+        return candidate with { Built = candidate.Built with { Plan = applied.Plan } };
+    }
+
+    /// <summary>Plano automático puro (sem overlay), usado por <see cref="BuildCandidateCoreAsync"/> e pelo save manual.</summary>
+    private async Task<CandidateBuild> BuildAutoCoreAsync(
+        Project project,
+        EditorialProfileDto profile,
+        TimelineTimeBaseDto? timeBase,
+        TimeZoneInfo zone,
+        string zoneId,
+        PlanRevisionIndexEntry? latest,
+        CancellationToken ct)
+    {
+        var planId = latest?.PlanId ?? Guid.NewGuid();
+        var revision = await NextRevisionAsync(project.RootPath, planId, latest?.Revision, ct);
+        var input = await LoadInputAsync(project.ProjectId, profile, timeBase, zone, zoneId, ct);
+        var context = new PlanBuildContext(
+            PlanId: planId,
+            Revision: revision,
+            BaseRevision: latest?.Revision,
+            CreatedAtUtc: _clock.GetUtcNow().UtcDateTime,
+            Author: EditPlanner.Author);
+        return new CandidateBuild(input, EditPlanner.Build(input, context), planId, revision);
+    }
+
+    /// <summary>
+    /// Base de tempo da revisão mais recente (sem validar nem gravar), para regenerações automáticas herdarem a base já
+    /// escolhida em vez de reescolher pela moda das mídias. Sem plano ou plano ilegível: null (geração decide sozinha).
+    /// </summary>
+    public async Task<TimelineTimeBaseDto?> GetLatestTimeBaseAsync(Guid projectId, CancellationToken ct = default)
+    {
+        if (projectId == Guid.Empty) return null;
+        var project = await _projects.GetByIdAsync(projectId, ct);
+        if (project is null || string.IsNullOrWhiteSpace(project.RootPath)) return null;
+        var entry = await _revisions.GetLatestAsync(projectId, ct);
+        if (entry is null) return null;
+        return (await ReadPlanAsync(project.RootPath, entry, ct)).Plan?.TimeBase;
     }
 
     /// <summary>Sem plano no projeto retorna sucesso com valor null.</summary>
@@ -483,7 +587,8 @@ public sealed partial class PlanningUseCases
     {
         var effective = EffectiveSuggestionStatus.ResolveDetailed(suggestions, decisions).Values;
         return PlanInputsFingerprint.Compute(
-            PlanValidation.MediaSetFingerprintOf(media), plan.Profile, plan.TimeBase, plan.TimeZoneId, effective);
+            PlanValidation.MediaSetFingerprintOf(media), plan.Profile, plan.TimeBase, plan.TimeZoneId, effective,
+            plan.ManualEdits?.Select(PlanMapping.ToDomain).ToList());
     }
 
     /// <summary>
@@ -543,15 +648,7 @@ public sealed partial class PlanningUseCases
 
     private static async Task<PlanOutcome<T>> WithProjectLockAsync<T>(Guid projectId, Func<Task<PlanOutcome<T>>> action, CancellationToken ct)
     {
-        var gate = ProjectLocks.GetOrAdd(projectId, _ => new SemaphoreSlim(1, 1));
-        await gate.WaitAsync(ct);
-        try
-        {
-            return await action();
-        }
-        finally
-        {
-            gate.Release();
-        }
+        using var _ = await ProjectLocks.AcquireAsync(projectId, ct);
+        return await action();
     }
 }

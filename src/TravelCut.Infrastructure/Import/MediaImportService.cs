@@ -30,8 +30,6 @@ public sealed class MediaImportOptions
 public sealed class MediaImportService : IMediaImportService
 {
     public const string PartialFileExtension = MediaFileExpander.PartialFileExtension;
-    private const string SpeechUnavailableNote =
-        "Análise de fala (F05) ainda não está conectada nesta versão: nada foi enfileirado.";
     private const int MaxNameAttempts = 10000;
 
     /// <summary>Estados de <c>speechAnalysis</c> (contrato com a UI).</summary>
@@ -189,6 +187,8 @@ public sealed class MediaImportService : IMediaImportService
 
     public CancelImportResponse Cancel(Guid jobId)
         => new(_jobs.TryGetValue(jobId, out var job) && job.RequestCancel());
+
+    public bool HasActiveImport(Guid projectId) => _activeJobByProject.ContainsKey(projectId);
 
     private async Task RunJobAsync(ImportJob job)
     {
@@ -462,6 +462,33 @@ public sealed class MediaImportService : IMediaImportService
             });
             return;
         }
+
+        // P14: reimportar mídia já analisada (análise válida, não stale) não cria job vazio. Falha ao consultar = enfileira (comportamento anterior).
+        int requested = mediaIds.Count;
+        var pending = new List<Guid>();
+        foreach (var id in mediaIds)
+        {
+            try
+            {
+                var existing = await pipeline.GetMediaAnalysisAsync(job.ProjectId, id, ct);
+                if (TravelCut.Application.PostAnalysis.PipelineResumeService.NeedsAnalysis(existing)) pending.Add(id);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                pending.Add(id);
+            }
+        }
+        if (pending.Count == 0)
+        {
+            job.Mutate(j =>
+            {
+                j.SpeechAnalysis = SpeechStates.Skipped;
+                j.SpeechHandedOff = true;
+                j.AddNote($"Detecção de fala: {requested} arquivo(s) já analisado(s); nenhuma nova análise foi enfileirada.");
+            });
+            return;
+        }
+        mediaIds = pending;
 
         // Decisão da fala em segundo plano: o probe de ambiente pode demorar (até o timeout do worker) sem travar o IPC.
         AnalysisEnvironmentDto? env = null;

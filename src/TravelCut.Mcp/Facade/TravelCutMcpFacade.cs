@@ -31,6 +31,8 @@ public sealed partial class TravelCutMcpFacade
         public const string PipelineStatus = "pipeline.status";
         public const string PipelineStart = "pipeline.start";
         public const string DecisionSubmit = "decision.submit";
+        public const string AutomationProfileGet = "automation.profile.get";
+        public const string AutomationProfileSet = "automation.profile.set";
         public const string EditorCapabilities = EditorIpcHandler.CapabilitiesType;
         public const string MotionCapabilities = TravelCut.Application.Motion.MotionIpcHandler.CapabilitiesType;
         public const string EditorPrepareApply = EditorIpcHandler.PrepareApplyType;
@@ -112,6 +114,16 @@ public sealed partial class TravelCutMcpFacade
         return match ?? throw new McpFailure(McpErrorCodes.InvalidArgument,
             "action inválida. Use approve, reject, defer ou modify.");
     }
+
+    /// <summary>
+    /// Perfil de automação: conservative | balanced | aggressive (sem diferenciar maiúsculas/espaços). Devolve o nome canônico;
+    /// qualquer outro valor é INVALID_ARGUMENT (nunca vira "balanced" em silêncio).
+    /// </summary>
+    public static string RequireAutomationProfile(string? raw) =>
+        TravelCut.Application.Planning.AutoEditorialProfiles.TryParse(raw, out var parsed)
+            ? TravelCut.Application.Planning.AutoEditorialProfiles.ToName(parsed)
+            : throw new McpFailure(McpErrorCodes.InvalidArgument,
+                "profile inválido. Use conservative, balanced ou aggressive.");
 
     /// <summary>Forma canônica de um GUID de entrada para o hash de argumentos (aceita maiúsculas/minúsculas).</summary>
     public static string Canonical(string? raw) =>

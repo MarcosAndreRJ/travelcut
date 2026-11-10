@@ -14,7 +14,7 @@ import { PREEDIT_OUTCOME_LABEL, derivePreeditSummary, outcomeOf } from './review
 import { useMediaAnalysis, useProjectMedia } from './review/useReviewData';
 import { usePlanSnapshot } from './review/usePlanRemoved';
 import type { EditPlanDto } from '../types/ipc';
-import { removedIntervalsFromPlan } from './media/mediaTime';
+import { keptSegmentsFromPlan, removedIntervalsFromPlan } from './media/mediaTime';
 import {
   DEFAULT_REVIEW_FILTERS,
   countByStatus,
@@ -53,15 +53,23 @@ export interface ReviewDecisionsViewProps {
 const fileNameOf = (path: string): string => path.split(/[\\/]/).filter(Boolean).pop() ?? path;
 
 const NO_AFTER: { intervals: { start: number; end: number }[]; source: 'candidate' } = { intervals: [], source: 'candidate' };
+// keptSegments só existe com plano; "só este corte" e "original" não aplicam taxa/zoom do plano.
 
 /**
  * "Depois" do candidato: com plano, pula TODOS os trechos removidos da mídia no plano vigente;
  * sem plano, pula só o intervalo efetivo do candidato (rotulado "só este corte").
  */
-export const afterRemovedOf = (plan: EditPlanDto | null, s: EditSuggestion) =>
-  plan
-    ? { intervals: removedIntervalsFromPlan(plan.clips, s.mediaId), source: 'plan' as const }
-    : { intervals: [effectiveInterval(s)], source: 'candidate' as const };
+export const afterRemovedOf = (plan: EditPlanDto | null, s: EditSuggestion) => {
+  if (!plan) return { intervals: [effectiveInterval(s)], source: 'candidate' as const };
+  // Candidato que o plano não aplicou (pendente, adiado, não aplicado, conflito): o "Depois" é o original.
+  const outcome = outcomeOf(s, plan);
+  if (outcome !== 'autoApplied' && outcome !== 'userApplied') return { intervals: [], source: 'original' as const };
+  return {
+    intervals: removedIntervalsFromPlan(plan.clips, s.mediaId),
+    segments: keptSegmentsFromPlan(plan.clips, s.mediaId),
+    source: 'plan' as const
+  };
+};
 
 /**
  * Confirmação do lote de silêncios. A faixa "alta" é heurística não calibrada (ADR/docs 07);
@@ -194,6 +202,19 @@ export const ReviewDecisionsView: React.FC<ReviewDecisionsViewProps> = ({
   const redo = () => {
     if (!activeItem || busy || activeItem.canRedo !== true) return;
     const id = activeItem.suggestionId;
+    setActiveId(id);
+    void run('redo', () => onRedo(id));
+  };
+
+  // Desfazer/Restaurar por linha da fila: atuam sobre o candidato da linha, sem depender do ativo.
+  const undoItem = (id: string) => {
+    if (busy) return;
+    setActiveId(id);
+    void run('undo', () => onUndo(id));
+  };
+
+  const redoItem = (id: string) => {
+    if (busy) return;
     setActiveId(id);
     void run('redo', () => onRedo(id));
   };
@@ -387,6 +408,9 @@ export const ReviewDecisionsView: React.FC<ReviewDecisionsViewProps> = ({
           onToggleSelected={toggleSelected}
           onToggleAllVisible={toggleAllVisible}
           mediaName={mediaNameOf}
+          onUndoItem={undoItem}
+          onRedoItem={redoItem}
+          actionsBusy={busy}
           batchBar={batchBar}
           footer={<ShortcutLegend />}
         />

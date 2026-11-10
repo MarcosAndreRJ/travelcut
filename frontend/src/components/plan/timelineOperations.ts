@@ -101,11 +101,13 @@ export function trimClips(
   });
 }
 
+/** `idSuffix` gera os IDs das partes novas (padrão: relógio). Reaplicação passa sufixo único. */
 export function splitClips(
   clips: PlanClipDto[],
   clipId: string,
   atFrame: number,
-  timeBase: TimelineTimeBaseDto
+  timeBase: TimelineTimeBaseDto,
+  idSuffix: string = String(Date.now())
 ): PlanClipDto[] {
   const target = clips.find((c) => c.clipId === clipId);
   if (!target) return clips;
@@ -125,9 +127,9 @@ export function splitClips(
     : null;
 
   const newPart1Id = target.clipId;
-  const newPart2Id = `${target.clipId}_split_${Date.now()}`;
+  const newPart2Id = `${target.clipId}_split_${idSuffix}`;
   const newPart1LinkedId = linked ? linked.clipId : null;
-  const newPart2LinkedId = linked ? `${linked.clipId}_split_${Date.now()}` : null;
+  const newPart2LinkedId = linked ? `${linked.clipId}_split_${idSuffix}` : null;
 
   const part1Target: PlanClipDto = {
     ...target,
@@ -172,7 +174,11 @@ export function splitClips(
   return result;
 }
 
-export function duplicateClips(clips: PlanClipDto[], clipId: string): PlanClipDto[] {
+export function duplicateClips(
+  clips: PlanClipDto[],
+  clipId: string,
+  idSuffix: string = String(Date.now())
+): PlanClipDto[] {
   const target = clips.find((c) => c.clipId === clipId);
   if (!target) return clips;
 
@@ -184,8 +190,8 @@ export function duplicateClips(clips: PlanClipDto[], clipId: string): PlanClipDt
     ? Math.max(...clips.map((c) => c.timelineStartFrame + c.durationFrames))
     : 0;
 
-  const dupTargetId = `${target.clipId}_dup_${Date.now()}`;
-  const dupLinkedId = linked ? `${linked.clipId}_dup_${Date.now()}` : null;
+  const dupTargetId = `${target.clipId}_dup_${idSuffix}`;
+  const dupLinkedId = linked ? `${linked.clipId}_dup_${idSuffix}` : null;
 
   const dupTarget: PlanClipDto = {
     ...target,

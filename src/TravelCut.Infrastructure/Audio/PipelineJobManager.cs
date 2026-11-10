@@ -29,6 +29,13 @@ public class PipelineJobManager : IPipelineJobManager
     public const string MediaAnalysisToolId = "travelcut-media-analysis";
     public const string DefaultLanguage = "pt";
 
+    /// <summary>Motivo registrado quando os metadados provam que a mídia não tem trilha de áudio (P08).</summary>
+    public const string NoAudioReason = "sem áudio";
+
+    /// <summary>Metadados ausentes ou não confiáveis = desconhecido (não pula); só AudioChannels==0 medido com sucesso pelo ffprobe conta como sem áudio.</summary>
+    internal static bool HasNoAudioTrack(MediaAsset asset) =>
+        asset.Metadata is { MetadataStatus: MediaMetadataStatus.Ok, AudioChannels: 0 };
+
     private static readonly TimeSpan EnvironmentCacheTtl = TimeSpan.FromSeconds(60);
     private static readonly SilenceDetectionOptions SilenceOptions = new();
     private static readonly Regex LanguagePattern = new(@"^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})?$", RegexOptions.Compiled);
@@ -68,6 +75,11 @@ public class PipelineJobManager : IPipelineJobManager
     /// <summary>F14.8/P01: processamento automático (plano + proxies) acionado só em completed/completed_with_issues.</summary>
     private readonly IPostAnalysisOrchestrator? _postAnalysis;
 
+    /// <summary>P07: persistência da fila pendente (null = só memória, como antes).</summary>
+    private readonly IPipelineStateStore? _stateStore;
+    private readonly Dictionary<Guid, string> _rootByProject = new();
+    private readonly object _persistGate = new();
+
     private readonly SemaphoreSlim _environmentLock = new(1, 1);
     private AnalysisEnvironmentDto? _environment;
     private DateTime _environmentAtUtc = DateTime.MinValue;
@@ -81,9 +93,11 @@ public class PipelineJobManager : IPipelineJobManager
         ISceneClassifierService scene,
         ICutCandidateService candidates,
         IProjectOperationLock projectLocks,
-        IPostAnalysisOrchestrator? postAnalysis = null)
+        IPostAnalysisOrchestrator? postAnalysis = null,
+        IPipelineStateStore? stateStore = null)
     {
         _postAnalysis = postAnalysis;
+        _stateStore = stateStore;
         _logger = logger;
         _scopeFactory = scopeFactory;
         _whisper = whisper;
@@ -101,7 +115,11 @@ public class PipelineJobManager : IPipelineJobManager
         var stages = NormalizeStages(request.Stages);
         var language = NormalizeLanguage(request.Language);
 
-        if (TryMergeIntoPending(request, stages, language) is { } merged) return merged;
+        if (TryMergeIntoPending(request, stages, language) is { } merged)
+        {
+            PersistPending(request.ProjectId);
+            return merged;
+        }
 
         try
         {
@@ -110,9 +128,179 @@ public class PipelineJobManager : IPipelineJobManager
         catch (InvalidOperationException ex) when (ex.Message == "PIPELINE_IN_PROGRESS")
         {
             // Corrida: outro start ocupou o slot entre a checagem e a reserva. Trava entre processos (sem job local): não há aviso de liberação → propaga.
-            if (TryMergeIntoPending(request, stages, language) is { } raced) return raced;
+            if (TryMergeIntoPending(request, stages, language) is { } raced)
+            {
+                PersistPending(request.ProjectId);
+                return raced;
+            }
             throw;
         }
+    }
+
+    /// <summary>P07: grava a fila pendente atual do projeto (snapshot sob trava; no máximo uma escrita por vez). Melhor esforço.</summary>
+    private void PersistPending(Guid projectId)
+    {
+        if (_stateStore is null) return;
+        lock (_persistGate)
+        {
+            string? root;
+            List<PersistedPendingBatch> snapshot;
+            lock (_registry)
+            {
+                if (!_rootByProject.TryGetValue(projectId, out root)) return;
+                snapshot = _pending.TryGetValue(projectId, out var list)
+                    ? list.Select(b => new PersistedPendingBatch(b.Stages.ToList(), b.Language, b.Force, b.MediaIds?.ToList())).ToList()
+                    : new List<PersistedPendingBatch>();
+            }
+
+            try
+            {
+                _stateStore.SavePending(root, snapshot);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Não foi possível persistir a fila pendente do projeto {ProjectId}", projectId);
+            }
+        }
+    }
+
+    public async Task<int> RestorePendingAsync(Guid projectId, CancellationToken ct = default)
+    {
+        if (_stateStore is null) return 0;
+
+        string? root;
+        using (var scope = _scopeFactory.CreateScope())
+        {
+            var project = await scope.ServiceProvider.GetRequiredService<IProjectRepository>().GetByIdAsync(projectId, ct);
+            root = string.IsNullOrWhiteSpace(project?.RootPath) ? null : Path.GetFullPath(project!.RootPath);
+        }
+        if (root is null) return 0;
+
+        IReadOnlyList<PersistedPendingBatch> saved;
+        try
+        {
+            saved = _stateStore.LoadPending(root);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Falha ao ler a fila pendente persistida do projeto {ProjectId}", projectId);
+            return 0;
+        }
+
+        lock (_registry)
+        {
+            _rootByProject[projectId] = root;
+            foreach (var b in saved)
+            {
+                // Estágios/idioma passam pela mesma validação de uma requisição nova; lote inválido é descartado.
+                try
+                {
+                    MergeBatch(projectId, NormalizeStages(b.Stages), NormalizeLanguage(b.Language), b.Force, b.MediaIds);
+                }
+                catch (InvalidOperationException)
+                {
+                    _logger.LogWarning("Lote pendente persistido inválido descartado no projeto {ProjectId}", projectId);
+                }
+            }
+        }
+
+        if (saved.Count > 0)
+        {
+            _logger.LogInformation("Projeto {ProjectId}: {Count} lote(s) pendente(s) restaurado(s) do disco", projectId, saved.Count);
+            _ = Task.Run(async () =>
+            {
+                await DrainPendingAsync(projectId);
+                PersistPending(projectId);
+            }, CancellationToken.None);
+        }
+        return saved.Count;
+    }
+
+    /// <summary>
+    /// P11: arquivo alterado (fingerprint novo, mesmo MediaId). Grava um marcador stale (sem resultados) na chave de cache do
+    /// novo fingerprint, remove a transcrição do conteúdo antigo e reenfileira a reanálise. A chave de cache muda com o
+    /// fingerprint, então nenhum resultado antigo é reutilizado. O plano dependente fica inválido por si: o fingerprint do
+    /// conjunto de mídias (PlanValidation.MediaSetFingerprintOf) muda e o pós-análise regenera o plano ao fim da reanálise.
+    /// </summary>
+    public async Task MarkMediaStaleAsync(Guid projectId, IReadOnlyList<Guid> mediaIds, CancellationToken ct = default)
+    {
+        if (mediaIds.Count == 0) return;
+
+        var reanalyze = new List<Guid>();
+        using (var scope = _scopeFactory.CreateScope())
+        {
+            var sp = scope.ServiceProvider;
+            var project = await sp.GetRequiredService<IProjectRepository>().GetByIdAsync(projectId, ct);
+            if (project is null || string.IsNullOrWhiteSpace(project.RootPath)) return;
+            string root = Path.GetFullPath(project.RootPath);
+
+            var cache = sp.GetRequiredService<IMediaCacheManager>();
+            var transcripts = sp.GetRequiredService<ITranscriptRepository>();
+            var mediaRepo = sp.GetRequiredService<IMediaRepository>();
+            foreach (var id in mediaIds.Distinct())
+            {
+                var asset = await mediaRepo.GetByIdAsync(id, ct);
+                if (asset is null || asset.ProjectId != projectId || asset.Kind is not (MediaKind.Video or MediaKind.Audio)) continue;
+
+                var stale = new MediaAnalysisDto(
+                    id, "not_run", "Arquivo alterado: análise anterior descartada; reanálise pendente.", null,
+                    "not_run", null, new List<VadSilenceSegmentDto>(), new List<HesitationCandidateDto>(), null,
+                    new List<EditSuggestionDto>(), DateTime.UtcNow, Stale: true);
+                await cache.WriteArtifactTextAsync(root, CacheCategory,
+                    AnalysisCacheKey(cache, asset, MediaAnalysisToolId), Serialize(stale), ct);
+                await transcripts.DeleteByMediaIdAsync(id, ct);
+                reanalyze.Add(id);
+            }
+        }
+
+        if (reanalyze.Count == 0) return;
+        _logger.LogInformation("Projeto {ProjectId}: {Count} mídia(s) alterada(s); análise marcada como stale e reenfileirada", projectId, reanalyze.Count);
+        try
+        {
+            await EnqueueAsync(new StartPipelineRequest(projectId, reanalyze, null, null, false), ct);
+        }
+        catch (InvalidOperationException ex)
+        {
+            // Sem Whisper/trava ocupada etc.: o marcador stale permanece e a retomada (P07) reenfileira ao abrir.
+            _logger.LogWarning("Reanálise de mídia alterada não enfileirada ({Code})", ex.Message);
+        }
+    }
+
+    /// <summary>Adiciona/mescla um lote na fila do projeto. Chamar sob <see cref="_registry"/>.</summary>
+    private PendingBatch MergeBatch(Guid projectId, List<string> stages, string language, bool force, List<Guid>? mediaIds)
+    {
+        if (!_pending.TryGetValue(projectId, out var batches))
+        {
+            batches = new List<PendingBatch>();
+            _pending[projectId] = batches;
+        }
+
+        var batch = batches.FirstOrDefault(b => b.Force == force && b.Language == language && b.Stages.SequenceEqual(stages));
+        if (batch == null)
+        {
+            batch = new PendingBatch
+            {
+                ProjectId = projectId,
+                Stages = stages,
+                Language = language,
+                Force = force,
+                MediaIds = mediaIds == null ? null : new List<Guid>()
+            };
+            batches.Add(batch);
+        }
+
+        if (mediaIds == null)
+        {
+            batch.MediaIds = null; // "todas" absorve qualquer lista
+        }
+        else if (batch.MediaIds != null)
+        {
+            foreach (var id in mediaIds)
+            {
+                if (!batch.MediaIds.Contains(id)) batch.MediaIds.Add(id);
+            }
+        }
+        return batch;
     }
 
     private PipelineEnqueueResult? TryMergeIntoPending(StartPipelineRequest request, List<string> stages, string language)
@@ -121,37 +309,7 @@ public class PipelineJobManager : IPipelineJobManager
         {
             if (!_activeByProject.TryGetValue(request.ProjectId, out var activeJobId)) return null;
 
-            if (!_pending.TryGetValue(request.ProjectId, out var batches))
-            {
-                batches = new List<PendingBatch>();
-                _pending[request.ProjectId] = batches;
-            }
-
-            var batch = batches.FirstOrDefault(b => b.Force == request.Force && b.Language == language && b.Stages.SequenceEqual(stages));
-            if (batch == null)
-            {
-                batch = new PendingBatch
-                {
-                    ProjectId = request.ProjectId,
-                    Stages = stages,
-                    Language = language,
-                    Force = request.Force,
-                    MediaIds = request.MediaIds == null ? null : new List<Guid>()
-                };
-                batches.Add(batch);
-            }
-
-            if (request.MediaIds == null)
-            {
-                batch.MediaIds = null; // "todas" absorve qualquer lista
-            }
-            else if (batch.MediaIds != null)
-            {
-                foreach (var id in request.MediaIds)
-                {
-                    if (!batch.MediaIds.Contains(id)) batch.MediaIds.Add(id);
-                }
-            }
+            var batch = MergeBatch(request.ProjectId, stages, language, request.Force, request.MediaIds);
 
             _logger.LogInformation("Pipeline do projeto {ProjectId} em andamento ({JobId}): mídias mescladas ao lote pendente ({Count})",
                 request.ProjectId, activeJobId, batch.MediaIds?.Count ?? -1);
@@ -176,6 +334,7 @@ public class PipelineJobManager : IPipelineJobManager
                     list.RemoveAt(0);
                     if (list.Count == 0) _pending.Remove(projectId);
                 }
+                PersistPending(projectId);
 
                 try
                 {
@@ -185,6 +344,7 @@ public class PipelineJobManager : IPipelineJobManager
                 }
                 catch (InvalidOperationException ex) when (ex.Message == "PIPELINE_IN_PROGRESS")
                 {
+                    bool reinserted = false;
                     lock (_registry)
                     {
                         if (_activeByProject.ContainsKey(projectId))
@@ -192,8 +352,13 @@ public class PipelineJobManager : IPipelineJobManager
                             // Outro job tomou o slot: devolve o lote ao início da fila; ele drena ao terminar.
                             if (!_pending.TryGetValue(projectId, out var list)) { list = new List<PendingBatch>(); _pending[projectId] = list; }
                             list.Insert(0, batch);
-                            return;
+                            reinserted = true;
                         }
+                    }
+                    if (reinserted)
+                    {
+                        PersistPending(projectId);
+                        return;
                     }
                     _logger.LogError("Lote pendente do projeto {ProjectId} descartado: a trava de análise entre processos está ocupada.", projectId);
                 }
@@ -220,6 +385,7 @@ public class PipelineJobManager : IPipelineJobManager
                 _logger.LogWarning("Análise cancelada: {Count} lote(s) pendente(s) do projeto {ProjectId} descartado(s).", dropped.Count, projectId);
             }
         }
+        PersistPending(projectId);
     }
 
     public async Task<Guid> StartAsync(StartPipelineRequest request, CancellationToken ct = default)
@@ -277,6 +443,7 @@ public class PipelineJobManager : IPipelineJobManager
             job.SetAnalysisLock(analysisLock);
 
             job.ProjectRoot = root;
+            lock (_registry) { _rootByProject[request.ProjectId] = root; }
             job.InitializeMedia(selected.Select(a => CreateWork(root, a)));
         }
         catch
@@ -306,6 +473,7 @@ public class PipelineJobManager : IPipelineJobManager
         lock (_registry)
         {
             _latestByProject[request.ProjectId] = job.JobId;
+            EvictFinishedJobs();
         }
 
         job.Completion = Task.Run(() => RunJobAsync(job));
@@ -313,6 +481,33 @@ public class PipelineJobManager : IPipelineJobManager
             job.JobId, job.ProjectId, job.Media.Count, string.Join(",", stages));
 
         return job.JobId;
+    }
+
+    /// <summary>Máximo de jobs finalizados retidos em memória além do mais recente de cada projeto (P15).</summary>
+    public const int MaxRetainedFinishedJobs = 20;
+
+    /// <summary>
+    /// P15: descarta jobs finalizados antigos (o mais recente de cada projeto é sempre mantido) e libera seus
+    /// CancellationTokenSource. Chamar sob <see cref="_registry"/>.
+    /// </summary>
+    private void EvictFinishedJobs()
+    {
+        var latest = _latestByProject.Values.ToHashSet();
+        var evictable = _jobs.Values
+            .Where(j => j.IsFinished && !latest.Contains(j.JobId))
+            .OrderBy(j => j.FinishedAtUtc ?? DateTime.MinValue)
+            .ToList();
+
+        for (int i = 0; i < evictable.Count - MaxRetainedFinishedJobs; i++)
+        {
+            _jobs.Remove(evictable[i].JobId);
+            evictable[i].Cts.Dispose();
+        }
+    }
+
+    public int TrackedJobCount
+    {
+        get { lock (_registry) { return _jobs.Count; } }
     }
 
     public async Task<PipelineStatusDto> GetStatusAsync(Guid projectId, CancellationToken ct = default)
@@ -324,6 +519,13 @@ public class PipelineJobManager : IPipelineJobManager
         }
 
         var environment = await GetEnvironmentAsync(ct);
+        var post = _postAnalysis?.GetStatus(projectId);
+        int pendingBatches;
+        lock (_registry)
+        {
+            pendingBatches = _pending.TryGetValue(projectId, out var batches) ? batches.Count : 0;
+        }
+
         if (job == null)
         {
             return new PipelineStatusDto(
@@ -336,10 +538,36 @@ public class PipelineJobManager : IPipelineJobManager
                 Environment: environment,
                 StartedAtUtc: null,
                 FinishedAtUtc: null,
-                PostAnalysis: _postAnalysis?.GetStatus(projectId));
+                PostAnalysis: post,
+                Completion: new PipelineCompletionDto(
+                    Settled: pendingBatches == 0 && post?.State != "running", PendingBatches: pendingBatches, Token: null, Outcome: null));
         }
 
-        return job.Snapshot(environment) with { PostAnalysis = _postAnalysis?.GetStatus(projectId) };
+        var snapshot = job.Snapshot(environment);
+        return snapshot with { PostAnalysis = post, Completion = BuildCompletion(snapshot, post, pendingBatches) };
+    }
+
+    /// <summary>
+    /// P14: fim do ciclo. Job concluído com orquestrador ainda "idle" = pós-análise prestes a iniciar (a agenda ocorre logo após
+    /// o Finish): ainda não assentado, para não notificar cedo. Outcome = pior resultado entre análise e pós-análise.
+    /// </summary>
+    internal PipelineCompletionDto BuildCompletion(PipelineStatusDto job, PostAnalysisStatusDto? post, int pendingBatches)
+    {
+        bool jobFinished = job.State is "completed" or "completed_with_issues" or "failed" or "canceled";
+        bool postWillRun = _postAnalysis is not null && job.State is "completed" or "completed_with_issues";
+        bool postBusy = post?.State == "running" || (postWillRun && post?.State == "idle");
+        bool settled = jobFinished && pendingBatches == 0 && !postBusy;
+        if (!settled) return new PipelineCompletionDto(false, pendingBatches, null, null);
+
+        string outcome = job.State;
+        if (post is not null && outcome is "completed" or "completed_with_issues")
+        {
+            if (post.State == "failed") outcome = "failed";
+            else if (post.State == "completed_with_issues") outcome = "completed_with_issues";
+        }
+
+        string token = $"{job.JobId:N}:{(post?.State is "idle" or null ? 0 : post.FinishedAtUtc?.Ticks ?? 0)}";
+        return new PipelineCompletionDto(true, 0, token, outcome);
     }
 
     public PipelineDiagnosticsDto GetDiagnostics(Guid projectId)
@@ -423,9 +651,13 @@ public class PipelineJobManager : IPipelineJobManager
         var ct = job.Cts.Token;
         bool canceled = false;
         job.MarkRunning();
+        // P10: cancela o lote de transcrição que ainda esteja rodando quando o job terminar por qualquer caminho.
+        using var batchCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
 
         try
         {
+            await StartTranscriptionBatchAsync(job, batchCts.Token);
+
             foreach (var media in job.Media)
             {
                 ct.ThrowIfCancellationRequested();
@@ -471,12 +703,71 @@ public class PipelineJobManager : IPipelineJobManager
         }
         finally
         {
+            try { batchCts.Cancel(); } catch (ObjectDisposedException) { }
+
             // Redundante por segurança (idempotente): garante liberação mesmo em caminhos não previstos.
             await ReleaseSlotAsync(job);
 
             // Slot livre e job já finalizado: inicia o lote pendente (mídias importadas durante este pipeline) ou o descarta se cancelado.
             if (canceled) DropPending(job.ProjectId);
             else await DrainPendingAsync(job.ProjectId);
+        }
+    }
+
+    /// <summary>
+    /// P10: com 2+ mídias a transcrever, inicia um lote (um processo do worker, modelo carregado uma vez) em vez de um processo
+    /// por mídia. Só entram mídias com áudio e sem transcrição em cache (ou com Force). Serviço sem suporte a lote (null) ou falha
+    /// ao iniciar: o job segue mídia a mídia, como antes.
+    /// </summary>
+    private async Task StartTranscriptionBatchAsync(PipelineJobRun job, CancellationToken batchToken)
+    {
+        if (!job.Stages.Contains(PipelineStages.Transcription)) return;
+
+        try
+        {
+            var candidates = new List<PipelineMediaWork>();
+            using (var scope = _scopeFactory.CreateScope())
+            {
+                var cache = scope.ServiceProvider.GetRequiredService<IMediaCacheManager>();
+                foreach (var media in job.Media)
+                {
+                    if (media.AbsolutePath == null || !File.Exists(media.AbsolutePath) || HasNoAudioTrack(media.Asset)) continue;
+                    if (!job.Force)
+                    {
+                        string key = AnalysisCacheKey(cache, media.Asset, $"whisper:{WhisperModel}:{job.Language}");
+                        var cached = Deserialize<TranscriptionOutcome>(
+                            await cache.ReadArtifactTextAsync(job.ProjectRoot, CacheCategory, key, batchToken));
+                        if (cached is { Status: "completed", Transcript: not null }) continue;
+                    }
+                    candidates.Add(media);
+                }
+            }
+
+            if (candidates.Count < 2) return; // uma só mídia: o caminho individual é equivalente
+
+            var items = candidates.Select(m => new TranscriptionBatchItem(
+                m.AbsolutePath!,
+                m.MediaId,
+                new SynchronousProgress<TranscriptionProgressUpdate>(u =>
+                {
+                    if (job.AwaitingTranscriptionMediaId == m.MediaId) job.ReportTranscriptionProgress(u);
+                }),
+                job.BeginWhisperExecution(m))).ToList();
+
+            var tasks = _whisper.TranscribeBatch(items, WhisperModel, job.Language, batchToken);
+            if (tasks is null || tasks.Count != candidates.Count) return;
+
+            for (int i = 0; i < candidates.Count; i++) job.BatchTranscriptions[candidates[i].MediaId] = tasks[i];
+            _logger.LogInformation("Job {JobId}: transcrição em lote ({Count} mídias, modelo carregado uma vez)", job.JobId, candidates.Count);
+        }
+        catch (OperationCanceledException) when (batchToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Job {JobId}: não foi possível iniciar o lote de transcrição; seguindo mídia a mídia", job.JobId);
+            job.BatchTranscriptions.Clear();
         }
     }
 
@@ -552,6 +843,11 @@ public class PipelineJobManager : IPipelineJobManager
             AnalysisCacheKey(cache, media.Asset, MediaAnalysisToolId), ct);
         var work = MediaAnalysisWork.From(Deserialize<MediaAnalysisDto>(previousJson));
 
+        // P06: etapas concluídas são gravadas no cache de análise mesmo se o job for cancelado no meio da mídia
+        // (a transcrição já persistida no banco não pode ficar como "not_run" em analysis.getMedia).
+        bool progressed = false;
+        try
+        {
         foreach (var stage in job.Stages)
         {
             ct.ThrowIfCancellationRequested();
@@ -587,17 +883,42 @@ public class PipelineJobManager : IPipelineJobManager
                 _logger.LogError(ex, "Etapa {Stage} falhou para mídia {MediaId} no job {JobId}", stage, media.MediaId, job.JobId);
                 job.SetStage(media, stage, StageStates.Failed, "Falha inesperada nesta etapa; detalhes no log.");
             }
+            progressed = true;
+        }
+        }
+        finally
+        {
+            if (progressed)
+            {
+                try
+                {
+                    // Sem o token de cancelamento: o resultado parcial precisa ser gravado justamente quando houve cancelamento.
+                    var analysis = work.ToDto(media.MediaId, DateTime.UtcNow);
+                    await cache.WriteArtifactTextAsync(job.ProjectRoot, CacheCategory,
+                        AnalysisCacheKey(cache, media.Asset, MediaAnalysisToolId), Serialize(analysis), CancellationToken.None);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Falha ao gravar o cache de análise da mídia {MediaId} no job {JobId}", media.MediaId, job.JobId);
+                }
+            }
         }
 
         ct.ThrowIfCancellationRequested();
-
-        var analysis = work.ToDto(media.MediaId, DateTime.UtcNow);
-        await cache.WriteArtifactTextAsync(job.ProjectRoot, CacheCategory,
-            AnalysisCacheKey(cache, media.Asset, MediaAnalysisToolId), Serialize(analysis), ct);
     }
 
     private async Task RunTranscriptionAsync(PipelineJobRun job, PipelineMediaWork media, MediaAnalysisWork work, IServiceProvider sp, CancellationToken ct)
     {
+        // P08: sem trilha de áudio não há o que transcrever; nem inicia o worker Python.
+        if (HasNoAudioTrack(media.Asset))
+        {
+            work.Transcript = null;
+            work.TranscriptionStatus = StageStates.Skipped;
+            work.TranscriptionReason = NoAudioReason;
+            job.SetStage(media, PipelineStages.Transcription, StageStates.Skipped, NoAudioReason);
+            return;
+        }
+
         var cache = sp.GetRequiredService<IMediaCacheManager>();
         string toolId = $"whisper:{WhisperModel}:{job.Language}";
         string key = AnalysisCacheKey(cache, media.Asset, toolId);
@@ -615,9 +936,21 @@ public class PipelineJobManager : IPipelineJobManager
 
         if (outcome == null)
         {
-            outcome = await _whisper.TranscribeAsync(media.AbsolutePath!, media.MediaId, WhisperModel, job.Language, ct,
-                new SynchronousProgress<TranscriptionProgressUpdate>(job.ReportTranscriptionProgress),
-                job.BeginWhisperExecution(media));
+            outcome = await TranscribeWithRecoveryAsync(job, media, ct);
+
+            // P09: duração do áudio transcrito muito diferente da dos metadados = possível truncamento. Não persiste nem cacheia.
+            if (outcome.Status == "completed" && outcome.Transcript != null
+                && media.Asset.Metadata is { MetadataStatus: MediaMetadataStatus.Ok } md
+                && TranscriptValidator.CheckDurationMismatch(outcome.Transcript.AudioDurationSeconds, md.DurationSeconds) is { } mismatch)
+            {
+                _logger.LogWarning("Transcrição da mídia {MediaId} descartada do cache: {Mismatch}", media.MediaId, mismatch);
+                work.Transcript = null;
+                work.TranscriptionStatus = StageStates.CompletedWithIssues;
+                work.TranscriptionReason = mismatch;
+                job.SetStage(media, PipelineStages.Transcription, StageStates.CompletedWithIssues, mismatch);
+                return;
+            }
+
             if (outcome.Status == "completed" && outcome.Transcript != null)
             {
                 await cache.WriteArtifactTextAsync(job.ProjectRoot, CacheCategory, key, Serialize(outcome), ct);
@@ -628,6 +961,20 @@ public class PipelineJobManager : IPipelineJobManager
 
         if (outcome.Status == "completed" && outcome.Transcript != null)
         {
+            // M3: o arquivo pode ter mudado (fingerprint novo + MarkMediaStaleAsync) enquanto este job transcrevia o conteúdo
+            // antigo. Nunca regrava no banco uma transcrição do fingerprint antigo; a reanálise pendente produz a nova.
+            if (await IsMediaContentChangedAsync(sp, media, ct))
+            {
+                const string superseded = "Arquivo alterado durante a análise: resultado descartado; reanálise pendente.";
+                _logger.LogInformation("Mídia {MediaId} mudou durante o job {JobId}; transcrição do conteúdo antigo descartada", media.MediaId, job.JobId);
+                work.Superseded = true;
+                work.Transcript = null;
+                work.TranscriptionStatus = StageStates.Skipped;
+                work.TranscriptionReason = superseded;
+                job.SetStage(media, PipelineStages.Transcription, StageStates.Skipped, superseded);
+                return;
+            }
+
             var transcript = outcome.Transcript with { MediaId = media.MediaId };
             await PersistTranscriptAsync(sp, transcript, ct);
 
@@ -649,8 +996,95 @@ public class PipelineJobManager : IPipelineJobManager
         job.SetStage(media, PipelineStages.Transcription, state, reason);
     }
 
+    /// <summary>
+    /// P12: falha classificada como passageira ganha 1 retry automático; falta de memória da GPU faz 1 fallback para CPU
+    /// (mesmo modelo: nunca substitui large-v3). Cada tentativa tem seu registro de execução auditável.
+    /// </summary>
+    private async Task<TranscriptionOutcome> TranscribeWithRecoveryAsync(PipelineJobRun job, PipelineMediaWork media, CancellationToken ct)
+    {
+        var progress = new SynchronousProgress<TranscriptionProgressUpdate>(job.ReportTranscriptionProgress);
+
+        TranscriptionOutcome outcome;
+        if (job.BatchTranscriptions.Remove(media.MediaId, out var batched))
+        {
+            // P10: resultado do lote (modelo carregado uma vez). Falha por item cai no recovery abaixo, mídia a mídia.
+            job.AwaitingTranscriptionMediaId = media.MediaId;
+            try
+            {
+                outcome = await batched.WaitAsync(ct);
+            }
+            finally
+            {
+                job.AwaitingTranscriptionMediaId = Guid.Empty;
+            }
+
+            if (outcome.Status == "canceled")
+            {
+                ct.ThrowIfCancellationRequested();
+                outcome = await _whisper.TranscribeAsync(media.AbsolutePath!, media.MediaId, WhisperModel, job.Language, ct,
+                    progress, job.BeginWhisperExecution(media));
+            }
+        }
+        else
+        {
+            outcome = await _whisper.TranscribeAsync(media.AbsolutePath!, media.MediaId, WhisperModel, job.Language, ct,
+                progress, job.BeginWhisperExecution(media));
+        }
+
+        if (outcome.Status != "failed") return outcome;
+
+        if (outcome.FailureCode == TranscriptionFailureCodes.CudaOutOfMemory)
+        {
+            _logger.LogWarning("GPU sem memória na mídia {MediaId}; repetindo em CPU com o mesmo modelo.", media.MediaId);
+            ct.ThrowIfCancellationRequested();
+            return await _whisper.TranscribeOnDeviceAsync(media.AbsolutePath!, media.MediaId, WhisperModel, job.Language, "cpu", ct,
+                progress, job.BeginWhisperExecution(media));
+        }
+
+        if (outcome.FailureCode == TranscriptionFailureCodes.Transient)
+        {
+            _logger.LogWarning("Falha passageira na transcrição da mídia {MediaId} ({Reason}); nova tentativa.", media.MediaId, outcome.Reason);
+            ct.ThrowIfCancellationRequested();
+            return await _whisper.TranscribeAsync(media.AbsolutePath!, media.MediaId, WhisperModel, job.Language, ct,
+                progress, job.BeginWhisperExecution(media));
+        }
+
+        return outcome;
+    }
+
+    /// <summary>
+    /// P12: reenfileira somente as mídias do último job do projeto com alguma etapa failed/canceled (etapas já concluídas
+    /// vêm do cache). Lança NO_MEDIA_TO_ANALYZE se nada falhou.
+    /// </summary>
+    public async Task<PipelineEnqueueResult> RetryFailedAsync(Guid projectId, CancellationToken ct = default)
+    {
+        PipelineJobRun? last;
+        lock (_registry)
+        {
+            last = _latestByProject.TryGetValue(projectId, out var id) && _jobs.TryGetValue(id, out var j) ? j : null;
+        }
+        if (last is null || !last.IsFinished) throw new InvalidOperationException("NO_MEDIA_TO_ANALYZE");
+
+        var failedIds = last.Snapshot(null).Media
+            .Where(m => m.StageStates.Values.Any(s => s is StageStates.Failed or StageStates.Canceled))
+            .Select(m => m.MediaId)
+            .ToList();
+        if (failedIds.Count == 0) throw new InvalidOperationException("NO_MEDIA_TO_ANALYZE");
+
+        return await EnqueueAsync(new StartPipelineRequest(projectId, failedIds, last.Stages.ToList(), last.Language, false), ct);
+    }
+
     private async Task RunSilenceAsync(PipelineJobRun job, PipelineMediaWork media, MediaAnalysisWork work, IServiceProvider sp, CancellationToken ct)
     {
+        if (HasNoAudioTrack(media.Asset))
+        {
+            work.Silences = new List<VadSilenceSegmentDto>();
+            work.SilenceStatus = StageStates.Skipped;
+            work.SilenceReason = NoAudioReason;
+            job.SetStage(media, PipelineStages.Silence, StageStates.Skipped, NoAudioReason);
+            return;
+        }
+
         var cache = sp.GetRequiredService<IMediaCacheManager>();
         string toolId = SilenceToolId(SilenceOptions);
         string key = AnalysisCacheKey(cache, media.Asset, toolId);
@@ -721,6 +1155,15 @@ public class PipelineJobManager : IPipelineJobManager
 
     private async Task RunCandidatesAsync(PipelineJobRun job, PipelineMediaWork media, MediaAnalysisWork work, IServiceProvider sp, CancellationToken ct)
     {
+        if (work.Superseded || await IsMediaContentChangedAsync(sp, media, ct))
+        {
+            // M3: candidatos do conteúdo antigo não podem substituir as sugestões da mídia alterada.
+            work.Superseded = true;
+            job.SetStage(media, PipelineStages.Candidates, StageStates.Skipped,
+                "Arquivo alterado durante a análise: candidatos descartados; reanálise pendente.");
+            return;
+        }
+
         bool hasSilence = work.SilenceStatus == "completed";
         bool hasTranscript = work.TranscriptionStatus == "completed" && work.Transcript != null;
 
@@ -754,6 +1197,20 @@ public class PipelineJobManager : IPipelineJobManager
     }
 
     // ---------------------------------------------------------------- Persistência
+
+    /// <summary>
+    /// true quando o fingerprint atual da mídia no banco difere do usado por este job (conteúdo trocado durante a execução).
+    /// Leitura sem rastreamento: o DbContext do escopo não pode devolver a entidade antiga em cache.
+    /// </summary>
+    private static async Task<bool> IsMediaContentChangedAsync(IServiceProvider sp, PipelineMediaWork media, CancellationToken ct)
+    {
+        var db = sp.GetRequiredService<TravelCutDbContext>();
+        var current = await db.MediaAssets.AsNoTracking()
+            .Where(m => m.MediaId == media.MediaId)
+            .Select(m => m.Fingerprint)
+            .FirstOrDefaultAsync(ct);
+        return current is not null && !string.Equals(current, media.Asset.Fingerprint, StringComparison.Ordinal);
+    }
 
     private static async Task PersistTranscriptAsync(IServiceProvider sp, TranscriptDto dto, CancellationToken ct)
     {

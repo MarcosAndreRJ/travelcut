@@ -65,15 +65,25 @@ public record PlanClipDto(
     [property: JsonPropertyName("evidence")] List<string> Evidence,
     [property: JsonPropertyName("suggestionIds")] List<Guid> SuggestionIds, // sugestões que originaram este recorte
     [property: JsonPropertyName("confidenceBand")] string ConfidenceBand,
-    [property: JsonPropertyName("needsHumanReview")] bool NeedsHumanReview
+    [property: JsonPropertyName("needsHumanReview")] bool NeedsHumanReview,
+    // Aditivos (null sem zoom ou quando foco/duração não são conhecidos): foco 0-1, duração (s) e curva (punch_in | push_in) do zoom.
+    [property: JsonPropertyName("zoomFocalPointX")] double? ZoomFocalPointX = null,
+    [property: JsonPropertyName("zoomFocalPointY")] double? ZoomFocalPointY = null,
+    [property: JsonPropertyName("zoomDurationSeconds")] double? ZoomDurationSeconds = null,
+    [property: JsonPropertyName("zoomCurve")] string? ZoomCurve = null
 );
 
 public record PlanTransitionDto(
     [property: JsonPropertyName("fromClipId")] Guid FromClipId,
     [property: JsonPropertyName("toClipId")] Guid ToClipId,
-    [property: JsonPropertyName("kind")] string Kind,          // cut | dissolve | fade
+    [property: JsonPropertyName("kind")] string Kind,          // cut | fade | dissolve | crossfade
     [property: JsonPropertyName("durationFrames")] long DurationFrames,
-    [property: JsonPropertyName("needsHumanReview")] bool NeedsHumanReview
+    [property: JsonPropertyName("needsHumanReview")] bool NeedsHumanReview,
+    // Aditivos (null em cortes secos e projetos antigos): origem auditável da transição materializada.
+    [property: JsonPropertyName("origin")] string? Origin = null,              // auto | human
+    [property: JsonPropertyName("suggestionId")] Guid? SuggestionId = null,    // sugestão "transition" que a originou
+    [property: JsonPropertyName("policyVersion")] string? PolicyVersion = null, // só origin "auto"
+    [property: JsonPropertyName("reason")] string? Reason = null               // só origin "auto"
 );
 
 public record PlanAppliedCutDto(
@@ -86,7 +96,7 @@ public record PlanAppliedCutDto(
 );
 
 /// <summary>
-/// F14.8 (aditivo): efeito aplicado pelo plano com origem auditável. kind: cut | zoom; origin: auto | human.
+/// F14.8 (aditivo): efeito aplicado pelo plano com origem auditável. kind: cut | zoom | transition; origin: auto | human.
 /// policyVersion/reason só em origin "auto". Fora do fingerprint do plano (informativo).
 /// </summary>
 public record PlanAppliedEffectDto(
@@ -98,7 +108,9 @@ public record PlanAppliedEffectDto(
     [property: JsonPropertyName("reason")] string? Reason = null,
     [property: JsonPropertyName("scale")] double? Scale = null,
     [property: JsonPropertyName("focalPointX")] double? FocalPointX = null,
-    [property: JsonPropertyName("focalPointY")] double? FocalPointY = null
+    [property: JsonPropertyName("focalPointY")] double? FocalPointY = null,
+    [property: JsonPropertyName("durationSeconds")] double? DurationSeconds = null, // zoom (aditivo)
+    [property: JsonPropertyName("zoomCurve")] string? ZoomCurve = null              // zoom: punch_in | push_in (aditivo)
 );
 
 public record PlanPendingItemDto(
@@ -153,7 +165,28 @@ public record EditPlanDto(
     [property: JsonPropertyName("pending")] List<PlanPendingItemDto> Pending,
     [property: JsonPropertyName("summary")] PlanSummaryDto Summary,
     [property: JsonPropertyName("validation")] PlanValidationDto Validation,
-    [property: JsonPropertyName("appliedEffects")] List<PlanAppliedEffectDto>? AppliedEffects = null // F14.8 (aditivo; null em planos antigos)
+    [property: JsonPropertyName("appliedEffects")] List<PlanAppliedEffectDto>? AppliedEffects = null, // F14.8 (aditivo; null em planos antigos)
+    [property: JsonPropertyName("manualEdits")] List<PlanManualEditDto>? ManualEdits = null // F14.7b (aditivo; null em planos antigos e automáticos)
+);
+
+/// <summary>
+/// F14.7b (aditivo): edição manual ancorada na fonte (µs por mídia), reaplicada sobre cada plano automático regenerado.
+/// kind: exclude | include | split (in == out == ponto) | place | duplicate | property. place/duplicate: depois do segmento que
+/// contém (afterMediaId, afterSourceInUs); âncora nula = início. property: zoom e/ou velocidade (speedNum/speedDen).
+/// </summary>
+public record PlanManualEditDto(
+    [property: JsonPropertyName("editId")] Guid EditId,
+    [property: JsonPropertyName("seq")] int Seq,
+    [property: JsonPropertyName("kind")] string Kind,
+    [property: JsonPropertyName("mediaId")] Guid MediaId,
+    [property: JsonPropertyName("sourceInUs")] long SourceInUs,
+    [property: JsonPropertyName("sourceOutUs")] long SourceOutUs,
+    [property: JsonPropertyName("afterMediaId")] Guid? AfterMediaId = null,
+    [property: JsonPropertyName("afterSourceInUs")] long? AfterSourceInUs = null,
+    [property: JsonPropertyName("zoom")] double? Zoom = null,
+    [property: JsonPropertyName("speedNum")] int? SpeedNum = null,
+    [property: JsonPropertyName("speedDen")] int? SpeedDen = null,
+    [property: JsonPropertyName("introducedInRevision")] int IntroducedInRevision = 0
 );
 
 public record PlanRevisionInfoDto(

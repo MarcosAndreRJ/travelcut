@@ -91,6 +91,69 @@ export const afterModeSkipTargets = (currentSeconds: number, windows: readonly S
   return null;
 };
 
+/**
+ * Trecho MANTIDO da fonte pelo plano vigente, com a taxa e o zoom do clipe que o contém.
+ * rate = speedNum/speedDen (1 quando inválido). zoom = escala do clipe quando > 1; senão null.
+ * Prévia aproximada: taxa e zoom são reproduzidos pelo HTML5, não são o render final.
+ */
+export interface KeptSegment {
+  start: number;
+  end: number;
+  rate: number;
+  zoom: number | null;
+  /** Campos do zoom do clipe (só presentes quando zoom !== null). Foco null = centro; duração null = clipe inteiro. */
+  zoomFocalPointX?: number | null;
+  zoomFocalPointY?: number | null;
+  zoomDurationSeconds?: number | null;
+  zoomCurve?: string | null;
+}
+
+/** Trechos mantidos de uma mídia no plano, ordenados por início da fonte. Mídias de outros clipes são ignoradas. */
+export const keptSegmentsFromPlan = (
+  clips: ReadonlyArray<{
+    mediaId: string;
+    sourceInUs: number;
+    sourceOutUs: number;
+    speedNum: number;
+    speedDen: number;
+    zoom?: number | null;
+    zoomFocalPointX?: number | null;
+    zoomFocalPointY?: number | null;
+    zoomDurationSeconds?: number | null;
+    zoomCurve?: string | null;
+  }>,
+  mediaId: string
+): KeptSegment[] =>
+  clips
+    .filter((c) => c.mediaId === mediaId && Number.isFinite(c.sourceInUs) && Number.isFinite(c.sourceOutUs) && c.sourceOutUs > c.sourceInUs)
+    .map((c) => {
+      const zoom = typeof c.zoom === 'number' && Number.isFinite(c.zoom) && c.zoom > 1 ? c.zoom : null;
+      return {
+        start: c.sourceInUs / 1_000_000,
+        end: c.sourceOutUs / 1_000_000,
+        rate: c.speedNum > 0 && c.speedDen > 0 && Number.isFinite(c.speedNum / c.speedDen) ? c.speedNum / c.speedDen : 1,
+        zoom,
+        ...(zoom !== null
+          ? {
+              zoomFocalPointX: c.zoomFocalPointX ?? null,
+              zoomFocalPointY: c.zoomFocalPointY ?? null,
+              zoomDurationSeconds: c.zoomDurationSeconds ?? null,
+              zoomCurve: c.zoomCurve ?? null
+            }
+          : {})
+      };
+    })
+    .sort((a, b) => a.start - b.start);
+
+/** Trecho mantido que contém o instante (fonte, segundos), ou null quando o instante está num trecho removido. */
+export const keptSegmentAt = (seconds: number, segments: readonly KeptSegment[]): KeptSegment | null => {
+  if (!Number.isFinite(seconds)) return null;
+  for (const s of segments) {
+    if (seconds >= s.start && seconds < s.end) return s;
+  }
+  return null;
+};
+
 /** Segundos da fonte com 3 casas e separador PT-BR: "12,345 s". */
 export const formatSourceSeconds = (seconds: number): string => {
   if (!Number.isFinite(seconds)) return '—';

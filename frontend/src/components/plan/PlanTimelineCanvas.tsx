@@ -29,6 +29,7 @@ const LABEL_WIDTH_PX = 132;
 const BASE_PX_PER_SECOND = 4;
 const MIN_ZOOM = 0.05;
 const MAX_ZOOM = 32;
+const ROW_HEIGHT_PX = 64;
 
 interface PlanTimelineCanvasProps {
   plan: EditPlanDto;
@@ -558,7 +559,7 @@ export const PlanTimelineCanvas: React.FC<PlanTimelineCanvasProps> = ({
                             speedRatio={(clip.speedNumerator ?? clip.speedNum ?? 1) / (clip.speedDenominator ?? clip.speedDen ?? 1)}
                             widthPx={pos.width}
                             heightPx={ROW_HEIGHT_PX - 12}
-                            color={selected ? '#38bdf8' : row.kind === 'music' ? '#c084fc' : '#22d3ee'}
+                            tone={row.kind === 'music' ? 'indigo' : 'cyan'}
                           />
                         </div>
                       )}

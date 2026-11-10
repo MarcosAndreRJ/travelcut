@@ -66,7 +66,7 @@ var mcp = builder.Services
             Version = "0.1.0",
         };
         options.ServerInstructions =
-            "Fachada do TravelCut Studio. Leituras são seguras. Mutações (submit_review, queue_analysis, apply_plan) " +
+            "Fachada do TravelCut Studio. Leituras são seguras. Mutações (submit_review, queue_analysis, set_automation_profile, apply_plan) " +
             "exigem idempotencyKey, só afetam projetos autorizados e apply_plan só aplica após dry-run e confirmação do usuário.";
     })
     .WithStdioServerTransport()

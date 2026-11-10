@@ -48,11 +48,33 @@ public static class TranscriptValidator
         return null;
     }
 
+    /// <summary>Tolerância absoluta mínima entre a duração do áudio transcrito e a da mídia (metadados).</summary>
+    public const double DurationMismatchMinSeconds = 2.0;
+    /// <summary>Tolerância relativa (fração da duração da mídia) entre áudio transcrito e metadados.</summary>
+    public const double DurationMismatchRatio = 0.05;
+
+    /// <summary>
+    /// Compara a duração do áudio vista pelo Whisper com a duração dos metadados. Retorna a descrição da divergência
+    /// (transcrição possivelmente truncada) ou null se compatível ou se a duração da mídia é desconhecida (≤ 0).
+    /// </summary>
+    public static string? CheckDurationMismatch(double transcriptAudioSeconds, double mediaDurationSeconds)
+    {
+        if (!double.IsFinite(mediaDurationSeconds) || mediaDurationSeconds <= 0) return null;
+
+        var tolerance = Math.Max(DurationMismatchMinSeconds, mediaDurationSeconds * DurationMismatchRatio);
+        var diff = Math.Abs(transcriptAudioSeconds - mediaDurationSeconds);
+        if (diff <= tolerance) return null;
+
+        var ci = System.Globalization.CultureInfo.InvariantCulture;
+        return $"duração do áudio transcrito ({transcriptAudioSeconds.ToString("0.0", ci)} s) diverge da duração da mídia ({mediaDurationSeconds.ToString("0.0", ci)} s); a transcrição pode estar truncada.";
+    }
+
     public static TranscriptValidationResult Validate(WhisperTranscriptPayload payload)
     {
-        if (!double.IsFinite(payload.AudioDurationSeconds) || payload.AudioDurationSeconds < 0)
+        // P09: duração 0 (áudio não decodificado/truncado a zero) nunca vira transcrição "completed", mesmo sem palavras.
+        if (!double.IsFinite(payload.AudioDurationSeconds) || payload.AudioDurationSeconds <= 0)
         {
-            return Invalid("duração do áudio inválida.");
+            return Invalid("duração do áudio inválida ou zero.");
         }
 
         var limit = payload.AudioDurationSeconds + EndToleranceSeconds;

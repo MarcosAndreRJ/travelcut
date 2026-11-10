@@ -13,4 +13,7 @@ public interface IMediaImportService
     Task<ImportStartResult> StartAsync(StartImportRequest request, CancellationToken ct = default);
     ImportJobStatusDto? GetStatus(Guid jobId);
     CancelImportResponse Cancel(Guid jobId);
+
+    /// <summary>true quando há importação ativa (enfileirada/em execução) para o projeto: seus *.tcpart não são órfãos.</summary>
+    bool HasActiveImport(Guid projectId);
 }

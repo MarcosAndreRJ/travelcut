@@ -167,6 +167,25 @@ def _model_cached(model_name):
     return os.path.isfile(os.path.join(_cache_dir(), model_name + ".pt"))
 
 
+_MODEL_CACHE = {}
+
+
+def _load_model_cached(whisper, model_name, device):
+    """
+    P10: o processo atende vários "transcribe" em sequência (lote do pipeline) e carrega o modelo uma única vez por
+    (modelo, dispositivo). Guarda uma só entrada: trocar de dispositivo (fallback CPU) descarta a anterior. O modelo
+    pedido nunca é trocado por outro.
+    """
+    key = (model_name, device)
+    cached = _MODEL_CACHE.get(key)
+    if cached is not None:
+        return cached
+    _MODEL_CACHE.clear()
+    model_obj = whisper.load_model(model_name, device=device)
+    _MODEL_CACHE[key] = model_obj
+    return model_obj
+
+
 def _whisper_version():
     try:
         from importlib.metadata import version
@@ -253,7 +272,8 @@ def handle_transcribe(request_id, payload):
     try:
         telemetry.start()
         telemetry.report("loading_audio")
-        cuda = bool(torch.cuda.is_available())
+        # P12: payload.device == "cpu" força CPU (fallback após falta de memória da GPU); o modelo nunca muda.
+        cuda = bool(torch.cuda.is_available()) and payload.get("device") != "cpu"
         device = "cuda" if cuda else "cpu"
         lang = None if language in (None, "", "auto") else language
 
@@ -263,7 +283,7 @@ def handle_transcribe(request_id, payload):
 
         # O arquivo já está no cache (verificado acima): load_model não baixa.
         telemetry.report("loading_model")
-        model_obj = whisper.load_model(model, device=device)
+        model_obj = _load_model_cached(whisper, model, device)
 
         telemetry.report("transcribing")
         restore_hook = _install_progress_hook(telemetry)
@@ -302,6 +322,10 @@ def handle_transcribe(request_id, payload):
     except Exception as exc:
         restore_hook()
         telemetry.stop()
+        if "out of memory" in str(exc).lower() or type(exc).__name__ == "OutOfMemoryError":
+            _MODEL_CACHE.clear()  # libera a VRAM do modelo em cache; o próximo item recarrega (ou o chamador cai para CPU)
+            _err(request_id, "cuda_out_of_memory", f"{type(exc).__name__}: {str(exc)[:300]}")
+            return
         _err(request_id, "transcription_failed", f"{type(exc).__name__}: {str(exc)[:300]}")
 
 

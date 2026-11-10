@@ -10,6 +10,7 @@ import { ReviewDecisionsView } from './components/ReviewDecisionsView';
 import {
   describeDecisionError,
   decisionPlanErrorMessage,
+  describePlanSkippedReason,
   type ReviewDecisionAction,
   type ReviewErrorInfo,
   type ReviewNotice
@@ -21,6 +22,7 @@ import { MontageOverviewView } from './components/MontageOverviewView';
 import { ResolveHubView } from './components/ResolveHubView';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ModelDownloadBanner } from './components/environment/ModelDownloadBanner';
+import { usePipelineCompletionNotifier } from './components/analysis/usePipelineCompletionNotifier';
 import { integrationStatusStore } from './services/integrationStatusStore';
 import { modelDownloadTracker } from './services/modelDownloadTracker';
 import { ipc } from './services/ipcBridge';
@@ -275,14 +277,16 @@ export const App: React.FC = () => {
     }
 
     const missing = result.missingSuggestionIds ?? [];
-    if (missing.length > 0 || result.planError) {
-      // Os dois avisos podem coexistir: não esconder o erro do plano atrás do aviso de ids ausentes.
+    const skippedPlanMessage = describePlanSkippedReason(result.planSkippedReason);
+    if (missing.length > 0 || result.planError || skippedPlanMessage) {
+      // Os avisos podem coexistir: não esconder o erro do plano atrás do aviso de ids ausentes.
       const parts: string[] = [];
       if (missing.length > 0) {
         parts.push(`${missing.length} candidato(s) não foram encontrados no host; a lista foi recarregada.`);
         setSuggestionsReloadKey((k) => k + 1);
       }
       if (result.planError) parts.push(decisionPlanErrorMessage(result.planError));
+      if (skippedPlanMessage) parts.push(skippedPlanMessage);
       setReviewNotice({ tone: 'warning', text: parts.join(' ') });
     } else if (result.planChanged && result.planRevision !== null) {
       setReviewNotice({ tone: 'info', text: `Plano atualizado: revisão r${result.planRevision}.` });
@@ -338,6 +342,9 @@ const handleApplyZoom = (suggestionId: string, zoom: SmartZoomParametersDto) => 
   };
 
   const reloadSuggestions = () => setSuggestionsReloadKey((k) => k + 1);
+
+  // Fim de ciclo do pipeline (análise + pós-análise) em qualquer tela: notificação única no shell.
+  usePipelineCompletionNotifier(projectId);
 
   // Download concluído em qualquer tela: reconsulta forçada para todas as telas verem o novo estado.
   useEffect(() => modelDownloadTracker.onSuccess(() => void integrationStatusStore.refresh()), []);
@@ -476,7 +483,7 @@ const handleApplyZoom = (suggestionId: string, zoom: SmartZoomParametersDto) => 
             )}
 
             {currentTab === 'settings' && (
-              <SettingsIntegrationsView editorCaps={editorCaps} onRefreshCaps={handleRefreshCaps} />
+              <SettingsIntegrationsView editorCaps={editorCaps} onRefreshCaps={handleRefreshCaps} projectId={projectId} />
             )}
 
             {currentTab === 'narrative' && (

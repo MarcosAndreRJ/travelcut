@@ -28,16 +28,28 @@ public static class PlanMapping
             Clips: plan.Clips.Select(c => new PlanClipDto(
                 c.ClipId, c.TrackId, c.MediaId, c.RelativePath, c.SectionId, c.SourceInUs, c.SourceOutUs,
                 c.TimelineStartFrame, c.DurationFrames, c.SpeedNum, c.SpeedDen, c.LinkedClipId, c.Zoom,
-                c.Rationale, c.Evidence.ToList(), c.SuggestionIds.ToList(), c.ConfidenceBand, c.NeedsHumanReview)).ToList(),
+                c.Rationale, c.Evidence.ToList(), c.SuggestionIds.ToList(), c.ConfidenceBand, c.NeedsHumanReview,
+                c.ZoomFocalPointX, c.ZoomFocalPointY, c.ZoomDurationSeconds, c.ZoomCurve)).ToList(),
             Transitions: plan.Transitions.Select(t => new PlanTransitionDto(
-                t.FromClipId, t.ToClipId, t.Kind, t.DurationFrames, t.NeedsHumanReview)).ToList(),
+                t.FromClipId, t.ToClipId, t.Kind, t.DurationFrames, t.NeedsHumanReview,
+                t.Origin, t.SuggestionId, t.PolicyVersion, t.Reason)).ToList(),
             AppliedCuts: plan.AppliedCuts.Select(c => new PlanAppliedCutDto(
                 c.SuggestionId, c.MediaId, c.SourceInUs, c.SourceOutUs, c.Kind, c.Origin)).ToList(),
             Pending: plan.Pending.Select(p => new PlanPendingItemDto(p.SuggestionId, p.MediaId, p.Kind, p.Message, p.ClipId)).ToList(),
             Summary: summary,
             Validation: validation,
             AppliedEffects: plan.AppliedEffects?.Select(e => new PlanAppliedEffectDto(
-                e.SuggestionId, e.MediaId, e.Kind, e.Origin, e.PolicyVersion, e.Reason, e.Scale, e.FocalPointX, e.FocalPointY)).ToList());
+                e.SuggestionId, e.MediaId, e.Kind, e.Origin, e.PolicyVersion, e.Reason, e.Scale, e.FocalPointX, e.FocalPointY,
+                e.DurationSeconds, e.ZoomCurve)).ToList(),
+            ManualEdits: plan.ManualEdits?.Select(ToDto).ToList());
+
+    public static PlanManualEditDto ToDto(PlanManualEdit e) => new(
+        e.EditId, e.Seq, e.Kind, e.MediaId, e.SourceInUs, e.SourceOutUs, e.AfterMediaId, e.AfterSourceInUs,
+        e.Zoom, e.SpeedNum, e.SpeedDen, e.IntroducedInRevision);
+
+    public static PlanManualEdit ToDomain(PlanManualEditDto e) => new(
+        e.EditId, e.Seq, e.Kind, e.MediaId, e.SourceInUs, e.SourceOutUs, e.AfterMediaId, e.AfterSourceInUs,
+        e.Zoom, e.SpeedNum, e.SpeedDen, e.IntroducedInRevision);
 
     /// <summary>Reconstrói o modelo de domínio a partir do contrato (usado por plan.validate, revert e verificação de fingerprint).</summary>
     public static PlanRevision ToDomain(EditPlanDto dto) => new(
@@ -57,14 +69,18 @@ public static class PlanMapping
         Clips: dto.Clips.Select(c => new PlanClip(
             c.ClipId, c.TrackId, c.MediaId, c.RelativePath, c.SectionId, c.SourceInUs, c.SourceOutUs,
             c.TimelineStartFrame, c.DurationFrames, c.SpeedNum, c.SpeedDen, c.LinkedClipId, c.Zoom,
-            c.Rationale, c.Evidence, c.SuggestionIds, c.ConfidenceBand, c.NeedsHumanReview)).ToList(),
+            c.Rationale, c.Evidence, c.SuggestionIds, c.ConfidenceBand, c.NeedsHumanReview,
+            c.ZoomFocalPointX, c.ZoomFocalPointY, c.ZoomDurationSeconds, c.ZoomCurve)).ToList(),
         Transitions: dto.Transitions.Select(t => new PlanTransition(
-            t.FromClipId, t.ToClipId, t.Kind, t.DurationFrames, t.NeedsHumanReview)).ToList(),
+            t.FromClipId, t.ToClipId, t.Kind, t.DurationFrames, t.NeedsHumanReview,
+            t.Origin, t.SuggestionId, t.PolicyVersion, t.Reason)).ToList(),
         AppliedCuts: dto.AppliedCuts.Select(c => new PlanAppliedCut(
             c.SuggestionId, c.MediaId, c.SourceInUs, c.SourceOutUs, c.Kind, c.Origin)).ToList(),
         Pending: dto.Pending.Select(p => new PlanPendingItem(p.SuggestionId, p.MediaId, p.Kind, p.Message, p.ClipId)).ToList(),
         AppliedEffects: dto.AppliedEffects?.Select(e => new PlanAppliedEffect(
-            e.SuggestionId, e.MediaId, e.Kind, e.Origin, e.PolicyVersion, e.Reason, e.Scale, e.FocalPointX, e.FocalPointY)).ToList());
+            e.SuggestionId, e.MediaId, e.Kind, e.Origin, e.PolicyVersion, e.Reason, e.Scale, e.FocalPointX, e.FocalPointY,
+            e.DurationSeconds, e.ZoomCurve)).ToList(),
+        ManualEdits: dto.ManualEdits?.Select(ToDomain).ToList());
 
     public static PlanProfileSnapshot ToProfileSnapshot(EditorialProfileDto p) => new(
         p.ProfileId, p.Version, p.SilencePolicy, p.Pace, p.JokePreservation, p.ZoomStrength,

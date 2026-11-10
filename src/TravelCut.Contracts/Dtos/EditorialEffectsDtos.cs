@@ -90,7 +90,10 @@ public sealed record SmartZoomParametersDto(
     [property: JsonPropertyName("endScale")] double EndScale = 1.08,
     // F14.8/E04 (aditivo): enquadramento classificado e se o ponto focal é conhecido (não é o centro "por padrão").
     [property: JsonPropertyName("framing")] string? Framing = null,
-    [property: JsonPropertyName("focalPointKnown")] bool FocalPointKnown = false
+    [property: JsonPropertyName("focalPointKnown")] bool FocalPointKnown = false,
+    // Decisão humana "sem zoom" (aditivo): true = remove o zoom do clipe sem rejeitar a sugestão (equivale a scale 1,0).
+    // Omitido (null) em tudo que não seja essa decisão; nunca gravado como false.
+    [property: JsonPropertyName("none"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? None = null
 );
 
 public sealed record SmartZoomProfileDto(

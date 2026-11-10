@@ -12,7 +12,7 @@ public static class SuggestionEffectiveMapper
     /// null significa "intervalo original" (contrato de EditSuggestionDto).
     /// </summary>
     public static EditSuggestionDto ToDto(EditSuggestion suggestion, EffectiveSuggestion effective,
-        PlanAppliedEffectDto? appliedEffect = null)
+        PlanAppliedEffectDto? appliedEffect = null, bool? batchApprovable = null)
     {
         var dto = SuggestionStorageMapper.ToDto(suggestion);
 
@@ -54,6 +54,7 @@ public static class SuggestionEffectiveMapper
             PolicyVersion = policyVersion,
             PolicyReason = policyReason,
             Parameters = parameters,
+            BatchApprovable = batchApprovable,
         };
     }
 }

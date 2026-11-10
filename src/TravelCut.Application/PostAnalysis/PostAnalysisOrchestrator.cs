@@ -27,6 +27,7 @@ public sealed class PostAnalysisOrchestrator : IPostAnalysisOrchestrator, IDispo
     public const string IssueProxyLimit = "PROXY_LIMIT_EXCEEDED";
     public const string IssueUnexpected = "POST_ANALYSIS_ERROR";
     public const string IssueZoomFailed = "ZOOM_SUGGESTIONS_FAILED";
+    public const string IssueTransitionFailed = "TRANSITION_SUGGESTIONS_FAILED";
 
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly TimeProvider _clock;
@@ -37,12 +38,17 @@ public sealed class PostAnalysisOrchestrator : IPostAnalysisOrchestrator, IDispo
     private readonly Dictionary<Guid, Task> _loops = new();
     private readonly HashSet<Guid> _rerun = new();
     private readonly CancellationTokenSource _shutdown = new();
+    /// <summary>P07: último estado do pós-análise persistido por projeto (null = só memória).</summary>
+    private readonly IPipelineStateStore? _stateStore;
+    private readonly Dictionary<Guid, string> _roots = new();
 
     public PostAnalysisOrchestrator(
         IServiceScopeFactory scopeFactory,
         TimeProvider clock,
-        ILogger<PostAnalysisOrchestrator> logger)
+        ILogger<PostAnalysisOrchestrator> logger,
+        IPipelineStateStore? stateStore = null)
     {
+        _stateStore = stateStore;
         _scopeFactory = scopeFactory;
         _clock = clock;
         _logger = logger;
@@ -115,7 +121,61 @@ public sealed class PostAnalysisOrchestrator : IPostAnalysisOrchestrator, IDispo
 
     private void Set(Guid projectId, PostAnalysisStatusDto status)
     {
-        lock (_gate) { _status[projectId] = status; }
+        string? root;
+        lock (_gate)
+        {
+            _status[projectId] = status;
+            _roots.TryGetValue(projectId, out root);
+        }
+
+        if (_stateStore is null || root is null) return;
+        try
+        {
+            _stateStore.SavePostAnalysis(root, status);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Projeto {ProjectId}: não foi possível persistir o estado do pós-análise", projectId);
+        }
+    }
+
+    public async Task<bool> RestoreAsync(Guid projectId, CancellationToken ct = default)
+    {
+        if (_stateStore is null) return false;
+
+        using var scope = _scopeFactory.CreateScope();
+        var project = await scope.ServiceProvider.GetRequiredService<IProjectRepository>().GetByIdAsync(projectId, ct);
+        if (project is null || string.IsNullOrWhiteSpace(project.RootPath)) return false;
+        string root = Path.GetFullPath(project.RootPath);
+
+        PostAnalysisStatusDto? saved;
+        try
+        {
+            saved = _stateStore.LoadPostAnalysis(root);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Projeto {ProjectId}: estado do pós-análise ilegível", projectId);
+            return false;
+        }
+
+        lock (_gate)
+        {
+            _roots[projectId] = root;
+            // Estado em memória (execução desta sessão) sempre prevalece sobre o disco.
+            if (_status.ContainsKey(projectId) || _loops.ContainsKey(projectId)) return false;
+            if (saved is null) return false;
+            if (saved.State != "running")
+            {
+                _status[projectId] = saved;
+                return false;
+            }
+        }
+
+        // Execução interrompida (app fechado durante o pós-análise): refaz; o plano é idempotente por fingerprint.
+        _logger.LogInformation("Projeto {ProjectId}: pós-análise interrompida; reagendando", projectId);
+        _ = ScheduleAsync(projectId, Guid.Empty);
+        return true;
     }
 
     private async Task ExecuteAsync(Guid projectId, CancellationToken ct)
@@ -142,6 +202,10 @@ public sealed class PostAnalysisOrchestrator : IPostAnalysisOrchestrator, IDispo
             {
                 Set(projectId, Final("skipped", "project_not_found"));
                 return;
+            }
+            if (!string.IsNullOrWhiteSpace(project.RootPath))
+            {
+                lock (_gate) { _roots[projectId] = Path.GetFullPath(project.RootPath); }
             }
             if (project.AutoProcess == false)
             {
@@ -171,14 +235,48 @@ public sealed class PostAnalysisOrchestrator : IPostAnalysisOrchestrator, IDispo
 
                 try
                 {
-                    var outcome = await sp.GetRequiredService<PlanningUseCases>()
-                        .GenerateAsync(new GeneratePlanRequest(projectId, null, null), ct);
+                    // A base de tempo da revisão vigente é herdada (antes null reescolhia pela moda das mídias a cada execução).
+                    var planning = sp.GetRequiredService<PlanningUseCases>();
+                    var inheritedTimeBase = await planning.GetLatestTimeBaseAsync(projectId, ct);
+                    var outcome = await planning
+                        .GenerateAsync(new GeneratePlanRequest(projectId, null, inheritedTimeBase), ct);
                     if (outcome.Success && outcome.Value is { } plan)
                     {
                         planOk = true;
                         revision = plan.Revision;
                         autoCuts = plan.Summary.AutoCutsApplied;
                         pending = plan.Summary.PendingSuggestions;
+
+                        // E05: sugestões de transição sobre as bordas reais dos clipes do plano (como o zoom). Se surgirem sugestões
+                        // novas, o plano é regerado para considerá-las (idempotente por fingerprint). Falha aqui não invalida o plano.
+                        try
+                        {
+                            var transitions = sp.GetService<Editorial.ITransitionSuggestionGenerator>();
+                            if (transitions is not null && await transitions.GenerateAsync(projectId, plan, ct) > 0)
+                            {
+                                var again = await planning
+                                    .GenerateAsync(new GeneratePlanRequest(projectId, null, plan.TimeBase), ct);
+                                if (again.Success && again.Value is { } next)
+                                {
+                                    revision = next.Revision;
+                                    autoCuts = next.Summary.AutoCutsApplied;
+                                    pending = next.Summary.PendingSuggestions;
+                                }
+                            }
+                        }
+                        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+                        catch (Exception ex)
+                        {
+                            issues.Add(IssueTransitionFailed);
+                            _logger.LogWarning(ex, "Projeto {ProjectId}: falha ao gerar sugestões de transição (plano segue)", projectId);
+                        }
+                    }
+                    else if (PlanningUseCases.IsPlanPreservedCode(outcome.ErrorCode))
+                    {
+                        // Guarda B: o plano manual vigente foi preservado de propósito; não é falha do job.
+                        planOk = true;
+                        _logger.LogInformation("Projeto {ProjectId}: plano manual preservado, geração automática não aplicada ({Code})",
+                            projectId, outcome.ErrorCode);
                     }
                     else
                     {

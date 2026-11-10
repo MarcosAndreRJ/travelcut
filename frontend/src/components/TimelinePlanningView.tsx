@@ -55,8 +55,10 @@ export const TimelinePlanningView: React.FC<TimelinePlanningViewProps> = ({ proj
     initialPlan: plan,
     currentFrame,
     projectId: project?.projectId ?? '',
-    onPlanChanged: (newPlan) => {
-      planState.selectRevision(newPlan.revision);
+    latestRevision: planState.latestRevision,
+    onPlanChanged: () => {
+      // Mesmo mecanismo de recarga do useEditPlan: atualiza a lista de revisões e a revisão exibida.
+      planState.reload();
     },
   });
 
@@ -74,6 +76,8 @@ export const TimelinePlanningView: React.FC<TimelinePlanningViewProps> = ({ proj
 
   const selectedClip = plan ? findClip(plan, selectedClipId) : null;
   const summary = plan?.summary ?? null;
+  // Revisão não vigente: controles e canvas ficam inertes (somente leitura).
+  const editInertProps: object = timelineEditor.editable ? {} : { inert: '', 'aria-disabled': true };
   const tb = plan?.timeBase ?? null;
   const outdated = hasPlanOutdated(validation);
   const [showMultitrack, setShowMultitrack] = useState(false);
@@ -157,6 +161,17 @@ export const TimelinePlanningView: React.FC<TimelinePlanningViewProps> = ({ proj
             </span>
           )}
         </div>
+        {plan && (
+          <button
+            type="button"
+            onClick={timelineEditor.previewReconcile}
+            disabled={timelineEditor.isDirty || planState.busy !== null || timelineEditor.isSaving}
+            title={timelineEditor.isDirty ? 'Salve ou descarte as edições antes de reconciliar' : undefined}
+            className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+          >
+            Prévia de reconciliação
+          </button>
+        )}
         {plan && onNavigateToExport && (
           <button
             type="button"
@@ -190,6 +205,119 @@ export const TimelinePlanningView: React.FC<TimelinePlanningViewProps> = ({ proj
           </div>
 
           {planState.actionError && <ActionError message={planState.actionError} onDismiss={planState.dismissActionError} />}
+
+          {timelineEditor.saveError && (
+            <div
+              role="alert"
+              data-testid="plan-save-error"
+              className="mx-4 mt-3 flex flex-wrap items-center gap-2 px-3 py-2 rounded-xl bg-red-950/50 border border-red-500/30 text-xs text-red-200"
+            >
+              <AlertCircle className="w-4 h-4 shrink-0" aria-hidden="true" />
+              <span className="flex-1">{timelineEditor.saveError.message}</span>
+              {timelineEditor.saveError.reloadable && (
+                <button
+                  type="button"
+                  onClick={timelineEditor.reloadLatest}
+                  className="px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-[11px] font-semibold text-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+                >
+                  Recarregar
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={timelineEditor.dismissSaveError}
+                className="px-3 py-1 rounded-lg text-[11px] font-semibold text-red-100 hover:bg-red-500/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+              >
+                Fechar
+              </button>
+            </div>
+          )}
+
+          {timelineEditor.reapplyDropped > 0 && (
+            <div
+              role="status"
+              data-testid="plan-reapply-dropped-banner"
+              className="mx-4 mt-3 flex flex-wrap items-center gap-2 px-3 py-2 rounded-xl bg-amber-950/50 border border-amber-500/30 text-xs text-amber-200"
+            >
+              <AlertCircle className="w-4 h-4 shrink-0" aria-hidden="true" />
+              <span className="flex-1">
+                {timelineEditor.reapplyDropped === 1
+                  ? '1 edição não pôde ser reaplicada na revisão nova (clipe inexistente).'
+                  : `${timelineEditor.reapplyDropped} edições não puderam ser reaplicadas na revisão nova (clipes inexistentes).`}
+              </span>
+              <button
+                type="button"
+                onClick={timelineEditor.dismissReapplyNotice}
+                className="px-3 py-1 rounded-lg text-[11px] font-semibold text-amber-100 hover:bg-amber-500/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+              >
+                Fechar
+              </button>
+            </div>
+          )}
+
+          {timelineEditor.externalRevision !== null && (
+            <div
+              role="status"
+              data-testid="plan-external-revision-banner"
+              className="mx-4 mt-3 flex flex-wrap items-center gap-2 px-3 py-2 rounded-xl bg-cyan-950/50 border border-cyan-500/30 text-xs text-cyan-100"
+            >
+              <AlertCircle className="w-4 h-4 shrink-0" aria-hidden="true" />
+              <span className="flex-1">
+                Há uma revisão mais nova (R{timelineEditor.externalRevision}). Suas edições não salvas foram mantidas.
+              </span>
+              <button
+                type="button"
+                onClick={timelineEditor.keepLocalEdits}
+                className="px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-[11px] font-semibold text-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+              >
+                Manter minhas edições
+              </button>
+              <button
+                type="button"
+                onClick={timelineEditor.loadExternalRevision}
+                className="px-3 py-1 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/40 text-[11px] font-semibold text-cyan-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+              >
+                Carregar a nova revisão
+              </button>
+            </div>
+          )}
+
+          {timelineEditor.externalRevision === null && timelineEditor.baseOutdated && (
+            <div
+              role="status"
+              data-testid="plan-base-outdated-note"
+              className="mx-4 mt-3 px-3 py-2 rounded-xl bg-amber-950/50 border border-amber-500/30 text-xs text-amber-200"
+            >
+              Edição só na revisão vigente (R{timelineEditor.latestKnownRevision}). Esta base é R{timelineEditor.baseRevision}; a edição fica bloqueada até carregar a nova revisão ou recarregar a base.
+            </div>
+          )}
+
+          {timelineEditor.reconcilePreview && (
+            <div
+              role="status"
+              data-testid="plan-reconcile-preview"
+              className="mx-4 mt-3 flex flex-wrap items-center gap-2 px-3 py-2 rounded-xl bg-indigo-950/50 border border-indigo-500/30 text-xs text-indigo-100"
+            >
+              <AlertCircle className="w-4 h-4 shrink-0" aria-hidden="true" />
+              <span className="flex-1">
+                Prévia de reconciliação (não gravada): {timelineEditor.reconcilePreview.conflicts.length} conflito(s). Aceitar grava uma nova revisão.
+              </span>
+              <button
+                type="button"
+                onClick={timelineEditor.acceptReconcile}
+                className="px-3 py-1 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-500/40 text-[11px] font-semibold text-indigo-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+              >
+                Aceitar
+              </button>
+              <button
+                type="button"
+                onClick={timelineEditor.discardReconcile}
+                className="px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-[11px] font-semibold text-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+              >
+                Descartar
+              </button>
+            </div>
+          )}
 
           {outdated && (
             <div
@@ -237,13 +365,16 @@ export const TimelinePlanningView: React.FC<TimelinePlanningViewProps> = ({ proj
 
             {/* Prévia interativa e timeline */}
             <div className="flex-1 min-w-0 flex flex-col gap-3 min-h-[420px]">
-              <TimelineEditorToolbar editor={timelineEditor} activePlan={activePlan} />
+              <div {...editInertProps}>
+                <TimelineEditorToolbar editor={timelineEditor} activePlan={activePlan} />
+              </div>
               <PlanPreviewPlayer
                 plan={activePlan!}
                 selectedClip={selectedClip}
                 currentFrame={currentFrame}
                 onSeekFrame={setCurrentFrame}
               />
+              <div {...editInertProps}>
               <PlanTimelineCanvas
                 plan={activePlan!}
                 selectedClipId={selectedClipId}
@@ -261,6 +392,7 @@ export const TimelinePlanningView: React.FC<TimelinePlanningViewProps> = ({ proj
                 calculateSnap={timelineEditor.calculateSnap}
                 selectedClipIds={new Set(timelineEditor.selectedClipId ? [timelineEditor.selectedClipId] : [])}
               />
+              </div>
             </div>
 
             {/* Inspetor do clipe */}

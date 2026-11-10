@@ -19,13 +19,27 @@ public sealed partial class PlanningUseCases
     {
         if (request.ProjectId == Guid.Empty)
             return PlanOutcome<EditPlanDto>.Fail("INVALID_ARGUMENT", "ID de projeto invalido.");
+        if (request.Plan is null)
+            return PlanOutcome<EditPlanDto>.Fail("INVALID_ARGUMENT", "Plano ausente.");
 
         var project = await _projects.GetByIdAsync(request.ProjectId, ct);
         if (project is null || string.IsNullOrWhiteSpace(project.RootPath))
             return PlanOutcome<EditPlanDto>.Fail("PROJECT_NOT_FOUND", "Projeto nao encontrado.");
 
         var manualPlan = request.Plan;
+
+        // O ProjectId do cliente nunca e confiado: o plano precisa pertencer ao projeto da requisicao.
+        if (manualPlan.ProjectId != project.ProjectId)
+        {
+            _logger.LogWarning("Save manual recusado: plano {PlanId} declara o projeto {Declared}, requisicao e do projeto {Project}",
+                manualPlan.PlanId, manualPlan.ProjectId, project.ProjectId);
+            return PlanOutcome<EditPlanDto>.Fail(PlanProjectMismatchCode, "O plano enviado pertence a outro projeto.");
+        }
+
         var clips = manualPlan.Clips ?? new List<PlanClipDto>();
+
+        if (clips.Select(c => c.ClipId).Distinct().Count() != clips.Count)
+            return PlanOutcome<EditPlanDto>.Fail("INVALID_ARGUMENT", "O plano contem ClipId duplicado.");
 
         // Validacao V1 / A1 sync
         var clipMap = clips.ToDictionary(c => c.ClipId);
@@ -74,36 +88,99 @@ public sealed partial class PlanningUseCases
             }
         }
 
-        var indexLatest = await _revisions.GetLatestAsync(manualPlan.PlanId, ct);
-        var nextRevision = await NextRevisionAsync(project.RootPath, manualPlan.PlanId, indexLatest?.Revision, ct);
-
-        long maxEndFrame = clips.Count > 0 ? clips.Max(c => c.TimelineStartFrame + c.DurationFrames) : 0;
-        var updatedSummary = manualPlan.Summary with { TimelineDurationFrames = maxEndFrame };
-
-        var candidatePlan = manualPlan with
+        // Leitura da revisao vigente, CAS e gravacao sob o mesmo lock do projeto que GenerateAsync/RevertAsync usam.
+        return await WithProjectLockAsync(project.ProjectId, async () =>
         {
-            Revision = nextRevision,
-            BaseRevision = indexLatest?.Revision ?? manualPlan.Revision,
-            CreatedAtUtc = DateTime.UtcNow,
-            Author = request.Author ?? "user",
-            Summary = updatedSummary
-        };
+            var latest = await _revisions.GetLatestAsync(project.ProjectId, ct);
+            if (latest is null)
+                return PlanOutcome<EditPlanDto>.Fail("PLAN_NOT_FOUND", "O projeto nao tem plano para receber a edicao manual.");
 
-        var derivedValidation = await DeriveValidationAsync(project.ProjectId, project.RootPath, candidatePlan, null, ct);
-        var domainModel = PlanMapping.ToDomain(candidatePlan with { Validation = derivedValidation });
-        var fingerprint = PlanFingerprint.ComputePlan(domainModel);
+            if (manualPlan.PlanId != latest.PlanId)
+            {
+                _logger.LogWarning("Save manual recusado: PlanId {PlanId} difere do plano vigente {Latest} do projeto {Project}",
+                    manualPlan.PlanId, latest.PlanId, project.ProjectId);
+                return PlanOutcome<EditPlanDto>.Fail(PlanIdMismatchCode, "O plano enviado nao e o plano vigente do projeto.");
+            }
 
-        var finalPlan = candidatePlan with
-        {
-            Validation = derivedValidation,
-            PlanFingerprint = fingerprint
-        };
+            if (request.BaseRevision != latest.Revision)
+            {
+                _logger.LogInformation("Save manual recusado: baseRevision {Base} difere da revisao vigente {Latest} (PLAN_STALE_BASE)",
+                    request.BaseRevision, latest.Revision);
+                return PlanOutcome<EditPlanDto>.Fail(PlanStaleBaseCode,
+                    $"O plano foi alterado (revisao {latest.Revision}) desde a revisao base {request.BaseRevision}. Recarregue antes de salvar.");
+            }
 
-        var conflict = await TryPersistAsync(project.RootPath, finalPlan, inputsFingerprint: null, ct);
-        if (conflict is not null)
-            return conflict;
+            var baseRead = await ReadPlanAsync(project.RootPath, latest, ct);
+            if (baseRead.ErrorCode is not null)
+                return PlanOutcome<EditPlanDto>.Fail(baseRead.ErrorCode, baseRead.ErrorMessage!);
+            var basis = baseRead.Plan!;
 
-        return PlanOutcome<EditPlanDto>.Ok(finalPlan);
+            // Integridade ANTES do overlay: base adulterada e PLAN_TAMPERED (nao PLAN_MANUAL_PROTECTED, que o overlay devolveria
+            // para a mesma causa em revisao manual). Nada e gravado.
+            if (!IsFingerprintIntact(basis))
+                return PlanOutcome<EditPlanDto>.Fail(TamperedCode, "A revisao base esta adulterada: save recusado. Gere um novo plano.");
+
+            // Overlay da revisao base (inclui migracao de manual legada); base legada ilegivel/ausente recusa sem gravar nada.
+            var baseOverlay = await ResolveOverlayAsync(project, latest, ct);
+            if (baseOverlay.ErrorCode is not null)
+                return PlanOutcome<EditPlanDto>.Fail(baseOverlay.ErrorCode, baseOverlay.ErrorMessage!);
+
+            // Dos clipes do cliente so se usa a DIFERENCA em relacao a rBase (estado, nao log de operacoes).
+            var basisDomain = PlanMapping.ToDomain(basis) with { ManualEdits = baseOverlay.Edits.Count > 0 ? baseOverlay.Edits.ToList() : null };
+            // IntroducedInRevision = revisao que sera realmente gravada (mesma regra e mesmo lock de BuildAutoCoreAsync; com revisao
+            // orfa em disco difere de base+1).
+            var assignedRevision = await NextRevisionAsync(project.RootPath, latest.PlanId, latest.Revision, ct);
+            var delta = ManualEditDeriver.DeriveDelta(basisDomain, PlanMapping.ToDomain(manualPlan).Clips, assignedRevision);
+            if (delta.Count == 0)
+            {
+                // Derive(r, r) = vazio: nada mudou, nenhuma revisao nova (idempotente).
+                _logger.LogInformation("Save manual sem diferenca em relacao a revisao {Revision}; nenhuma revisao nova criada", latest.Revision);
+                var same = await ReadDerivedAsync(project.ProjectId, project.RootPath, latest, latest.InputsFingerprint, ct);
+                return same;
+            }
+            var eNew = ManualEdits.Compact((basisDomain.ManualEdits ?? Array.Empty<PlanManualEdit>()).Concat(delta));
+
+            if (!TryResolveZone(basis.TimeZoneId, out var zone, out var zoneId, out var zoneError))
+                return PlanOutcome<EditPlanDto>.Fail("INVALID_ARGUMENT", zoneError!);
+
+            // Perfil, base de tempo e fuso vem da revisao vigente (nao do cliente); o servidor grava Apply(Build(entradas atuais), E_new).
+            var auto = await BuildAutoCoreAsync(project, basis.Profile, basis.TimeBase, zone, zoneId, latest, ct);
+            if (auto.Built.Plan is null)
+                return PlanOutcome<EditPlanDto>.Fail("AUTOGEN_FAILED",
+                    $"Falha ao gerar o plano base da edicao manual: {auto.Built.ErrorMessage ?? auto.Built.ErrorCode}");
+
+            // Uma edicao manual nunca e gravada como autor automatico (senao burlaria a protecao da regeneracao).
+            var author = string.IsNullOrWhiteSpace(request.Author) || request.Author!.StartsWith("planner-rules/", StringComparison.Ordinal)
+                ? AuthorUser
+                : request.Author!;
+
+            var applied = ApplyOverlay(auto.Built.Plan, eNew, auto.Input, author);
+            if (applied.Plan is null)
+                return PlanOutcome<EditPlanDto>.Fail(applied.ErrorCode!, applied.ErrorMessage!);
+
+            var now = _clock.GetUtcNow().UtcDateTime;
+            var candidate = applied.Plan with { CreatedAtUtc = now };
+
+            // Persistido: so a validacao estrutural (sem issues de estado externo), como no revert.
+            var analyses = auto.Input.Analyses;
+            var structural = PlanValidation.Run(PlanMapping.ToDomain(candidate), auto.Input.Media, analyses)
+                .Where(i => !DerivedIssueCodes.Contains(i.Code))
+                .ToList();
+            var finalPlan = candidate with { Validation = PlanMapping.ToValidationDto(structural, now) };
+
+            // Idempotente tambem pelo conteudo: o resultado igual ao da revisao vigente nao cria revisao nova.
+            var inputsFingerprint = InputsFingerprintOf(finalPlan, auto.Input.Media, auto.Input.Suggestions, auto.Input.Decisions);
+            if (string.Equals(latest.PlanFingerprint, finalPlan.PlanFingerprint, StringComparison.OrdinalIgnoreCase))
+                return await ReadDerivedAsync(project.ProjectId, project.RootPath, latest, latest.InputsFingerprint, ct);
+
+            var conflict = await TryPersistAsync(project.RootPath, finalPlan, inputsFingerprint, ct);
+            if (conflict is not null) return conflict;
+
+            _logger.LogInformation("Plano {PlanId}: revisao manual {Revision} gravada (base {Base}, {Edits} edicao(oes) no overlay)",
+                finalPlan.PlanId, finalPlan.Revision, finalPlan.BaseRevision, finalPlan.ManualEdits?.Count ?? 0);
+            var derived = await DeriveValidationAsync(project.ProjectId, project.RootPath, finalPlan, inputsFingerprint, ct);
+            return PlanOutcome<EditPlanDto>.Ok(finalPlan with { Validation = derived });
+        }, ct);
     }
 
     public async Task<PlanOutcome<ReconcilePlanResponse>> ReconcileAsync(
@@ -118,13 +195,30 @@ public sealed partial class PlanningUseCases
             return PlanOutcome<ReconcilePlanResponse>.Fail(planOutcome.ErrorCode ?? "NOT_FOUND", planOutcome.ErrorMessage ?? "Plano nao encontrado.");
 
         var manualPlan = planOutcome.Value;
-        var autoGenOutcome = await GenerateAsync(new GeneratePlanRequest(request.ProjectId, null, null), ct);
-        if (!autoGenOutcome.Success || autoGenOutcome.Value is null)
-            return PlanOutcome<ReconcilePlanResponse>.Fail("AUTOGEN_FAILED", $"Falha ao gerar plano candidato: {autoGenOutcome.ErrorMessage}");
 
-        var candidateAuto = autoGenOutcome.Value;
-        var result = PlanReconciler.Reconcile(candidateAuto, manualPlan);
+        // Previa pura: perfil, base de tempo e fuso vem da revisao base (nao do padrao); nada e gravado (nem indice, nem
+        // artefato) e o lock nao e necessario porque nao ha escrita. Usa o nucleo, nunca GenerateAsync.
+        if (!TryResolveZone(manualPlan.TimeZoneId, out var zone, out var zoneId, out var zoneError))
+            return PlanOutcome<ReconcilePlanResponse>.Fail("INVALID_ARGUMENT", zoneError!);
 
-        return PlanOutcome<ReconcilePlanResponse>.Ok(result);
+        var project = await _projects.GetByIdAsync(request.ProjectId, ct);
+        if (project is null || string.IsNullOrWhiteSpace(project.RootPath))
+            return PlanOutcome<ReconcilePlanResponse>.Fail("PROJECT_NOT_FOUND", NoProjectMessage);
+
+        var latest = await _revisions.GetLatestAsync(project.ProjectId, ct);
+        var candidate = await BuildCandidateCoreAsync(
+            project, manualPlan.Profile, manualPlan.TimeBase, zone, zoneId, latest, ct);
+        // Overlay recusado (base adulterada/ilegivel, aplicacao estrutural recusada): nao e falha de geracao, e protecao do trabalho do usuario.
+        if (candidate.Built.Plan is null && candidate.Refused)
+            return PlanOutcome<ReconcilePlanResponse>.Fail(
+                candidate.Built.ErrorCode ?? PlanManualProtectedCode, candidate.Built.ErrorMessage ?? ManualProtectedMessage);
+        if (candidate.Built.Plan is null)
+            return PlanOutcome<ReconcilePlanResponse>.Fail("AUTOGEN_FAILED",
+                $"Falha ao gerar plano candidato: {candidate.Built.ErrorMessage ?? candidate.Built.ErrorCode}");
+
+        var result = PlanReconciler.Reconcile(candidate.Built.Plan, manualPlan);
+        // A validacao do candidato e derivada agora, sobre o conteudo reconciliado (nao herdada do plano automatico).
+        var validation = await DeriveValidationAsync(project.ProjectId, project.RootPath, result.ReconciledPlan, null, ct);
+        return PlanOutcome<ReconcilePlanResponse>.Ok(result with { ReconciledPlan = result.ReconciledPlan with { Validation = validation } });
     }
 }

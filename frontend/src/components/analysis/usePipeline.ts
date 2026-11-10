@@ -1,8 +1,9 @@
-import { notifyPipelineSuccess, notifyPipelineFailure } from "../../services/notificationService";
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ipc, IpcError } from '../../services/ipcBridge';
 import type { PipelineStatusDto } from '../../types/ipc';
+import { announcePipelineStarted } from '../../services/pipelineCompletion';
 import { errorMessage, isPipelineActive } from './analysisFormat';
+import { isPipelineInProgressError, PIPELINE_IN_PROGRESS_NOTICE } from './pipelineStartOutcome';
 
 export const PIPELINE_POLL_INTERVAL_MS = 1000;
 /** Espera entre tentativas quando o host não responde a um job acompanhado. */
@@ -28,6 +29,8 @@ export interface UsePipelineResult {
   status: PipelineStatusDto | null;
   statusError: string | null;
   actionError: string | null;
+  /** Aviso informativo (não erro), ex.: análise já em andamento; o acompanhamento segue. */
+  actionNotice: string | null;
   isStarting: boolean;
   isCanceling: boolean;
   isActive: boolean;
@@ -45,6 +48,7 @@ export function usePipeline(projectId: string | null, onFinished: () => void): U
   const [status, setStatus] = useState<PipelineStatusDto | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
   const [isStarting, setIsStarting] = useState(false);
   const [isCanceling, setIsCanceling] = useState(false);
   const [pollToken, setPollToken] = useState(0);
@@ -93,14 +97,8 @@ export function usePipeline(projectId: string | null, onFinished: () => void): U
       }
 
       if (prev && (prev.sawActive || (prev.jobId !== null && next.jobId === prev.jobId))) {
+        // A notificação de fim fica no shell (usePipelineCompletionNotifier): único ponto, sem duplicar.
         trackRef.current = null;
-        if (next.state === "completed") {
-          const totalProcessed = next.stages ? next.stages.reduce((acc, s) => acc + s.processedItems, 0) : 1;
-          notifyPipelineSuccess(totalProcessed);
-        } else if (next.state === "failed") {
-          const failReason = next.stages?.find(s => s.state === "failed")?.reason || "Falha durante o processamento da fila.";
-          notifyPipelineFailure(failReason);
-        }
         onFinishedRef.current();
         return;
       }
@@ -130,6 +128,7 @@ export function usePipeline(projectId: string | null, onFinished: () => void): U
       if (!projectId) return;
       setIsStarting(true);
       setActionError(null);
+      setActionNotice(null);
       try {
         const res = await ipc.startPipeline({
           projectId,
@@ -140,9 +139,12 @@ export function usePipeline(projectId: string | null, onFinished: () => void): U
         });
         trackRef.current = { jobId: res.jobId, sawActive: false, waitAttempts: 0 };
         setPollToken((t) => t + 1);
+        announcePipelineStarted();
       } catch (err) {
-        if (err instanceof IpcError && err.code === 'PIPELINE_IN_PROGRESS') {
-          setActionError('Já existe uma análise em andamento. Aguarde o término ou cancele a execução atual.');
+        if (isPipelineInProgressError(err)) {
+          // Não é erro: a execução atual já está no host; passa a acompanhá-la no polling.
+          setActionNotice(PIPELINE_IN_PROGRESS_NOTICE);
+          trackRef.current = { jobId: null, sawActive: false, waitAttempts: 0 };
           setPollToken((t) => t + 1);
         } else {
           setActionError(errorMessage(err));
@@ -173,6 +175,7 @@ export function usePipeline(projectId: string | null, onFinished: () => void): U
     status,
     statusError,
     actionError,
+    actionNotice,
     isStarting,
     isCanceling,
     isActive: isPipelineActive(status?.state),

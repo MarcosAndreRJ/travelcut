@@ -152,6 +152,18 @@ public class SqliteTranscriptRepository : ITranscriptRepository
             .FirstOrDefaultAsync(t => t.MediaId == mediaId, ct);
     }
 
+    public async Task DeleteByMediaIdAsync(Guid mediaId, CancellationToken ct = default)
+    {
+        var previous = await _db.Transcripts.Include(t => t.Words).Where(t => t.MediaId == mediaId).ToListAsync(ct);
+        if (previous.Count == 0) return;
+        foreach (var old in previous)
+        {
+            _db.TranscriptWords.RemoveRange(old.Words);
+            _db.Transcripts.Remove(old);
+        }
+        await _db.SaveChangesAsync(ct);
+    }
+
     /// <summary>
     /// Uma transcrição ativa por mídia: a nova substitui qualquer transcrição anterior da mesma mídia
     /// (ou com o mesmo Id). Remoção e inserção são feitas em duas gravações para evitar conflito de chave.

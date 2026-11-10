@@ -535,6 +535,13 @@ Validação: dotnet test tests/TravelCut.UnitTests -> 1288 aprovados, 0 falhas (
 Observação: transicoes editoriais ainda nao chegam ao plano; I5/I6 pendentes (I6 bloqueado pela F14.7 ausente).
 Próximo: I5 (preview fiel e painel de pre-edicao).
 
+[2026-11-09] F14.8-pendencias-menores | Sonnet A | FEITO+TESTADO
+Ação: E10 (par de ênfase no fim da transcrição vira emphasis); teste instável do orquestrador pós-análise sem timing (TaskCompletionSource); MCP get/set_automation_profile; M1 (.tcpart preservado com importação ativa); M3 (job em voo com fingerprint antigo não regrava transcrição/candidatos); M4 (WaitTerminalAsync exige job novo).
+Arquivos: SilenceDetectionService.cs, PipelineJobManager.cs, PipelineJobRun.cs, PipelineResumeService.cs, IMediaImportService.cs, MediaImportService.cs, TravelCut.Mcp/{Facade,Tools,Program}, testes correspondentes.
+Validação: dotnet test TravelCutStudio.sln -> UnitTests 1361 aprovados, Mcp.Tests 122 aprovados, 0 falhas.
+Observação: OrchestratorThatThrows não reproduziu em 15 execuções isoladas; corrida confirmada por leitura (estado terminal publicado antes de ScheduleAsync). IMediaImportService ganhou HasActiveImport.
+Próximo: UI do perfil e postAnalysis por polling (itens restantes do prompt 06).
+
 ## Modelo de entrada (copiar preenchendo com dados reais)
 
 ```text
@@ -547,3 +554,17 @@ Próximo: <passo específico>
 ```
 
 **Não registrar plano futuro como "feito". Registrar imediatamente após cada microentrega, antes de prosseguir para a próxima.**
+
+### F14.7 incremento 3 (prompt 04) — motor de overlay ligado ao fluxo real
+Feito: SaveManualRevisionAsync grava Apply(Build(entradas atuais), Compact(E_base + DeriveDelta(rBase, clipes))) com autor user e PlanApplyContext real; sem diferença de estado = sem revisão nova. GenerateAsync/BuildCandidateCoreAsync reaplicam o overlay vigente (autor `planner-rules/1+manual`); erro estrutural/base adulterada = PLAN_MANUAL_PROTECTED (IPC details `suggestedActions:reconcile,discard_manual_edit`). Precedência decisão humana posterior (BaseRevision >= IntroducedInRevision) em `ManualPrecedence` (ignora na leitura, não apaga). Migração de manual legada por Derive(base do disco, manual). InputsFingerprint reflete o overlay só quando existe.
+Escrito: PlanningUseCases.Overlay.cs, ManualPrecedence.cs, PlanManualOverlayTests.cs; ajustes em TimelineEditorReconciliationTests (contrato: save sem mudança não cria revisão), PlanFoundationsTests e PlanManualProtectionTests (edição real nos helpers).
+Testado: `dotnet test TravelCutStudio.sln` = UnitTests 1427 ok, Mcp.Tests 122 ok.
+Observação: limitação de Compact documentada (exclude -> re-include vira restore com a velocidade do automático). Pendente: frontend (histórico/baseRevision), aceite integrado via IPC, ADR.
+Próximo: incremento 4 (frontend) e aceite integrado.
+
+### F14.7 incremento 5 — lacunas do overlay e aceite integrado (Sonnet A)
+Feito: `ReconcileAsync` devolve `PLAN_MANUAL_PROTECTED` (via IPC com `suggestedActions:reconcile,discard_manual_edit`) quando o overlay é recusado, em vez de `AUTOGEN_FAILED`. R1 endurecido (aprovar S1 força regeneração real: revisão manual+1, autor `planner-rules/1+manual`, overlay e JSON da revisão manual intactos, reprocesso idempotente). Precedência ponta a ponta (edição exclui [8 s,10 s) de M1; decisão `modify` 9,0–12,4 s vence e a edição fica ignorada, não apagada; desfazer reativa). Aceite IPC com reinício e SHA-256 dos originais.
+Escrito: PlanningUseCases.ManualEdits.cs; PlanManualOverlayTests.cs; EndToEnd/EndToEndManualOverlayAcceptanceTests.cs; docs/adr/ADR-overlay-edicoes-manuais.md; docs/workstreams/F14.7-TIMELINE-FOUNDATIONS.md.
+Testado: `dotnet test TravelCutStudio.sln` = UnitTests 1430 ok, Mcp.Tests 122 ok, 0 falhas.
+Observação: ADR criado em docs/adr/ (a pasta não existia; os ADR-001..015 ficam na tabela de docs/15). Limitações: Compact exclude->re-include; Apply sem PlanValidation.Run completo. Frontend (incremento 4) não tocado.
+Próximo: incremento 4 (frontend: histórico/baseRevision).

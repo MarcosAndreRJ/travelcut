@@ -30,6 +30,39 @@ public sealed class FakeWhisperService : IWhisperTranscriptionService
     public List<TranscriptionProgressUpdate> ProgressScript { get; } = new();
     public TaskCompletionSource<bool>? ProgressDelivered { get; set; }
 
+    /// <summary>Respostas consumidas na ordem, uma por chamada; esgotada, vale <see cref="Outcome"/>.</summary>
+    public Queue<TranscriptionOutcome> ScriptedOutcomes { get; } = new();
+    /// <summary>Dispositivos forçados via TranscribeOnDeviceAsync.</summary>
+    public List<string> DeviceOverrides { get; } = new();
+    /// <summary>Resposta por caminho da mídia (null = usa Outcome).</summary>
+    public Func<string, TranscriptionOutcome?>? OutcomeByPath { get; set; }
+
+    public Task<TranscriptionOutcome> TranscribeOnDeviceAsync(
+        string mediaPath, Guid mediaId, string model, string language, string device,
+        CancellationToken ct = default, IProgress<TranscriptionProgressUpdate>? progress = null, IWhisperExecutionObserver? execution = null)
+    {
+        DeviceOverrides.Add(device);
+        return TranscribeAsync(mediaPath, mediaId, model, language, ct, progress, execution);
+    }
+
+    /// <summary>P10: simula o worker com lote (um processo, modelo carregado uma vez). false = sem suporte (null).</summary>
+    public bool BatchSupported { get; set; }
+    private int _loadModelCalls;
+    /// <summary>Quantas vezes o modelo foi carregado: 1 por lote, 1 por TranscribeAsync individual.</summary>
+    public int LoadModelCalls => Volatile.Read(ref _loadModelCalls);
+    public int BatchCalls { get; private set; }
+
+    public IReadOnlyList<Task<TranscriptionOutcome>>? TranscribeBatch(
+        IReadOnlyList<TranscriptionBatchItem> items, string model, string language, CancellationToken ct)
+    {
+        if (!BatchSupported) return null;
+        BatchCalls++;
+        Interlocked.Increment(ref _loadModelCalls);
+        return items
+            .Select(i => Task.FromResult(OutcomeByPath?.Invoke(i.MediaPath) ?? Outcome ?? new TranscriptionOutcome("failed", null, "Sem resultado configurado no fake.", null, null)))
+            .ToList();
+    }
+
     public int TranscribeCalls => Volatile.Read(ref _transcribeCalls);
     public int InvalidateCalls { get; private set; }
 
@@ -76,6 +109,7 @@ public sealed class FakeWhisperService : IWhisperTranscriptionService
         IWhisperExecutionObserver? execution = null)
     {
         Interlocked.Increment(ref _transcribeCalls);
+        Interlocked.Increment(ref _loadModelCalls);
         if (!Available)
         {
             return new TranscriptionOutcome("unavailable", null, "Python/Whisper indisponível (teste).", null, null);
@@ -94,7 +128,9 @@ public sealed class FakeWhisperService : IWhisperTranscriptionService
         {
             await Task.Delay(Timeout.Infinite, ct);
         }
-        var result = Outcome ?? new TranscriptionOutcome("failed", null, "Sem resultado configurado no fake.", null, null);
+        var result = ScriptedOutcomes.Count > 0
+            ? ScriptedOutcomes.Dequeue()
+            : OutcomeByPath?.Invoke(mediaPath) ?? Outcome ?? new TranscriptionOutcome("failed", null, "Sem resultado configurado no fake.", null, null);
         execution?.OnFinished(new WhisperExecutionResult(result.Status == "completed" ? "completed" : "failed", 0, result.Reason));
         return result;
     }
@@ -115,7 +151,10 @@ public sealed class FakeSilenceService : ISilenceDetectionService
 
     public string? GetFfmpegVersion() => FfmpegAvailable ? "fake 7.0" : null;
 
-    public Task<SilenceDetectionOutcome> DetectSilenceAsync(
+    /// <summary>Bloqueia a detecção até o cancelamento (simula etapa longa para cancelar no meio da mídia).</summary>
+    public bool WaitForCancellation { get; set; }
+
+    public async Task<SilenceDetectionOutcome> DetectSilenceAsync(
         string mediaPath,
         SilenceDetectionOptions? options = null,
         CancellationToken ct = default)
@@ -123,9 +162,13 @@ public sealed class FakeSilenceService : ISilenceDetectionService
         Interlocked.Increment(ref _detectCalls);
         if (!FfmpegAvailable)
         {
-            return Task.FromResult(new SilenceDetectionOutcome("unavailable", new List<VadSilenceSegmentDto>(), "FFmpeg indisponível (teste)."));
+            return new SilenceDetectionOutcome("unavailable", new List<VadSilenceSegmentDto>(), "FFmpeg indisponível (teste).");
         }
-        return Task.FromResult(Outcome ?? new SilenceDetectionOutcome("failed", new List<VadSilenceSegmentDto>(), "Sem resultado configurado no fake."));
+        if (WaitForCancellation)
+        {
+            await Task.Delay(Timeout.Infinite, ct);
+        }
+        return Outcome ?? new SilenceDetectionOutcome("failed", new List<VadSilenceSegmentDto>(), "Sem resultado configurado no fake.");
     }
 
     public List<HesitationCandidateDto> DetectHesitationsAndFillers(TranscriptDto transcript, IReadOnlyList<VadSilenceSegmentDto> silences) =>

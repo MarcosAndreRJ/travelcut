@@ -43,8 +43,18 @@ public record TranscriptionOutcome(
     [property: JsonPropertyName("transcript")] TranscriptDto? Transcript,
     [property: JsonPropertyName("reason")] string? Reason,
     [property: JsonPropertyName("engine")] string? Engine,            // ex.: "openai-whisper 20240930" (do worker), null se indisponível
-    [property: JsonPropertyName("modelId")] string? ModelId           // ex.: "large-v3"
+    [property: JsonPropertyName("modelId")] string? ModelId,          // ex.: "large-v3"
+    [property: JsonPropertyName("failureCode")] string? FailureCode = null // P12: ver TranscriptionFailureCodes; null = sem classificação
 );
+
+/// <summary>Classificação estável de falhas do worker Whisper (P12): guia retry e fallback de dispositivo.</summary>
+public static class TranscriptionFailureCodes
+{
+    /// <summary>Falha provavelmente passageira (worker sem resposta, processo encerrado): 1 retry automático.</summary>
+    public const string Transient = "transient";
+    /// <summary>Memória da GPU esgotada: fallback automático para CPU (nunca troca de modelo).</summary>
+    public const string CudaOutOfMemory = "cuda_out_of_memory";
+}
 
 public record SilenceDetectionOutcome(
     [property: JsonPropertyName("status")] string Status,             // completed | unavailable | failed | canceled
@@ -120,7 +130,21 @@ public record PipelineStatusDto(
     [property: JsonPropertyName("startedAtUtc")] DateTime? StartedAtUtc,
     [property: JsonPropertyName("finishedAtUtc")] DateTime? FinishedAtUtc,
     [property: JsonPropertyName("activity")] PipelineActivityDto? Activity = null,
-    [property: JsonPropertyName("postAnalysis")] PostAnalysisStatusDto? PostAnalysis = null   // F14.8: processamento automático pós-análise (null = sem orquestrador)
+    [property: JsonPropertyName("postAnalysis")] PostAnalysisStatusDto? PostAnalysis = null,  // F14.8: processamento automático pós-análise (null = sem orquestrador)
+    [property: JsonPropertyName("completion")] PipelineCompletionDto? Completion = null        // P14: sinal único de "tudo terminou" para o shell notificar
+);
+
+/// <summary>
+/// P14: ciclo completo = análise + lotes pendentes + pós-análise. Settled=true quando nada está rodando/enfileirado e o pós-análise
+/// (se existir para o job) já deixou de ser idle/running. Token identifica o ciclo concluído (job + fim do pós-análise): a UI notifica
+/// uma vez por token novo, sem notificar na abertura do app (sem job nesta sessão, Token = null).
+/// Outcome: completed | completed_with_issues | failed | canceled (pior resultado entre análise e pós-análise); null sem job.
+/// </summary>
+public record PipelineCompletionDto(
+    [property: JsonPropertyName("settled")] bool Settled,
+    [property: JsonPropertyName("pendingBatches")] int PendingBatches,
+    [property: JsonPropertyName("token")] string? Token,
+    [property: JsonPropertyName("outcome")] string? Outcome
 );
 
 /// <summary>
@@ -201,5 +225,13 @@ public record MediaAnalysisDto(
     [property: JsonPropertyName("hesitations")] List<HesitationCandidateDto> Hesitations,
     [property: JsonPropertyName("scene")] SceneClassificationDto? Scene,
     [property: JsonPropertyName("cutCandidates")] List<EditSuggestionDto> CutCandidates,
-    [property: JsonPropertyName("analyzedAtUtc")] DateTime? AnalyzedAtUtc
+    [property: JsonPropertyName("analyzedAtUtc")] DateTime? AnalyzedAtUtc,
+    [property: JsonPropertyName("stale")] bool Stale = false   // P11: arquivo mudou desde a análise; resultados antigos descartados, reanálise pendente
+);
+
+/// <summary>Resposta de pipeline.retryFailed. Outcome: "started" | "merged" (ver <c>PipelineEnqueueResult</c>).</summary>
+public record RetryFailedPipelineResponse(
+    [property: JsonPropertyName("outcome")] string Outcome,
+    [property: JsonPropertyName("jobId")] Guid? JobId,
+    [property: JsonPropertyName("pendingMediaCount")] int PendingMediaCount
 );

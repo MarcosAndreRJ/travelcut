@@ -28,6 +28,7 @@ import {
   PipelineMediaStatusDto,
   StageState,
   StartPipelineRequest,
+  RetryFailedPipelineResponse,
   EditPlanDto,
   EditorialProfileDto,
   AutomationProfile,
@@ -184,9 +185,37 @@ const mockAssemblyFingerprintOf = (planFingerprint: string, clipCount: number): 
 const MOCK_IDEMPOTENCY_KEY_PATTERN = /^[A-Za-z0-9_-]{1,100}$/;
 
 /** Payload de plan.generate (profile e timeBase reservados; hoje sempre null). */
+/**
+ * Converte o perfil para o EditorialProfileDto do C# (TravelCut.Contracts/Dtos/PlanDtos.cs):
+ * 10 campos, sem extras. reviewAmbiguous é sempre true na v1. Perfil incompleto vira null
+ * (o host usa o perfil persistido do projeto em vez de rejeitar a requisição).
+ */
+export function toGenerateProfile(profile: EditorialProfileDto | null | undefined): EditorialProfileDto | null {
+  if (!profile) return null;
+  const { profileId, version, silencePolicy, pace, jokePreservation, zoomStrength, speedBroll, musicPolicy } = profile;
+  if (
+    !profileId || typeof version !== 'number' || !silencePolicy || !pace || !jokePreservation ||
+    !zoomStrength || !speedBroll || !musicPolicy
+  ) {
+    return null;
+  }
+  return {
+    profileId,
+    version,
+    silencePolicy,
+    pace,
+    jokePreservation,
+    zoomStrength,
+    speedBroll,
+    musicPolicy,
+    reviewAmbiguous: true,
+    autoApplyTrivialCuts: profile.autoApplyTrivialCuts ?? false,
+  };
+}
+
 export interface GenerateEditPlanRequest {
   projectId: string;
-  profile?: null;
+  profile?: EditorialProfileDto | null;
   timeBase?: null;
 }
 
@@ -884,6 +913,12 @@ class IpcBridgeService {
         this.assertMockProject(payload?.projectId);
         const plan = payload?.plan as EditPlanDto;
         const latestRev = this.mockPlanRevisions[this.mockPlanRevisions.length - 1]?.revision ?? 0;
+        if (payload?.baseRevision !== latestRev) {
+          throw new IpcError(
+            `DEMO: baseRevision R${payload?.baseRevision ?? '?'} difere da revisão vigente R${latestRev}.`,
+            'PLAN_STALE_BASE'
+          );
+        }
         const rev = latestRev + 1;
         const copy = clonePlanData(plan);
         copy.revision = rev;
@@ -2343,6 +2378,11 @@ class IpcBridgeService {
     return this.send<PipelineDiagnosticsDto>('pipeline.diagnostics', { projectId });
   }
 
+  /** Reenfileira só as mídias com etapa falha/cancelada do último job. Erro NO_MEDIA_TO_ANALYZE se nada falhou. */
+  public async retryFailedPipeline(projectId: string): Promise<RetryFailedPipelineResponse> {
+    return this.send<RetryFailedPipelineResponse>('pipeline.retryFailed', { projectId });
+  }
+
   public async cancelPipeline(jobId: string): Promise<{ canceled: boolean }> {
     return this.send<{ canceled: boolean }>('pipeline.cancel', { jobId });
   }
@@ -2387,8 +2427,9 @@ class IpcBridgeService {
   }
 
   /** Cria nova revisão a partir das mídias analisadas. Erros: NO_MEDIA_TO_PLAN, PROJECT_NOT_FOUND. */
-  public async generateEditPlan(projectId: string): Promise<EditPlanDto> {
-    const request: GenerateEditPlanRequest = { projectId, profile: null, timeBase: null };
+  /** profile null usa o perfil persistido do projeto; informe o perfil da base para reproduzi-lo. */
+  public async generateEditPlan(projectId: string, profile: EditorialProfileDto | null = null): Promise<EditPlanDto> {
+    const request: GenerateEditPlanRequest = { projectId, profile: toGenerateProfile(profile), timeBase: null };
     return this.send<EditPlanDto>('plan.generate', request, { timeoutMs: PLAN_IPC_TIMEOUT_MS });
   }
 
@@ -2408,15 +2449,17 @@ class IpcBridgeService {
   }
 
   /** F14.2: Grava uma revisão editorial manual (não destrutiva) no plano. */
+  /** baseRevision deve ser a revisão vigente carregada (senão o host recusa com PLAN_STALE_BASE). */
   public async savePlanRevision(
     projectId: string,
     plan: EditPlanDto,
+    baseRevision: number,
     author: string = 'user',
     operations?: PlanEditorialOperationDto[]
   ): Promise<EditPlanDto> {
     return this.send<EditPlanDto>(
       'plan.saveManualRevision',
-      { projectId, plan, author, operations },
+      { projectId, plan, baseRevision, author, operations },
       { timeoutMs: PLAN_IPC_TIMEOUT_MS }
     );
   }

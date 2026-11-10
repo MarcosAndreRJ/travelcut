@@ -354,6 +354,46 @@ public class IpcDispatcherTests : IDisposable
     }
 
     [Fact]
+    public async Task DispatchAsync_PipelineRetryFailed_WithoutJob_ReturnsNoMediaCode_AndInvalidIdIsRejected()
+    {
+        var none = await _dispatcher.DispatchAsync(new IpcRequest
+        {
+            RequestId = "req-retry-none", Type = "pipeline.retryFailed", Payload = new ProjectRequest(Guid.NewGuid())
+        });
+        Assert.False(none.Ok);
+        Assert.Equal("NO_MEDIA_TO_ANALYZE", none.Error!.Code);
+
+        var invalid = await _dispatcher.DispatchAsync(new IpcRequest
+        {
+            RequestId = "req-retry-invalid", Type = "pipeline.retryFailed", Payload = new ProjectRequest(Guid.Empty)
+        });
+        Assert.False(invalid.Ok);
+        Assert.Equal("INVALID_PROJECT_ID", invalid.Error!.Code);
+    }
+
+    [Fact]
+    public async Task DispatchAsync_PipelineRetryFailed_ReenqueuesFailedMediaOfLastJob()
+    {
+        _pipeline.Whisper.Available = true; // fake sem resultado configurado = transcrição "failed"
+        var project = _pipeline.CreateProject();
+        _pipeline.AddMedia(project, "1-Bruto/a.mp4");
+        await _pipeline.Manager.StartAsync(new StartPipelineRequest(project.ProjectId, null, null, null, false));
+        await _pipeline.WaitForFinishAsync(project.ProjectId);
+        int callsBefore = _pipeline.Whisper.TranscribeCalls;
+
+        var response = await _dispatcher.DispatchAsync(new IpcRequest
+        {
+            RequestId = "req-retry", Type = "pipeline.retryFailed", Payload = new ProjectRequest(project.ProjectId)
+        });
+
+        Assert.True(response.Ok);
+        var json = JsonSerializer.Serialize(response.Payload);
+        Assert.Contains("\"outcome\":\"started\"", json);
+        await _pipeline.WaitForFinishAsync(project.ProjectId);
+        Assert.True(_pipeline.Whisper.TranscribeCalls > callsBefore);
+    }
+
+    [Fact]
     public async Task DispatchAsync_PipelineCancel_UnknownJob_ReturnsCanceledFalse()
     {
         var response = await _dispatcher.DispatchAsync(new IpcRequest
@@ -451,6 +491,8 @@ public class IpcDispatcherTests : IDisposable
         public ImportJobStatusDto? GetStatus(Guid jobId) => null;
 
         public CancelImportResponse Cancel(Guid jobId) => new(false);
+
+        public bool HasActiveImport(Guid projectId) => false;
     }
 
     [Fact]

@@ -83,7 +83,7 @@ public class WhisperTranscriptionService : IWhisperTranscriptionService
         return env.Python?.FileName;
     }
 
-    public async Task<TranscriptionOutcome> TranscribeAsync(
+    public Task<TranscriptionOutcome> TranscribeAsync(
         string mediaPath,
         Guid mediaId,
         string model = DefaultModel,
@@ -91,6 +91,204 @@ public class WhisperTranscriptionService : IWhisperTranscriptionService
         CancellationToken ct = default,
         IProgress<TranscriptionProgressUpdate>? progress = null,
         IWhisperExecutionObserver? execution = null)
+        => TranscribeCoreAsync(mediaPath, mediaId, model, language, null, ct, progress, execution);
+
+    public Task<TranscriptionOutcome> TranscribeOnDeviceAsync(
+        string mediaPath,
+        Guid mediaId,
+        string model,
+        string language,
+        string device,
+        CancellationToken ct = default,
+        IProgress<TranscriptionProgressUpdate>? progress = null,
+        IWhisperExecutionObserver? execution = null)
+        => TranscribeCoreAsync(mediaPath, mediaId, model, language, device, ct, progress, execution);
+
+    public IReadOnlyList<Task<TranscriptionOutcome>>? TranscribeBatch(
+        IReadOnlyList<TranscriptionBatchItem> items, string model, string language, CancellationToken ct)
+    {
+        if (items.Count == 0) return null;
+
+        var requestedModel = string.IsNullOrWhiteSpace(model) ? DefaultModel : model.Trim();
+        var requestedLanguage = string.IsNullOrWhiteSpace(language) ? "pt" : language.Trim();
+        var sources = items
+            .Select(_ => new TaskCompletionSource<TranscriptionOutcome>(TaskCreationOptions.RunContinuationsAsynchronously))
+            .ToList();
+
+        void CompleteRemaining(TranscriptionOutcome outcome)
+        {
+            for (int i = 0; i < sources.Count; i++)
+            {
+                if (sources[i].TrySetResult(outcome))
+                {
+                    items[i].Execution?.OnFinished(new WhisperExecutionResult(
+                        outcome.Status == "canceled" ? "canceled" : "failed", null, outcome.Reason));
+                }
+            }
+        }
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await RunBatchAsync(items, sources, requestedModel, requestedLanguage, ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                CompleteRemaining(Canceled(requestedModel));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Falha inesperada no lote de transcrição");
+                CompleteRemaining(Failed("Falha inesperada no lote de transcrição; detalhes no log.", requestedModel, TranscriptionFailureCodes.Transient));
+            }
+            finally
+            {
+                CompleteRemaining(Failed("Lote de transcrição encerrado sem resposta para esta mídia.", requestedModel, TranscriptionFailureCodes.Transient));
+            }
+        }, CancellationToken.None);
+
+        return sources.Select(s => s.Task).ToList();
+    }
+
+    /// <summary>
+    /// Um único processo recebe N comandos "transcribe" (requestIds distintos) seguidos de "exit": o worker atende em sequência e
+    /// mantém o modelo carregado (P10). Cada resposta conclui o seu item na hora; o que ficar sem resposta é mapeado pelo resultado do processo.
+    /// </summary>
+    private async Task RunBatchAsync(
+        IReadOnlyList<TranscriptionBatchItem> items,
+        List<TaskCompletionSource<TranscriptionOutcome>> sources,
+        string model,
+        string language,
+        CancellationToken ct)
+    {
+        var env = await GetEnvironmentAsync(ct).ConfigureAwait(false);
+        TranscriptionOutcome? notReady =
+            env.Python is null ? Unavailable(PythonMissingReason, model)
+            : env.WorkerScript is null ? Unavailable("Worker Whisper (workers/whisper_worker.py) não encontrado. Nenhuma transcrição foi estimada.", model)
+            : !env.Probe.HasWhisper ? Unavailable("openai-whisper não está instalado no ambiente Python do worker (ver workers/README.md). Nenhuma transcrição foi estimada.", model)
+            : null;
+        if (notReady is not null)
+        {
+            foreach (var s in sources) s.TrySetResult(notReady);
+            return;
+        }
+
+        var reqIds = new string[items.Count];
+        var commands = new string[items.Count];
+        var active = new List<int>();
+        var stdin = new System.Text.StringBuilder();
+        for (int i = 0; i < items.Count; i++)
+        {
+            var path = items[i].MediaPath;
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+            {
+                sources[i].TrySetResult(Failed("Arquivo de mídia não encontrado para transcrição.", model));
+                continue;
+            }
+
+            reqIds[i] = Guid.NewGuid().ToString("N");
+            commands[i] = JsonSerializer.Serialize(new
+            {
+                command = "transcribe",
+                requestId = reqIds[i],
+                payload = new { mediaPath = Path.GetFullPath(path), model, language, device = (string?)null }
+            }) + "\n";
+            stdin.Append(commands[i]);
+            active.Add(i);
+        }
+        if (active.Count == 0) return;
+        stdin.Append(ExitLine);
+
+        var byRequest = active.ToDictionary(i => reqIds[i]);
+        var args = BuildArgs(env.Python!, env.WorkerScript!);
+        foreach (int i in active)
+        {
+            items[i].Execution?.OnStarted(new WhisperExecutionInfo(
+                RequestId: reqIds[i],
+                PythonExecutable: env.Python!.FileName,
+                Arguments: args,
+                WorkerScript: env.WorkerScript!,
+                WorkingDirectory: Environment.CurrentDirectory,
+                EnvironmentVariables: PythonEnvironment,
+                StandardInput: commands[i] + ExitLine,
+                MediaPath: Path.GetFullPath(items[i].MediaPath),
+                Model: model,
+                Language: language,
+                Device: env.Probe.Device));
+        }
+
+        void OnLine(string raw)
+        {
+            var line = raw.Trim();
+            if (line.Length == 0 || line[0] != '{') return;
+
+            string? reqId;
+            bool isResponse;
+            try
+            {
+                using var doc = JsonDocument.Parse(line);
+                if (doc.RootElement.ValueKind != JsonValueKind.Object) return;
+                reqId = GetString(doc.RootElement, "requestId");
+                isResponse = doc.RootElement.TryGetProperty("ok", out _);
+            }
+            catch (JsonException)
+            {
+                return;
+            }
+
+            if (reqId is null || !byRequest.TryGetValue(reqId, out int idx)) return;
+            var item = items[idx];
+            if (!isResponse)
+            {
+                if (item.Progress is not null) ReportWorkerEvent(line, reqId, item.Progress);
+                if (item.Execution is not null && SummarizeStdoutLine(line, reqId) is { } summary) item.Execution.OnLog("stdout", summary);
+                return;
+            }
+
+            var outcome = MapTranscribeRun(new ProcessRunResult(ProcessRunStatus.Completed, 0, line, string.Empty), reqId, item.MediaId, model, language);
+            if (sources[idx].TrySetResult(outcome))
+            {
+                item.Execution?.OnFinished(new WhisperExecutionResult(ProcessStateOf(ProcessRunStatus.Completed, outcome.Status), 0, outcome.Reason));
+            }
+        }
+
+        var perItemTimeout = _options.TranscribeTimeout ?? DefaultTranscribeTimeout;
+        var run = await _runner.RunAsync(
+            new ProcessRunRequest(
+                env.Python!.FileName,
+                args,
+                TimeSpan.FromTicks(perItemTimeout.Ticks * active.Count),
+                stdin.ToString(),
+                PythonEnvironment,
+                StandardOutputLine: OnLine,
+                StandardErrorLine: line =>
+                {
+                    int current = active.FirstOrDefault(i => !sources[i].Task.IsCompleted, -1);
+                    if (current >= 0) items[current].Execution?.OnLog("stderr", line);
+                }),
+            ct).ConfigureAwait(false);
+
+        foreach (int i in active)
+        {
+            if (sources[i].Task.IsCompleted) continue;
+            var outcome = MapTranscribeRun(run, reqIds[i], items[i].MediaId, model, language);
+            if (sources[i].TrySetResult(outcome))
+            {
+                items[i].Execution?.OnFinished(new WhisperExecutionResult(ProcessStateOf(run.Status, outcome.Status), run.ExitCode, outcome.Reason));
+            }
+        }
+    }
+
+    private async Task<TranscriptionOutcome> TranscribeCoreAsync(
+        string mediaPath,
+        Guid mediaId,
+        string model,
+        string language,
+        string? device,
+        CancellationToken ct,
+        IProgress<TranscriptionProgressUpdate>? progress,
+        IWhisperExecutionObserver? execution)
     {
         var requestedModel = string.IsNullOrWhiteSpace(model) ? DefaultModel : model.Trim();
         var requestedLanguage = string.IsNullOrWhiteSpace(language) ? "pt" : language.Trim();
@@ -128,7 +326,8 @@ public class WhisperTranscriptionService : IWhisperTranscriptionService
                 {
                     mediaPath = Path.GetFullPath(mediaPath),
                     model = requestedModel,
-                    language = requestedLanguage
+                    language = requestedLanguage,
+                    device = string.Equals(device, "cpu", StringComparison.OrdinalIgnoreCase) ? "cpu" : null
                 }
             }) + "\n" + ExitLine;
 
@@ -476,14 +675,14 @@ public class WhisperTranscriptionService : IWhisperTranscriptionService
             case ProcessRunStatus.TimedOut:
                 return Failed("Tempo limite excedido na transcrição (worker Whisper).", model);
             case ProcessRunStatus.NotStarted:
-                return Failed("Não foi possível iniciar o worker Whisper.", model);
+                return Failed("Não foi possível iniciar o worker Whisper.", model, TranscriptionFailureCodes.Transient);
         }
 
         var response = FindResponse(run.StandardOutput, reqId);
         if (response is not { } root)
         {
             _logger.LogWarning("Worker Whisper sem resposta válida (código {ExitCode}).", run.ExitCode);
-            return Failed($"Worker Whisper não retornou resposta válida (código {run.ExitCode}).", model);
+            return Failed($"Worker Whisper não retornou resposta válida (código {run.ExitCode}).", model, TranscriptionFailureCodes.Transient);
         }
 
         var envelopeError = TranscriptValidator.ValidateEnvelope(GetString(root, "protocol"), GetInt(root, "version"));
@@ -506,6 +705,10 @@ public class WhisperTranscriptionService : IWhisperTranscriptionService
                 "whisper_not_installed" => Unavailable(
                     "openai-whisper não está instalado no ambiente Python do worker. Nenhuma transcrição foi estimada.",
                     model),
+                "cuda_out_of_memory" => Failed(
+                    "Memória da GPU insuficiente para o modelo (CUDA out of memory).",
+                    model, TranscriptionFailureCodes.CudaOutOfMemory),
+                "transcription_failed" => Failed($"Worker Whisper falhou (código de erro: {code}).", model, TranscriptionFailureCodes.Transient),
                 _ => Failed($"Worker Whisper falhou (código de erro: {code}).", model)
             };
         }
@@ -742,8 +945,8 @@ public class WhisperTranscriptionService : IWhisperTranscriptionService
     private static TranscriptionOutcome Unavailable(string reason, string model) =>
         new("unavailable", null, reason, null, model);
 
-    private static TranscriptionOutcome Failed(string reason, string model) =>
-        new("failed", null, reason, null, model);
+    private static TranscriptionOutcome Failed(string reason, string model, string? failureCode = null) =>
+        new("failed", null, reason, null, model, failureCode);
 
     private static TranscriptionOutcome Canceled(string model) =>
         new("canceled", null, "Transcrição cancelada.", null, model);

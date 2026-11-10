@@ -33,12 +33,14 @@ public sealed class DecisionParametersTests : IDisposable
     private readonly SqlitePlanRevisionRepository _revisions;
     private readonly InMemoryPlanArtifactStore _artifacts = new();
     private readonly PlanningUseCases _planning;
+    private readonly FakePipelineAnalysis _analysis = new();
     private readonly IpcDispatcher _dispatcher;
     private readonly string _root = Path.Combine(Path.GetTempPath(), "tc_f148_" + Guid.NewGuid().ToString("N"));
 
     public DecisionParametersTests()
     {
         _connection.Open();
+        foreach (var kv in TravelFixture.Analyses()) _analysis.Analyses[kv.Key] = kv.Value;
         _db = new TravelCutDbContext(new DbContextOptionsBuilder<TravelCutDbContext>().UseSqlite(_connection).Options);
         _db.Database.EnsureCreated();
         _projects = new SqliteProjectRepository(_db);
@@ -49,7 +51,7 @@ public sealed class DecisionParametersTests : IDisposable
         media.SaveBatchAsync(TravelFixture.Media()).GetAwaiter().GetResult();
         _plan.SaveSuggestionsBatchAsync([ZoomSug(1, 12_400, 40_000), CutSug(2)]).GetAwaiter().GetResult();
         _planning = new PlanningUseCases(
-            _projects, media, _plan, new FakePipelineAnalysis(), new ChronologyService(),
+            _projects, media, _plan, _analysis, new ChronologyService(),
             _revisions, _artifacts, new FileSystemFileExistence(),
             TimeProvider.System, NullLogger<PlanningUseCases>.Instance);
         _dispatcher = new IpcDispatcher(
@@ -186,6 +188,146 @@ public sealed class DecisionParametersTests : IDisposable
         var b = a with { ParametersJson = "{\"zoom\":{}}" };
         string Fp(EffectiveSuggestion e) => PlanInputsFingerprint.Compute("m", plan.Profile, plan.TimeBase, plan.TimeZoneId, [e]);
         Assert.NotEqual(Fp(a), Fp(b));
+    }
+
+    // ------------------------------------------------------------------ "Sem zoom" explícito
+
+    private static DecisionParametersDto NoZoom(bool? none = true, double scale = 0) =>
+        new(new SmartZoomParametersDto(SmartZoomConstants.TypePunchIn, scale, 0.5, 0.5, 0, None: none));
+
+    [Fact]
+    public void Normalize_NoneOrScaleOne_IsExplicitNoZoom_AndConflictingScaleIsRejected()
+    {
+        var (jsonNone, errNone) = DecisionParameters.Normalize(NoZoom(), "zoom");
+        Assert.Null(errNone);
+        Assert.True(DecisionParameters.IsNone(DecisionParameters.Parse(jsonNone)!.Zoom));
+
+        var (jsonOne, errOne) = DecisionParameters.Normalize(Zoom(1.0), "zoom");
+        Assert.Null(errOne);
+        Assert.True(DecisionParameters.IsNone(DecisionParameters.Parse(jsonOne)!.Zoom));
+
+        // 1,005 continua sendo zoom ativo (mínimo 1,01); teto 1,12 permanece.
+        Assert.Equal(1.01, DecisionParameters.Parse(DecisionParameters.Normalize(Zoom(1.005), "zoom").Json)!.Zoom!.Scale);
+        Assert.Equal(1.12, DecisionParameters.Parse(DecisionParameters.Normalize(Zoom(1.5), "zoom").Json)!.Zoom!.Scale);
+        Assert.False(DecisionParameters.IsNone(DecisionParameters.Parse(DecisionParameters.Normalize(Zoom(1.05), "zoom").Json)!.Zoom));
+
+        Assert.NotNull(DecisionParameters.Normalize(NoZoom(scale: 1.08), "zoom").Error);
+        Assert.NotNull(DecisionParameters.Normalize(NoZoom(), "cut").Error);
+    }
+
+    [Fact]
+    public void Planner_ApprovedNoZoom_RemovesZoom_WithoutPendingOrAutoReapply()
+    {
+        var json = DecisionParameters.Normalize(NoZoom(), "zoom").Json;
+        var plan = ZoomPlan([PlannerDecision("approve", 1, json)]);
+
+        Assert.Null(V1Clip(plan).Zoom);
+        Assert.DoesNotContain(plan.AppliedEffects!, e => e.Kind == "zoom");
+        Assert.DoesNotContain(plan.Pending, p => p.SuggestionId == S(101));
+    }
+
+    [Fact]
+    public async Task Submit_NoZoom_KeepsApproved_ExposesNone_AndUndoRestoresPending()
+    {
+        var result = await _planning.SubmitDecisionAsync(
+            new SubmitDecisionRequest(S(101), "approve", "user", null, Parameters: NoZoom()));
+        Assert.True(result.Success, result.ErrorMessage);
+        var dto = Assert.Single(result.Value!.Suggestions);
+        Assert.Equal("Approved", dto.Status);
+        Assert.True(dto.Parameters!.Zoom!.None);
+
+        var undone = (await _planning.UndoDecisionAsync(new UndoDecisionRequest(S(101)))).Value!.Suggestions[0];
+        Assert.Equal("Proposed", undone.Status);
+        Assert.NotEqual(true, undone.Parameters?.Zoom?.None);
+    }
+
+    // ------------------------------------------------------------------ Foco, duração e curva no clipe
+
+    [Fact]
+    public void Planner_HumanZoom_MaterializesFocusDurationAndCurve_InClipAndEffect()
+    {
+        var json = DecisionParameters.Normalize(Zoom(1.10, fx: 0.3, fy: 0.6, dur: 8), "zoom").Json;
+        var plan = ZoomPlan([PlannerDecision("approve", 1, json)]);
+
+        var clip = V1Clip(plan);
+        Assert.Equal(0.3, clip.ZoomFocalPointX);
+        Assert.Equal(0.6, clip.ZoomFocalPointY);
+        Assert.Equal(8, clip.ZoomDurationSeconds);
+        Assert.Equal(SmartZoomConstants.TypePunchIn, clip.ZoomCurve);
+        var fx = Assert.Single(plan.AppliedEffects!, e => e.Kind == "zoom");
+        Assert.Equal(8, fx.DurationSeconds);
+        Assert.Equal(SmartZoomConstants.TypePunchIn, fx.ZoomCurve);
+
+        // Round-trip DTO <-> domínio preserva os campos (fingerprint íntegro).
+        var back = PlanMapping.ToDomain(plan).Clips.Single(c => c.ClipId == clip.ClipId);
+        Assert.Equal(0.3, back.ZoomFocalPointX);
+        Assert.Equal(8, back.ZoomDurationSeconds);
+    }
+
+    [Fact]
+    public void Planner_LegacyApprovedZoom_HasNoFocus_AndSameFingerprintAsWithoutFocusFields()
+    {
+        var plan = ZoomPlan([PlannerDecision("approve", 1)]);
+        var clip = V1Clip(plan);
+        Assert.Null(clip.ZoomFocalPointX);
+        Assert.Null(clip.ZoomDurationSeconds);
+        Assert.Null(clip.ZoomCurve);
+
+        // O fingerprint só muda quando os campos existem.
+        var domain = PlanMapping.ToDomain(plan);
+        var withFocus = domain with
+        {
+            Clips = domain.Clips.Select(c => c.ClipId == clip.ClipId ? c with { ZoomFocalPointX = 0.4, ZoomFocalPointY = 0.4 } : c).ToList(),
+        };
+        Assert.Equal(plan.PlanFingerprint, TravelCut.Domain.Planning.PlanFingerprint.ComputePlan(domain));
+        Assert.NotEqual(plan.PlanFingerprint, TravelCut.Domain.Planning.PlanFingerprint.ComputePlan(withFocus));
+    }
+
+    [Fact]
+    public void Planner_AutoZoom_UsesRecommenderFocus_OnlyWhenKnown()
+    {
+        var known = V1Clip(ZoomPlan());
+        Assert.Equal(1.05, known.Zoom);
+        Assert.Equal(0.5, known.ZoomFocalPointX);
+        Assert.Equal(SmartZoomConstants.TypePunchIn, known.ZoomCurve);
+        Assert.NotNull(known.ZoomDurationSeconds);
+    }
+
+    // ------------------------------------------------------------------ batchApprovable (política, não regra local)
+
+    private static EditSuggestion TrivialSilence() => new()
+    {
+        SuggestionId = S(50), MediaId = M(1), SourceInterval = new TimeRange(30_000, 33_000), EvidenceRefs = "{\"kind\":\"silence\"}",
+        ConfidenceBand = "high", SuggestedAction = "cut", Status = SuggestionStatus.Proposed, Author = "test",
+        CreatedAtUtc = new DateTime(2026, 10, 14, 9, 0, 1, DateTimeKind.Utc),
+    };
+
+    private async Task<Dictionary<Guid, JsonElement>> ListSuggestions() =>
+        Body(await Send("suggestions.list", new ProjectRequest(TravelFixture.ProjectId))).GetProperty("suggestions")
+            .EnumerateArray().ToDictionary(s => s.GetProperty("suggestionId").GetGuid());
+
+    [Fact]
+    public async Task BatchApprovable_TrueOnlyWhenPolicyWouldApply()
+    {
+        await _plan.SaveSuggestionsBatchAsync([TrivialSilence()]);
+        var list = await ListSuggestions();
+
+        Assert.True(list[S(50)].GetProperty("batchApprovable").GetBoolean());   // silêncio inequívoco: Apply
+        Assert.False(list[S(2)].GetProperty("batchApprovable").GetBoolean());   // há fala dentro do intervalo: Review
+        Assert.False(list[S(101)].GetProperty("batchApprovable").GetBoolean()); // zoom nunca vai em lote por esta flag
+
+        // Decisão explícita (rejeitar e desfazer) prevalece: nunca volta a ser elegível ao lote.
+        await _planning.SubmitDecisionAsync(new SubmitDecisionRequest(S(50), "reject", "user", null));
+        await _planning.UndoDecisionAsync(new UndoDecisionRequest(S(50)));
+        Assert.False((await ListSuggestions())[S(50)].GetProperty("batchApprovable").GetBoolean());
+    }
+
+    [Fact]
+    public async Task BatchApprovable_IsAlsoExposedInDecisionResults()
+    {
+        await _plan.SaveSuggestionsBatchAsync([TrivialSilence()]);
+        var deferred = (await _planning.SubmitDecisionAsync(new SubmitDecisionRequest(S(50), "defer", "user", null))).Value!.Suggestions[0];
+        Assert.Equal(false, deferred.BatchApprovable);
     }
 
     // ------------------------------------------------------------------ Round-trip (SQLite real)
