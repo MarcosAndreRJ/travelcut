@@ -7,7 +7,7 @@ Arquivos em `referencias/mockups/`:
 1. `01_Painel_Inicial.png` — hero do projeto, cards das 4 pastas, pipeline, ações rápidas, integração/status, últimas análises.
 2. `02_Biblioteca_e_Transcricao.png` — grid de clipes, categorias, thumbnails, preview, transcrição por palavras, jobs e resumo.
 3. `03_Planejamento_Timeline.png` — lista de mídia cronológica, player central, painéis de análise, timeline multitrack **planejada**.
-4. `04_Revisao_de_Cortes.png` — contadores de cortes, comparação antes/depois, transcrição destacada, waveform, fila de revisão e decisões.
+4. `04_Revisao_de_Cortes.png` — referência histórica para comparação antes/depois, fila e decisões que passam para a Biblioteca.
 5. `05_Configuracoes_e_Integracoes.png` — testes independentes de DaVinci/Claude/Whisper/FFmpeg/HyperFrames, perfil de edição e regras de preservação.
 6. `06_Visao_Geral_da_Montagem.png` — progresso do fluxo, grid de cenas, player de prévia/transcrição e esboço narrativo.
 
@@ -15,11 +15,12 @@ Os seis arquivos são referências **parcialmente divergentes**, não seis propo
 
 ## Navegação consolidada
 
+Fluxo alvo do [workstream de edição por transcrição](workstreams/EDICAO-POR-TRANSCRICAO.md), entregue em incrementos.
+
 - **Início / Projeto atual:** diretório, cards 1–4, pipeline, ações e atividade.
-- **Biblioteca:** grid/lista, filtros, preview, detalhes e metadados; transcrição como aba lateral.
+- **Biblioteca & Transcrição:** lista de clipes, preview e transcrição como editor principal. Sugestões e decisões ficam no painel lateral.
 - **Análise:** trabalhos de inventário, Whisper, silêncios, cenas e progresso real.
-- **Planejamento:** ordem narrativa, sequência de mídia e timeline planejada.
-- **Revisão de cortes:** fila, antes/depois, waveform, aprovação/rejeição/adiamento e relatórios.
+- **Timeline:** ordem narrativa, faixas, prévia da montagem e painel de transcrição em ordem de edição.
 - **Integração DaVinci:** status/capacidades, simulação/host, snapshot, aplicação de plano e mapeamentos.
 - **Exportações:** prévias e artefatos aprovados.
 - **Configurações:** integrações, perfil, desempenho, pastas e segurança.
@@ -45,19 +46,19 @@ Não duplicar "Análise", "Cortes inteligentes", "Mídia e análise" e "Transcri
 
 ### Inicial
 
-Mostrar projeto aberto, pastas, pipeline e estado de integração; sem projeto → seletor e instruções. Sem DaVinci → banner discreto "Edição real depende do host"; análise permanece acessível.
+Mostrar projeto aberto, pastas, pipeline e estado de integração. Sem projeto, exibir seletor e instruções. Se o DaVinci estiver indisponível, explicar o efeito sobre o envio ao editor.
 
-### Biblioteca e transcrição
+### Biblioteca & Transcrição
 
-Filtros por cena, origem, tipo e erro; grid/miniatura, seleção clara, player com tempo/duração, transcrição com busca e salto para word timestamps. Sem transcrição → opção executar worker ou explicar impedimento.
+Manter a lista de clipes e o preview no topo. Apresentar a transcrição em blocos de fala com timestamp e seleção por palavra. Clicar em uma fala posiciona o player. Selecionar palavras ou marcar In/Out permite aplicar um corte direto. Exibir a ação **Desfazer** junto à confirmação do host e oferecer a comparação **Original / Editado**. Em clipe sem transcrição, explicar a disponibilidade da análise e manter a edição por In/Out quando houver mídia reproduzível.
 
-### Planejamento
+### Sugestões na Biblioteca
 
-Lista de fontes com tempos, player, timeline com clips e faixas. Diferenciar `source time` vs `timeline time` nos rótulos. Nunca alegar que esta é a timeline do DaVinci quando não está sincronizada.
+Migrar a fila, motivo, confiança qualitativa, ajuste de limites, antes/depois, aprovar, rejeitar, adiar e recuperação de trechos. Selecionar uma sugestão foca o clipe e a fala ou intervalo correspondente. Após a migração, os atalhos que apontam para a T03 abrem esse contexto na Biblioteca e a tela separada sai da navegação.
 
-### Revisão
+### Timeline
 
-Comparador antes/depois (preview gerada ou proxy), texto com faixas marcadas, waveform indicativa, motivos, confiança qualitativa, aprovar/rejeitar/adiar e `undo`; sempre manter contexto da cena.
+Exibir faixas, waveform, player e painel de transcrição sincronizado com a agulha. A busca na montagem encontra falas na ordem em que são reproduzidas. A seleção identifica a ocorrência ativa, inclusive quando a fonte aparece mais de uma vez. Mostrar tempo de origem e tempo de montagem onde a distinção ajudar a ajustar o corte.
 
 ### Configurações
 
@@ -69,4 +70,4 @@ Acompanhamento de jobs, thumbnails por cena e prévia de narrativa. Contadores p
 
 ## Critérios de fidelidade visual
 
-Comparar screenshots da implementação com seis imagens de referência em resoluções equivalentes. QA verifica hierarquia, alinhamento, contraste, redimensionamento, navegação, estados e responsividade — **não** testar apenas a home.
+Comparar a implementação das telas ativas com as referências e com o fluxo alvo. QA verifica hierarquia, alinhamento, contraste, redimensionamento, navegação, estados, foco e atalhos. A antiga revisão serve de referência para as funções absorvidas pela Biblioteca.

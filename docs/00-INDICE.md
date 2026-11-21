@@ -25,6 +25,7 @@
 | [21 — Notas de versão](21-NOTAS-DE-VERSAO.md) | Versão 0.10.0-host-test.1: novidades, mudanças de comportamento, hashes do pacote e o que é simulado |
 | [22 — Smoke test no host](22-SMOKE-TEST-HOST.md) | Checklist curto de 22 itens para o pacote de teste no host, com onde anotar cada evidência |
 | [23 — Limitações e riscos](23-LIMITACOES-E-RISCOS.md) | Limitações e riscos consolidados, com estado (`mock_pass`, `host_pending`, `aberto`) e fonte |
+| [Edição por transcrição](workstreams/EDICAO-POR-TRANSCRICAO.md) | Fluxo alvo da Biblioteca e Timeline, incrementos de implementação e critérios de aceite |
 
 ## Precedência
 

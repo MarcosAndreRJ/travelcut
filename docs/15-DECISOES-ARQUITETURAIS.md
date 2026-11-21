@@ -20,4 +20,6 @@
 
 ## Alterações de ADR
 
+A [ADR de edição por transcrição](adr/ADR-edicao-por-transcricao.md) define o compartilhamento do plano entre Biblioteca e Timeline, com implementação prevista no [workstream correspondente](workstreams/EDICAO-POR-TRANSCRICAO.md).
+
 Mudanças em decisão aprovada precisam de justificativa, alternativas e impacto de migração. Sonnet recomenda para problemas complexos, Opus audita e registra; se afetar escolha aprovada do usuário, pedir consentimento. Não apagar histórico de decisões.
