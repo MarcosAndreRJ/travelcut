@@ -12,14 +12,15 @@
 | RF-06 | Silêncios/hesitações | Mostrar segmentos e motivo; corte não é executado irreversivelmente |
 | RF-07 | Classificação de cena | Tipos: conversa, paisagem, deslocamento, drone, loja/produto, outros; permitem correção |
 | RF-08 | Planejamento narrativo | Plano ordenado por mídia/intervalo, motivação, transições e pendências |
-| RF-09 | Revisão | Aprovar, rejeitar, alterar intervalo, adiar; cada decisão fica versionada |
-| RF-10 | Timeline planejada | Faixas, segmentos, tempos, waveform, título e preview consistentes |
+| RF-09 | Revisão de sugestões na Biblioteca | Aprovar, rejeitar, ajustar intervalo e adiar dentro da Biblioteca. Cada decisão fica versionada e o resultado efetivo aparece na transcrição e na prévia |
+| RF-10 | Timeline com transcrição | Faixas, segmentos, tempos, waveform e prévia consistentes. O texto segue a ordem da montagem e acompanha a agulha. Edições por fala afetam a ocorrência selecionada |
 | RF-11 | Ponte DaVinci | Mock validado na VM e integração real apenas após teste no host |
 | RF-12 | MCP TravelCut | Operações declaradas e idempotentes; alterações guardadas por permissões e versão |
 | RF-13 | Logs e retomada | Tarefa reinicia após interrupção sem duplicar resultados |
 | RF-14 | Exportação | Prévia em `3-Trabalho` e publicação em `4-Final` somente após aprovação |
 | RF-15 | Perfil de edição | Preferências de silêncio, humor, zoom, B-roll, trilha e revisão de ambiguidades |
 | RF-16 | Diagnóstico | DaVinci ausente/fechado/inacessível, sem suporte, simulado ou conectado efetivamente |
+| RF-17 | Edição direta por fala ou In/Out na Biblioteca | Aplicar um corte manual, refletir o resultado no preview do clipe e permitir desfazer. O corte confirmado aparece na Timeline e sobrevive ao fechamento do projeto, inclusive quando é a primeira edição |
 
 ## Não funcionais
 
@@ -36,7 +37,9 @@
 
 ## Fluxos principais
 
-**Abrir projeto** → validar estrutura → indexar arquivos → comparar cache → iniciar jobs faltantes → atualizar biblioteca. **Revisar** → selecionar sugestão → reproduzir original e corte proposto → aprovar/rejeitar/ajustar → gerar versão do plano. **Montar** → consultar capacidades → snapshot → validar plano → aplicar adaptador mock/real → reconciliar resultados → registrar evidências.
+**Abrir projeto** → validar estrutura → indexar arquivos → comparar cache → iniciar jobs faltantes → atualizar Biblioteca. **Editar na Biblioteca** → selecionar fala, marcar In/Out ou revisar uma sugestão → aplicar a ação → conferir a prévia → desfazer ou ajustar se precisar. **Refinar na Timeline** → localizar uma fala ou um clipe → ajustar a ocorrência na montagem → conferir a revisão. **Enviar ao DaVinci** → consultar capacidades → validar a revisão e preparar o dry-run → aplicar pelo adaptador mock/real com as guardas vigentes → registrar evidências.
+
+RF-09, RF-10 e RF-17 descrevem o alvo do [workstream de edição por transcrição](workstreams/EDICAO-POR-TRANSCRICAO.md). O workstream registra o estado de implementação e os critérios por incremento.
 
 ## Falhas que não podem ficar silenciosas
 

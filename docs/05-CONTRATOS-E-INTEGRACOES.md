@@ -42,6 +42,16 @@ Fonte de verdade dos DTOs: `src/TravelCut.Contracts/Dtos/*.cs`, espelhados em `f
 
 Erros: `INTERNAL_ERROR` traz apenas "Erro interno (ref &lt;requestId&gt;)" — detalhes só no log. Mensagens WebView2 de origem diferente de `https://travelcut.studio` (ou `http://localhost:5173` em DEBUG) são ignoradas.
 
+### Contrato alvo para edição por transcrição
+
+Esta seção define o comportamento esperado para o [workstream de edição por transcrição](workstreams/EDICAO-POR-TRANSCRICAO.md). Nomes de rotas e DTOs devem ser definidos na implementação após conferir os consumidores atuais.
+
+- Uma edição direta identifica o projeto, a mídia, a operação, o intervalo na fonte e a revisão-base quando existir. Na Timeline, identifica também a ocorrência do clipe. O backend valida pertencimento, limites da mídia, revisão e alvo da operação. A mesma requisição repetida não duplica a edição.
+- Em uma primeira edição sem plano, o backend materializa uma revisão a partir das entradas elegíveis do projeto. A reação atual de `decision.submit` pressupõe revisão existente. Reaproveitar casos de uso e validações do planejamento ao implementar esse caminho.
+- A resposta permite distinguir corte ou efeito efetivado, ausência de mudança e recusa. Deve identificar a revisão efetiva e o resultado suficiente para atualizar a transcrição e o player. Se houver uma decisão registrada com plano preservado, a UI deve mostrar esse estado sem afirmar que o corte entrou na montagem.
+- Corte e zoom usam parâmetros tipados conforme a operação. A interface deriva marcações persistidas e a prévia do estado confirmado pelo host. Desfazer e refazer devem refletir a edição efetiva do projeto, inclusive ao alternar entre telas.
+- Preservar os contratos atuais dos consumidores durante a transição. Cobrir ida e volta JSON e validar a mesma mudança no C#, cliente TypeScript e mock do frontend.
+
 ## Processos Python/FFmpeg
 
 Contrato de worker: stdin JSON/arquivo JSON de entrada; stdout JSON de resultado com `schemaVersion`, `status`, `artifacts`, `warnings`, `errors`; stderr para logs técnicos. Para jobs longos, gerar eventos progressivos delimitados por linha e autenticar o processo pelo executável permitido, não por PATH arbitrário. `ProcessStartInfo.ArgumentList` e timeout; nada de `cmd /c` com interpolação de usuário.
