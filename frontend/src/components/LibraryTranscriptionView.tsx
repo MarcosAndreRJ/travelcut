@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo, useSyncExternalStore } from 'react';
 import {
   FolderOpen,
   Search,
@@ -29,6 +29,13 @@ import { ClipTimelineStrip } from './analysis/SignalsPanel';
 import { usePipeline } from './analysis/usePipeline';
 import { MediaClipPlayer } from './media/MediaClipPlayer';
 import { isAudioAsset, isImageAsset, type ClipSeekRequest } from './media/mediaClipModel';
+import type { PreviewMode } from './media/mediaTime';
+import {
+  DirectCutController,
+  MIN_CUT_SECONDS,
+  type CutOutcome,
+  type DirectCutState
+} from './analysis/directCutController';
 import { activitySummaryLine, pipelineActivityView } from './analysis/pipelineActivity';
 import { errorMessage, formatDuration } from './analysis/analysisFormat';
 
@@ -37,6 +44,16 @@ import { errorMessage, formatDuration } from './analysis/analysisFormat';
  * Uma mudança em entryKey reaplica o entryMode.
  */
 export type LibraryEntryMode = 'auto' | 'import' | 'clips';
+
+const EMPTY_CUT_STATE: DirectCutState = {
+  confirmed: [],
+  planRevision: null,
+  canUndo: false,
+  canRedo: false,
+  busy: false,
+  feedback: null,
+  loadError: null
+};
 
 interface LibraryTranscriptionViewProps {
   project: ProjectSummary | null;
@@ -68,9 +85,11 @@ export const LibraryTranscriptionView: React.FC<LibraryTranscriptionViewProps> =
   // Pré-cortes manuais na biblioteca (F14.1 Checkpoint C)
   const [manualIn, setManualIn] = useState<number | null>(null);
   const [manualOut, setManualOut] = useState<number | null>(null);
-  const [isSubmittingCut, setIsSubmittingCut] = useState(false);
-  const [cutSuccessSuggestionId, setCutSuccessSuggestionId] = useState<string | null>(null);
-  const [cutError, setCutError] = useState<string | null>(null);
+  // Prévia: 'edited' pula os trechos cortados confirmados pelo host; 'original' reproduz tudo.
+  const [previewMode, setPreviewMode] = useState<PreviewMode>('edited');
+  const [zoomNotice, setZoomNotice] = useState<{ tone: 'success' | 'error'; text: string } | null>(null);
+  // Ref para os atalhos (efeito registrado antes do controlador existir no render).
+  const cutControllerRef = useRef<DirectCutController | null>(null);
 
   const toggleSelectForAnalysis = (mediaId: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
@@ -119,14 +138,23 @@ export const LibraryTranscriptionView: React.FC<LibraryTranscriptionViewProps> =
   useEffect(() => {
     setManualIn(null);
     setManualOut(null);
-    setCutSuccessSuggestionId(null);
-    setCutError(null);
   }, [selectedAsset?.mediaId]);
 
   // Atalhos de teclado para marcar In (I), Out (O) e Limpar (Esc)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) return;
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement)?.tagName)) return;
+      // Ctrl+Z desfaz e Ctrl+Y / Ctrl+Shift+Z refaz o último corte confirmado pelo host.
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'z' || e.key === 'Z')) {
+        e.preventDefault();
+        void cutControllerRef.current?.undo();
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y' || ((e.key === 'z' || e.key === 'Z') && e.shiftKey))) {
+        e.preventDefault();
+        void cutControllerRef.current?.redo();
+        return;
+      }
       if (e.key === 'i' || e.key === 'I') {
         e.preventDefault();
         if (focusedTime !== null) {
@@ -142,42 +170,83 @@ export const LibraryTranscriptionView: React.FC<LibraryTranscriptionViewProps> =
       } else if (e.key === 'Escape') {
         setManualIn(null);
         setManualOut(null);
-        setCutError(null);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [focusedTime, manualIn, manualOut]);
 
-  const handleCreateManualCut = async () => {
-    if (!project?.projectId || !selectedAsset || manualIn === null || manualOut === null) return;
-    const start = Math.min(manualIn, manualOut);
-    const end = Math.max(manualIn, manualOut);
-    if (end - start < 0.05) {
-      setCutError('O trecho selecionado deve ter ao menos 0,05s.');
-      return;
-    }
-    setIsSubmittingCut(true);
-    setCutError(null);
-    try {
-      const res = await ipc.createManualSuggestion({
-        projectId: project.projectId,
-        mediaId: selectedAsset.mediaId,
-        startSeconds: start,
-        endSeconds: end,
-        rationale: `Pré-corte manual marcado na Biblioteca (${start.toFixed(2)}s – ${end.toFixed(2)}s)`
-      });
-      setCutSuccessSuggestionId(res.suggestion.suggestionId);
-    } catch (err) {
-      setCutError(err instanceof Error ? err.message : 'Falha ao registrar pré-corte manual.');
-    } finally {
-      setIsSubmittingCut(false);
-    }
-  };
-
   // Sem projeto não há dados: nenhuma chamada ao host é feita e a view mostra o estado vazio.
   const projectId = project?.projectId ?? null;
   const selectedMediaId = selectedAsset?.mediaId ?? null;
+
+  // Controlador do corte direto (um por projeto). Estado assinado via useSyncExternalStore.
+  const cutController = useMemo(
+    () => (projectId ? new DirectCutController(ipc, projectId) : null),
+    [projectId]
+  );
+  const cutSubscribe = useCallback(
+    (listener: () => void) => (cutController ? cutController.subscribe(listener) : () => {}),
+    [cutController]
+  );
+  const cutSnapshot = useCallback(
+    (): DirectCutState => (cutController ? cutController.getSnapshot() : EMPTY_CUT_STATE),
+    [cutController]
+  );
+  const cutState = useSyncExternalStore(cutSubscribe, cutSnapshot, cutSnapshot);
+  cutControllerRef.current = cutController;
+
+  // Cortes efetivos do host: recarregados ao abrir/reabrir o clipe e após cada ação de corte.
+  useEffect(() => {
+    void cutController?.refresh();
+  }, [cutController, selectedMediaId]);
+
+  /** Corte direto via host. Só limpa o In/Out quando o corte foi aplicado. */
+  const runCut = useCallback(
+    async (startSec: number, endSec: number, rationale: string): Promise<CutOutcome | null> => {
+      if (!cutController || !selectedMediaId) return null;
+      return cutController.cut({ mediaId: selectedMediaId, startSec, endSec, rationale });
+    },
+    [cutController, selectedMediaId]
+  );
+
+  const handleCreateManualCut = async () => {
+    if (manualIn === null || manualOut === null) return;
+    const outcome = await runCut(
+      Math.min(manualIn, manualOut),
+      Math.max(manualIn, manualOut),
+      'Corte direto marcado na Biblioteca (In/Out)'
+    );
+    if (outcome?.status === 'applied') {
+      setManualIn(null);
+      setManualOut(null);
+    }
+  };
+
+  // Cortes confirmados do clipe selecionado (marcações e preview derivados do host).
+  const clipCuts = useMemo(
+    () => cutState.confirmed.filter((c) => c.mediaId === selectedMediaId),
+    [cutState.confirmed, selectedMediaId]
+  );
+  const cutEditing = useMemo(
+    () =>
+      cutController && selectedAsset
+        ? {
+            removedIntervals: clipCuts.map((c) => ({ startSec: c.startSec, endSec: c.endSec })),
+            canUndo: cutState.canUndo,
+            canRedo: cutState.canRedo,
+            onCut: (startSec: number, endSec: number, text: string) =>
+              runCut(startSec, endSec, `Corte por transcrição: "${text.substring(0, 80)}"`),
+            onUndo: () => void cutController.undo(),
+            onRedo: () => void cutController.redo()
+          }
+        : undefined,
+    [cutController, selectedAsset, clipCuts, cutState.canUndo, cutState.canRedo, runCut]
+  );
+  const skipWindows = useMemo(
+    () => clipCuts.map((c) => ({ start: c.startSec, end: c.endSec })),
+    [clipCuts]
+  );
 
   const loadMediaList = useCallback(async (): Promise<MediaAssetDto[] | null> => {
     if (!projectId) return null;
@@ -709,6 +778,9 @@ export const LibraryTranscriptionView: React.FC<LibraryTranscriptionViewProps> =
                     durationHint={selectedAsset.durationSeconds}
                     seekRequest={seekRequest}
                     onTimeUpdate={setFocusedTime}
+                    previewMode={previewMode}
+                    onPreviewModeChange={setPreviewMode}
+                    skipWindows={skipWindows}
                     badges={
                       <>
                         <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-slate-900/80 backdrop-blur border border-slate-700 text-slate-300">
@@ -799,7 +871,6 @@ export const LibraryTranscriptionView: React.FC<LibraryTranscriptionViewProps> =
                         onClick={() => {
                           setManualIn(null);
                           setManualOut(null);
-                          setCutError(null);
                         }}
                         title="Limpar seleção manual (atalho: Esc)"
                         className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 text-[11px]"
@@ -811,33 +882,51 @@ export const LibraryTranscriptionView: React.FC<LibraryTranscriptionViewProps> =
                     <button
                       type="button"
                       onClick={handleCreateManualCut}
-                      disabled={isSubmittingCut || manualIn === null || manualOut === null || Math.abs(manualOut - manualIn) < 0.05}
-                      title="Cria uma sugestão de remoção editorial para aprovação na tela de Revisão"
+                      disabled={!cutController || cutState.busy || manualIn === null || manualOut === null || Math.abs(manualOut - manualIn) < MIN_CUT_SECONDS}
+                      title="Corta o trecho marcado direto no projeto (aplicado no host e no preview)"
                       className="px-2.5 py-1 rounded bg-rose-600/90 hover:bg-rose-500 disabled:opacity-40 text-white text-[11px] font-semibold transition-all shadow-sm flex items-center gap-1"
                     >
-                      {isSubmittingCut ? 'Gravando…' : 'Sugerir remoção deste trecho'}
+                      {cutState.busy ? 'Cortando…' : 'Cortar trecho'}
                     </button>
                   </div>
                 </div>
 
-                {cutSuccessSuggestionId && (
-                  <div className="flex items-center justify-between gap-2 p-2 rounded-xl bg-emerald-950/60 border border-emerald-600/50 text-emerald-200 text-xs">
-                    <span>Pré-corte manual registrado como sugestão pendente!</span>
-                    {onNavigateToReview && (
-                      <button
-                        type="button"
-                        onClick={() => onNavigateToReview(cutSuccessSuggestionId)}
-                        className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs flex items-center gap-1 transition-all"
-                      >
-                        Abrir sugestão na Revisão de Cortes (T03) →
-                      </button>
-                    )}
+                {cutState.loadError && (
+                  <div role="alert" className="p-2 rounded-xl bg-rose-950/60 border border-rose-600/50 text-rose-200 text-xs">
+                    {cutState.loadError}
                   </div>
                 )}
 
-                {cutError && (
-                  <div className="p-2 rounded-xl bg-rose-950/60 border border-rose-600/50 text-rose-200 text-xs">
-                    {cutError}
+                {cutState.feedback && (
+                  <div
+                    role={cutState.feedback.tone === 'error' ? 'alert' : 'status'}
+                    className={`p-2 rounded-xl border text-xs ${
+                      cutState.feedback.tone === 'success'
+                        ? 'bg-emerald-950/60 border-emerald-600/50 text-emerald-200'
+                        : cutState.feedback.tone === 'warning'
+                          ? 'bg-amber-950/60 border-amber-600/50 text-amber-200'
+                          : cutState.feedback.tone === 'error'
+                            ? 'bg-rose-950/60 border-rose-600/50 text-rose-200'
+                            : 'bg-slate-800 border-slate-700 text-slate-200'
+                    }`}
+                  >
+                    {cutState.feedback.text}
+                  </div>
+                )}
+
+                {zoomNotice && (
+                  <div
+                    role={zoomNotice.tone === 'error' ? 'alert' : 'status'}
+                    className={`flex items-center justify-between gap-2 p-2 rounded-xl border text-xs ${
+                      zoomNotice.tone === 'error'
+                        ? 'bg-rose-950/60 border-rose-600/50 text-rose-200'
+                        : 'bg-emerald-950/60 border-emerald-600/50 text-emerald-200'
+                    }`}
+                  >
+                    <span>{zoomNotice.text}</span>
+                    <button type="button" onClick={() => setZoomNotice(null)} className="text-slate-400 hover:text-white" aria-label="Fechar aviso de zoom">
+                      ×
+                    </button>
                   </div>
                 )}
 
@@ -883,23 +972,7 @@ export const LibraryTranscriptionView: React.FC<LibraryTranscriptionViewProps> =
                     analyzeDisabledReason={analyzeDisabledReason}
                     isStarting={pipeline.isStarting}
                     isMock={ipc.isMock}
-                    onDeleteInterval={async (startSec, endSec, text) => {
-                      if (!project?.projectId || !selectedAsset) return;
-                      try {
-                        const res = await ipc.createManualSuggestion({
-                          projectId: project.projectId,
-                          mediaId: selectedAsset.mediaId,
-                          startSeconds: startSec,
-                          endSeconds: endSec,
-                          rationale: `Exclusão por transcrição: "${text.substring(0, 80)}"`
-                        });
-                        setCutSuccessSuggestionId(res.suggestion.suggestionId);
-                        setCutError(null);
-                        return res.suggestion.suggestionId;
-                      } catch (err) {
-                        setCutError(err instanceof Error ? err.message : 'Falha ao registrar exclusão na transcrição.');
-                      }
-                    }}
+                    cutEditing={cutEditing}
                     onCreateZoomInterval={async (startSec, endSec, text, config) => {
                       if (!project?.projectId || !selectedAsset) return;
                       try {
@@ -910,11 +983,13 @@ export const LibraryTranscriptionView: React.FC<LibraryTranscriptionViewProps> =
                           endSeconds: endSec,
                           rationale: `Zoom ${config.scale}× (${config.anchor}): "${text.substring(0, 60)}"`
                         });
-                        setCutSuccessSuggestionId(res.suggestion.suggestionId);
-                        setCutError(null);
+                        setZoomNotice({ tone: 'success', text: 'Zoom registrado como sugestão pendente na Revisão.' });
                         return res.suggestion.suggestionId;
                       } catch (err) {
-                        setCutError(err instanceof Error ? err.message : 'Falha ao registrar zoom por transcrição.');
+                        setZoomNotice({
+                          tone: 'error',
+                          text: `Falha ao registrar zoom: ${err instanceof Error ? err.message : String(err)}`
+                        });
                       }
                     }}
                     activityLine={

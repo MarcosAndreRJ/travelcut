@@ -181,3 +181,20 @@ export const mediaElementErrorText = (code: number | null): string => {
       return 'erro desconhecido ao carregar o vídeo';
   }
 };
+
+/** Modo de prévia da Biblioteca: 'edited' pula os trechos cortados; 'original' reproduz tudo. */
+export type PreviewMode = 'edited' | 'original';
+
+/**
+ * Posição de reprodução no modo Editado: avança para além de todo trecho removido que contenha o instante,
+ * inclusive trechos encadeados. Cada passo sai do trecho (fim > instante), então o laço termina.
+ */
+export const editedPlaybackPosition = (seconds: number, windows: readonly SourceWindow[]): number => {
+  let position = seconds;
+  for (let i = 0; i <= windows.length; i++) {
+    const target = afterModeSkipTargets(position, windows);
+    if (target === null) break;
+    position = target;
+  }
+  return position;
+};

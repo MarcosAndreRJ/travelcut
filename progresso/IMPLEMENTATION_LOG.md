@@ -568,3 +568,9 @@ Escrito: PlanningUseCases.ManualEdits.cs; PlanManualOverlayTests.cs; EndToEnd/En
 Testado: `dotnet test TravelCutStudio.sln` = UnitTests 1430 ok, Mcp.Tests 122 ok, 0 falhas.
 Observação: ADR criado em docs/adr/ (a pasta não existia; os ADR-001..015 ficam na tabela de docs/15). Limitações: Compact exclude->re-include; Apply sem PlanValidation.Run completo. Frontend (incremento 4) não tocado.
 Próximo: incremento 4 (frontend: histórico/baseRevision).
+
+### Edição por transcrição — Incremento 1 (corte direto e prévia na Biblioteca)
+Feito: IPC `cut.apply` (`PlanningUseCases.ApplyDirectCutAsync`): cria/reutiliza sugestão manual `cut`, grava approve, materializa o plano no primeiro corte (projeto sem plano), confirma pelo plano (`AppliedCuts`/`AppliedEffects`) e só então `applied=true`. Idempotência por `requestId` (em `EvidenceRefs`) ou corte equivalente; `PLAN_STALE_BASE` com `baseRevision` obsoleta; plano protegido/erro expostos (`planSkippedReason`/`planError`, `CUT_NOT_APPLIED`). Frontend: `DirectCutController`, botão "Cortar trecho" (transcrição e In/Out), marcações vindas do host, Desfazer/Refazer via `decision.undo/redo`, preview Editado/Original no `MediaClipPlayer`.
+Escrito: PlanningUseCases.DirectCut.cs, EditDtos.cs, IpcDispatcher.cs, DirectCutTests.cs; directCutController.ts (+testes), TranscriptPanel, ClipAnalysisPanel, LibraryTranscriptionView, MediaClipPlayer, mediaTime, ipcBridge, types/ipc.
+Testado: `dotnet test tests/TravelCut.UnitTests -c Release` = 1461 ok; `npx tsc --noEmit` = 0; `npx vitest run` = 502 ok (53 arquivos).
+Pendente no host (WebView2): corte em mídia real (HEVC via proxy, VFR), fidelidade de seek/emenda, reabrir projeto com Timeline. Limitações: sem teste de interação DOM (sem jsdom); `planRevision` inicia nulo (sem checagem de base até a 1ª resposta); Editado usa cortes de `suggestions.list`, não `keptSegments` do plano; Desfazer só da sessão; CUT_NOT_APPLIED deixa a sugestão aprovada no host.

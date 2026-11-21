@@ -294,6 +294,19 @@ public class IpcDispatcher
                     return IpcResponse.Success(request.RequestId, new { suggestion = outcome.Value });
                 }
 
+                case "cut.apply":
+                {
+                    var req = DeserializePayload<DirectCutRequest>(request.Payload);
+                    if (req == null)
+                    {
+                        return IpcResponse.Fail(request.RequestId, "INVALID_PAYLOAD", "Dados de corte direto inválidos.");
+                    }
+
+                    // Cria/reaproveita a sugestão, grava approve e materializa o corte no plano (resultado efetivo no DTO).
+                    var outcome = await _planning.ApplyDirectCutAsync(req, ct);
+                    return PlanResponse(request.RequestId, outcome);
+                }
+
                 case "decision.submit":
                 {
                     var req = DeserializePayload<SubmitDecisionRequest>(request.Payload);

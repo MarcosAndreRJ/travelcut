@@ -80,6 +80,37 @@ public record CreateManualSuggestionRequest(
     [property: JsonPropertyName("rationale")] string? Rationale = null
 );
 
+/// <summary>
+/// Corte direto (IPC "cut.apply"; edição por transcrição, Incremento 1). baseRevision (opcional) = revisão vigente do plano que a
+/// UI viu (0 = sem plano); divergente → PLAN_STALE_BASE (nada gravado). requestId = chave de idempotência.
+/// </summary>
+public record DirectCutRequest(
+    [property: JsonPropertyName("projectId")] Guid ProjectId,
+    [property: JsonPropertyName("mediaId")] Guid MediaId,
+    [property: JsonPropertyName("startSeconds")] double StartSeconds,
+    [property: JsonPropertyName("endSeconds")] double EndSeconds,
+    [property: JsonPropertyName("rationale")] string? Rationale = null,
+    [property: JsonPropertyName("requestId")] Guid? RequestId = null,
+    [property: JsonPropertyName("baseRevision")] int? BaseRevision = null
+);
+
+/// <summary>
+/// Resultado EFETIVO do corte direto: applied só é true quando o plano vigente contém o corte. Estado parcial (decisão gravada,
+/// plano protegido ou falha) vem em planSkippedReason / planError sem lançar. alreadyApplied = repetição convergida (sem nova
+/// sugestão, decisão ou revisão). appliedSource* = intervalo da fonte efetivamente aplicado pelo plano (null se não aplicado).
+/// </summary>
+public record DirectCutResultDto(
+    [property: JsonPropertyName("suggestion")] EditSuggestionDto Suggestion,
+    [property: JsonPropertyName("applied")] bool Applied,
+    [property: JsonPropertyName("alreadyApplied")] bool AlreadyApplied,
+    [property: JsonPropertyName("planRevision")] int? PlanRevision,
+    [property: JsonPropertyName("planChanged")] bool PlanChanged,
+    [property: JsonPropertyName("planError")] string? PlanError,
+    [property: JsonPropertyName("planSkippedReason")] string? PlanSkippedReason,
+    [property: JsonPropertyName("appliedSourceStartSeconds")] double? AppliedSourceStartSeconds,
+    [property: JsonPropertyName("appliedSourceEndSeconds")] double? AppliedSourceEndSeconds
+);
+
 public record EditDecisionDto(
     [property: JsonPropertyName("decisionId")] Guid DecisionId,
     [property: JsonPropertyName("suggestionId")] Guid SuggestionId,

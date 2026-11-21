@@ -146,6 +146,33 @@ export interface EditSuggestion {
   batchApprovable?: boolean | null;
 }
 
+// ---- Corte direto (edição por transcrição, Incremento 1) — contrato 'cut.apply' ----
+export interface CutApplyRequest {
+  projectId: string;
+  mediaId: string;
+  startSeconds: number;
+  endSeconds: number;
+  rationale?: string;
+  /** UUID gerado no cliente por tentativa; repetir a mesma tentativa reutiliza o valor. */
+  requestId?: string;
+  /** Última planRevision conhecida pelo cliente; null ou ausente = projeto sem plano. */
+  baseRevision?: number | null;
+}
+
+export interface CutApplyResponse {
+  suggestion: EditSuggestion;
+  /** Só true quando o intervalo ficou aplicado no host. A UI confirma o corte apenas nesse caso. */
+  applied: boolean;
+  /** true quando a mesma requestId já tinha sido aplicada (repetição idempotente). */
+  alreadyApplied: boolean;
+  planRevision: number | null;
+  planChanged: boolean;
+  planError: string | null;
+  planSkippedReason: string | null;
+  appliedSourceStartSeconds: number | null;
+  appliedSourceEndSeconds: number | null;
+}
+
 // ---- Prévia (F07) — espelho de src/TravelCut.Contracts/Dtos/PreviewDtos.cs ----
 // <video> real servido por https://media.travelcut.studio/<caminho relativo> (somente leitura).
 // Nunca declarar frame-accurate. Sem FFmpeg: waveform/proxy "ffmpeg_unavailable".

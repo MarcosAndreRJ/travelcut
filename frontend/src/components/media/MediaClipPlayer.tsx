@@ -14,6 +14,7 @@ import {
 import { PlaybackNoticeOverlay, ProxyButton, type ProxyControl } from './PlaybackNoticeOverlay';
 import { usePlayerDiagnostics } from './usePlayerDiagnostics';
 import { useReviewPlaybackRate, REVIEW_PLAYBACK_RATES } from '../../services/reviewPlaybackSpeed';
+import { editedPlaybackPosition, type PreviewMode, type SourceWindow } from './mediaTime';
 
 interface MediaClipPlayerProps {
   projectId: string;
@@ -31,6 +32,11 @@ interface MediaClipPlayerProps {
   /** Conteúdo sobreposto no canto da área de vídeo (ex.: selos de codec). */
   badges?: React.ReactNode;
   videoAreaClassName?: string;
+  /** Prévia: 'edited' (padrão) pula os trechos de skipWindows; 'original' reproduz tudo. */
+  previewMode?: PreviewMode;
+  onPreviewModeChange?: (mode: PreviewMode) => void;
+  /** Trechos cortados da fonte (segundos), usados só no modo Editado. */
+  skipWindows?: readonly SourceWindow[];
 }
 
 const KEYBOARD_STEP_SECONDS = 5;
@@ -51,9 +57,15 @@ export const MediaClipPlayer: React.FC<MediaClipPlayerProps> = ({
   seekRequest = null,
   onTimeUpdate,
   badges,
-  videoAreaClassName = 'h-36 xl:h-52'
+  videoAreaClassName = 'h-36 xl:h-52',
+  previewMode = 'edited',
+  onPreviewModeChange,
+  skipWindows = []
 }) => {
   const { state, reload } = usePlaybackSource(projectId, mediaId);
+  // Modo Editado: posição fora de trechos cortados. Em 'original' a posição segue inalterada.
+  const resolvePosition = (seconds: number): number =>
+    previewMode === 'edited' ? editedPlaybackPosition(seconds, skipWindows) : seconds;
   const readySource = state.kind === 'ready' ? state.source : null;
   const url = readySource && isPlayableSource(readySource) ? readySource.url : null;
 
@@ -134,7 +146,7 @@ export const MediaClipPlayer: React.FC<MediaClipPlayerProps> = ({
       pendingSeekRef.current = seekRequest.seconds;
       return;
     }
-    const target = clampSeek(seekRequest.seconds, Number.isFinite(v.duration) ? v.duration : null);
+    const target = clampSeek(resolvePosition(seekRequest.seconds), Number.isFinite(v.duration) ? v.duration : null);
     v.currentTime = target;
     setCurrent(target);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -166,7 +178,7 @@ export const MediaClipPlayer: React.FC<MediaClipPlayerProps> = ({
     setDuration(Number.isFinite(v.duration) && v.duration > 0 ? v.duration : null);
     setNoVideoTrack(isVideo && v.videoWidth === 0);
     if (pendingSeekRef.current !== null) {
-      const target = clampSeek(pendingSeekRef.current, Number.isFinite(v.duration) ? v.duration : null);
+      const target = clampSeek(resolvePosition(pendingSeekRef.current), Number.isFinite(v.duration) ? v.duration : null);
       pendingSeekRef.current = null;
       v.currentTime = target;
       setCurrent(target);
@@ -176,9 +188,23 @@ export const MediaClipPlayer: React.FC<MediaClipPlayerProps> = ({
   const handleTimeUpdate = () => {
     const v = videoRef.current;
     if (!v) return;
-    setCurrent(v.currentTime);
-    notify(v.currentTime);
+    const position = resolvePosition(v.currentTime);
+    if (position !== v.currentTime) v.currentTime = clampSeek(position, duration);
+    setCurrent(position);
+    notify(position);
   };
+
+  // Troca de modo com o cursor dentro de um trecho cortado: sai dele imediatamente.
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v || v.readyState < 1) return;
+    const position = resolvePosition(v.currentTime);
+    if (position !== v.currentTime) {
+      v.currentTime = clampSeek(position, Number.isFinite(v.duration) ? v.duration : null);
+      setCurrent(v.currentTime);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewMode]);
 
   const notice = resolveClipNotice({
     state,
@@ -206,7 +232,7 @@ export const MediaClipPlayer: React.FC<MediaClipPlayerProps> = ({
   const seekLocal = (seconds: number) => {
     const v = videoRef.current;
     if (!v || v.readyState < 1) return;
-    const target = clampSeek(seconds, duration);
+    const target = clampSeek(resolvePosition(seconds), duration);
     v.currentTime = target;
     setCurrent(target);
     notify(target, true);
@@ -353,6 +379,25 @@ export const MediaClipPlayer: React.FC<MediaClipPlayerProps> = ({
           disabled={!canControl}
           className="w-16 shrink-0 h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-400 disabled:opacity-40"
         />
+
+        {onPreviewModeChange && (
+          <div role="group" aria-label="Modo de prévia" className="flex items-center gap-0.5 bg-slate-900 border border-slate-700/80 rounded-lg p-0.5 text-[10px]">
+            {(['edited', 'original'] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                aria-pressed={previewMode === mode}
+                onClick={() => onPreviewModeChange(mode)}
+                title={mode === 'edited' ? 'Pula os trechos cortados durante a reprodução' : 'Reproduz tudo, inclusive os trechos cortados, para comparação'}
+                className={`px-1.5 py-0.5 rounded font-medium transition-colors ${
+                  previewMode === mode ? 'bg-cyan-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                }`}
+              >
+                {mode === 'edited' ? 'Editado' : 'Original'}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Velocidade de revisão compartilhada */}
         <div className="flex items-center gap-0.5 bg-slate-900 border border-slate-700/80 rounded-lg p-0.5 text-[10px]" title="Velocidade de reprodução para revisão (não afeta o arquivo nem a timeline)">

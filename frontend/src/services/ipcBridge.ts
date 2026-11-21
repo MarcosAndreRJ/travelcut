@@ -50,6 +50,8 @@ import {
   DecisionParametersDto,
   DecisionAction,
   DecisionResultDto,
+  CutApplyRequest,
+  CutApplyResponse,
   EditDecisionDto,
   SubmitDecisionRequest,
   ApplyEditorPlanRequest,
@@ -539,6 +541,9 @@ class IpcBridgeService {
   private mockDecisionPast = new Map<string, MockDecisionState[]>();
   private mockDecisionFuture = new Map<string, MockDecisionState[]>();
   private mockDecisionLog: EditDecisionDto[] = [];
+  // DEMONSTRAÇÃO: cortes diretos (cut.apply) desta sessão e respostas por requestId (idempotência).
+  private mockDirectCutIds: string[] = [];
+  private mockDirectCutResults = new Map<string, CutApplyResponse>();
   private mockDecisionSeq = 0;
   private mockDecisionVersionOf = new Map<string, number>();
 
@@ -806,12 +811,16 @@ class IpcBridgeService {
           status: 'created'
         };
 
-      case 'suggestions.list':
-        return {
-          suggestions: MOCK_SHOW_SAMPLE_CANDIDATES
-            ? this.mockSuggestions.map((s) => this.mockEffective(s.suggestionId))
-            : []
-        };
+      case 'suggestions.list': {
+        // DEMONSTRAÇÃO: cortes diretos criados nesta sessão aparecem sempre; candidatos de exemplo só com a flag.
+        const sampleIds = MOCK_SHOW_SAMPLE_CANDIDATES
+          ? this.mockSuggestions.map((s) => s.suggestionId).filter((id) => !this.mockDirectCutIds.includes(id))
+          : [];
+        return { suggestions: [...sampleIds, ...this.mockDirectCutIds].map((id) => this.mockEffective(id)) };
+      }
+
+      case 'cut.apply':
+        return this.mockApplyDirectCut(payload as CutApplyRequest);
 
       case 'analysis.environment':
         return this.mockEnvironment();
@@ -2153,6 +2162,54 @@ class IpcBridgeService {
     return this.mockDecisionResult([id], 1, []);
   }
 
+  /** DEMONSTRAÇÃO (espelho de cut.apply): cria candidato 'cut' já aprovado; repetir requestId devolve alreadyApplied. */
+  private mockApplyDirectCut(request: CutApplyRequest): CutApplyResponse {
+    if (request?.requestId && this.mockDirectCutResults.has(request.requestId)) {
+      return { ...(this.mockDirectCutResults.get(request.requestId) as CutApplyResponse), alreadyApplied: true };
+    }
+    const start = request?.startSeconds;
+    const end = request?.endSeconds;
+    if (typeof start !== 'number' || typeof end !== 'number' || !Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start) {
+      throw new IpcError('DEMO: intervalo inválido (entrada deve ser menor que saída e não negativa).', 'INVALID_INTERVAL');
+    }
+    const suggestionId = `cut-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+    this.mockSuggestions.push({
+      suggestionId,
+      mediaId: request.mediaId,
+      startSeconds: start,
+      endSeconds: end,
+      kind: 'manual_cut',
+      rationale: request.rationale ?? 'Corte direto (DEMO)',
+      confidenceBand: 'high',
+      needsHumanReview: false,
+      suggestedAction: 'cut',
+      status: 'Proposed',
+      author: 'Editor'
+    });
+    this.mockDirectCutIds.push(suggestionId);
+    this.mockCommit(suggestionId, {
+      status: 'Approved',
+      effectiveStartSeconds: start,
+      effectiveEndSeconds: end,
+      lastAction: 'approve',
+      parameters: null
+    });
+    this.mockLog(suggestionId, 'approve', 'Editor', '', this.mockStateOf(suggestionId));
+    const response: CutApplyResponse = {
+      suggestion: this.mockEffective(suggestionId),
+      applied: true,
+      alreadyApplied: false,
+      planRevision: null,
+      planChanged: false,
+      planError: null,
+      planSkippedReason: null,
+      appliedSourceStartSeconds: start,
+      appliedSourceEndSeconds: end
+    };
+    if (request.requestId) this.mockDirectCutResults.set(request.requestId, response);
+    return response;
+  }
+
   private mockUndoDecision(suggestionId: string | undefined): DecisionResultDto {
     this.mockRequireSuggestion(suggestionId);
     const id = suggestionId as string;
@@ -2587,6 +2644,14 @@ class IpcBridgeService {
     rationale?: string;
   }): Promise<{ suggestion: EditSuggestion }> {
     return this.send<{ suggestion: EditSuggestion }>('suggestion.createManual', params, { timeoutMs: DECISION_IPC_TIMEOUT_MS });
+  }
+
+  /**
+   * Corte direto (edição por transcrição): o host aprova o intervalo e regenera o plano.
+   * Só confirmar na UI quando `applied` for true. Erros (ex.: PLAN_STALE_BASE) chegam como IpcError com code.
+   */
+  public async applyDirectCut(params: CutApplyRequest): Promise<CutApplyResponse> {
+    return this.send<CutApplyResponse>('cut.apply', params, { timeoutMs: DECISION_IPC_TIMEOUT_MS });
   }
 
   // ==========================================================================

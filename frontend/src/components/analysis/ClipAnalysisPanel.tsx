@@ -2,7 +2,7 @@ import React from 'react';
 import { Sparkles, RefreshCw } from 'lucide-react';
 import type { MediaAnalysisDto, MediaAssetDto, PipelineStage, StageState } from '../../types/ipc';
 import { ResultNotice } from './ResultNotice';
-import { TranscriptPanel } from './TranscriptPanel';
+import { TranscriptPanel, type TranscriptCutEditing } from './TranscriptPanel';
 import { SignalsList } from './SignalsPanel';
 import { SceneCard } from './SceneCard';
 
@@ -21,7 +21,8 @@ interface ClipAnalysisPanelProps {
   isMock: boolean;
   /** Resumo da atividade quando este clipe é o que está em processamento. */
   activityLine?: string | null;
-  onDeleteInterval?: (startSec: number, endSec: number, text: string) => Promise<string | void>;
+  /** Corte direto e desfazer/refazer da transcrição (host). */
+  cutEditing?: TranscriptCutEditing;
   onCreateZoomInterval?: (startSec: number, endSec: number, text: string, config: { scale: number; transitionInSec: number; transitionOutSec: number; anchor: string }) => Promise<string | void>;
 }
 
@@ -43,7 +44,7 @@ export const ClipAnalysisPanel: React.FC<ClipAnalysisPanelProps> = ({
   isStarting,
   isMock,
   activityLine = null,
-  onDeleteInterval,
+  cutEditing,
   onCreateZoomInterval
 }) => {
   const fileName = asset.relativePath.split(/[/\\]/).pop() || asset.relativePath;
@@ -123,7 +124,7 @@ export const ClipAnalysisPanel: React.FC<ClipAnalysisPanelProps> = ({
                 hesitations={analysis.hesitations}
                 selectedSec={selectedSec}
                 onSeek={onSeek}
-                onDeleteInterval={onDeleteInterval}
+                cutEditing={cutEditing}
                 onCreateZoomInterval={onCreateZoomInterval}
               />
             ) : analysis.transcriptionStatus === 'completed' ? (

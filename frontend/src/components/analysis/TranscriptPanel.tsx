@@ -7,19 +7,16 @@ import {
   RotateCcw,
   RotateCw,
   X,
-  Trash2,
-  Sliders,
   Check
 } from 'lucide-react';
 import type { HesitationCandidateDto, TranscriptDto } from '../../types/ipc';
 import { findWordMatches, formatClock, intervalsOverlap } from './analysisFormat';
+import type { CutOutcome } from './directCutController';
 
+/** Trecho cortado no host (efetivo aprovado), em segundos da fonte. Marcação derivada, nunca local. */
 export interface RemovedInterval {
-  id: string;
   startSec: number;
   endSec: number;
-  text: string;
-  suggestionId?: string;
 }
 
 export interface WordZoomSuggestion {
@@ -33,12 +30,22 @@ export interface WordZoomSuggestion {
   anchor: 'center' | 'top-third';
 }
 
+/** Edição por transcrição: corte direto e desfazer/refazer do host. */
+export interface TranscriptCutEditing {
+  removedIntervals: ReadonlyArray<RemovedInterval>;
+  canUndo: boolean;
+  canRedo: boolean;
+  onCut: (startSec: number, endSec: number, text: string) => Promise<CutOutcome | null>;
+  onUndo: () => void;
+  onRedo: () => void;
+}
+
 interface TranscriptPanelProps {
   transcript: TranscriptDto;
   hesitations: HesitationCandidateDto[];
   selectedSec: number | null;
   onSeek: (sec: number) => void;
-  onDeleteInterval?: (startSec: number, endSec: number, text: string) => Promise<string | void> | void;
+  cutEditing?: TranscriptCutEditing;
   onCreateZoomInterval?: (
     startSec: number,
     endSec: number,
@@ -47,21 +54,16 @@ interface TranscriptPanelProps {
   ) => Promise<string | void> | void;
 }
 
-interface HistoryAction {
-  type: 'delete' | 'zoom';
-  item: RemovedInterval | WordZoomSuggestion;
-}
-
 /**
- * Transcrição interativa por palavras (F14.6 Checkpoints C, D e E).
- * Permite selecionar palavras, excluir trecho da montagem (Delete), criar zoom com transição e desfazer/refazer.
+ * Transcrição interativa por palavras. Selecionar palavras e cortar (Cortar trecho ou Delete) passa pelo host;
+ * o tachado vem de cutEditing.removedIntervals (cortes efetivos aprovados). Zoom continua local.
  */
 export const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
   transcript,
   hesitations,
   selectedSec,
   onSeek,
-  onDeleteInterval,
+  cutEditing,
   onCreateZoomInterval
 }) => {
   const [query, setQuery] = useState('');
@@ -71,15 +73,8 @@ export const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
   const [selectionRange, setSelectionRange] = useState<{ startSeq: number; endSeq: number } | null>(null);
   const [anchorSeq, setAnchorSeq] = useState<number | null>(null);
 
-  // Trechos excluídos da montagem (marcados visualmente com tachado, não destrutivos)
-  const [removedIntervals, setRemovedIntervals] = useState<RemovedInterval[]>([]);
-
-  // Zooms criados a partir da transcrição
+  // Zooms criados a partir da transcrição (local, ainda sem persistência)
   const [wordZooms, setWordZooms] = useState<WordZoomSuggestion[]>([]);
-
-  // Pilhas de Undo/Redo
-  const [undoStack, setUndoStack] = useState<HistoryAction[]>([]);
-  const [redoStack, setRedoStack] = useState<HistoryAction[]>([]);
 
   // Configuração contextual do Zoom
   const [isConfiguringZoom, setIsConfiguringZoom] = useState(false);
@@ -88,12 +83,13 @@ export const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
   const [zoomTransOut, setZoomTransOut] = useState(0.35);
   const [zoomAnchor, setZoomAnchor] = useState<'center' | 'top-third'>('center');
 
-  // Feedback e status
+  // Feedback de zoom
   const [statusMessage, setStatusMessage] = useState<{ text: string; type: 'success' | 'info' | 'error' } | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
 
   const words = transcript.words || [];
+  const removedIntervals = cutEditing?.removedIntervals ?? [];
 
   const matches = useMemo(() => findWordMatches(words, query), [words, query]);
   const matchSet = useMemo(() => new Set(matches), [matches]);
@@ -150,45 +146,16 @@ export const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
     setIsConfiguringZoom(false);
   }, []);
 
-  // Exclusão editorial por Delete (Checkpoint D)
-  const handleDeleteSelection = useCallback(async () => {
-    if (!selectionDetails) return;
+  // Corte direto da seleção (Cortar trecho / Delete). Só limpa a seleção quando o host aplicou o corte.
+  const handleCutSelection = useCallback(async () => {
+    if (!selectionDetails || !cutEditing) return;
     const { startSec, endSec, text } = selectionDetails;
     if (endSec <= startSec) return;
+    const outcome = await cutEditing.onCut(startSec, endSec, text);
+    if (outcome?.status === 'applied') clearSelection();
+  }, [selectionDetails, cutEditing, clearSelection]);
 
-    let suggestionId: string | undefined;
-    try {
-      if (onDeleteInterval) {
-        const res = await onDeleteInterval(startSec, endSec, text);
-        if (typeof res === 'string') suggestionId = res;
-      }
-    } catch (err) {
-      setStatusMessage({
-        text: `Falha ao registrar exclusão: ${err instanceof Error ? err.message : String(err)}`,
-        type: 'error'
-      });
-      return;
-    }
-
-    const removedItem: RemovedInterval = {
-      id: 'del-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
-      startSec,
-      endSec,
-      text,
-      suggestionId
-    };
-
-    setRemovedIntervals((prev) => [...prev, removedItem]);
-    setUndoStack((prev) => [...prev, { type: 'delete', item: removedItem }]);
-    setRedoStack([]); // limpa redo após nova ação
-    clearSelection();
-    setStatusMessage({
-      text: `Trecho "${text.substring(0, 30)}${text.length > 30 ? '…' : ''}" removido da montagem (${formatClock(startSec)} – ${formatClock(endSec)}).`,
-      type: 'success'
-    });
-  }, [selectionDetails, onDeleteInterval, clearSelection]);
-
-  // Criação de zoom por palavras selecionadas (Checkpoint E)
+  // Criação de zoom por palavras selecionadas (local)
   const handleConfirmZoom = useCallback(async () => {
     if (!selectionDetails) return;
     const { startSec, endSec, text } = selectionDetails;
@@ -211,20 +178,19 @@ export const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
       return;
     }
 
-    const zoomItem: WordZoomSuggestion = {
-      id: 'zoom-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
-      startSec,
-      endSec,
-      text,
-      scale: zoomScale,
-      transitionInSec: zoomTransIn,
-      transitionOutSec: zoomTransOut,
-      anchor: zoomAnchor
-    };
-
-    setWordZooms((prev) => [...prev, zoomItem]);
-    setUndoStack((prev) => [...prev, { type: 'zoom', item: zoomItem }]);
-    setRedoStack([]);
+    setWordZooms((prev) => [
+      ...prev,
+      {
+        id: 'zoom-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+        startSec,
+        endSec,
+        text,
+        scale: zoomScale,
+        transitionInSec: zoomTransIn,
+        transitionOutSec: zoomTransOut,
+        anchor: zoomAnchor
+      }
+    ]);
     setIsConfiguringZoom(false);
     clearSelection();
     setStatusMessage({
@@ -233,79 +199,29 @@ export const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
     });
   }, [selectionDetails, zoomScale, zoomTransIn, zoomTransOut, zoomAnchor, onCreateZoomInterval, clearSelection]);
 
-  // Desfazer ação (Ctrl+Z)
-  const handleUndo = useCallback(() => {
-    if (undoStack.length === 0) return;
-    const lastAction = undoStack[undoStack.length - 1];
-    setUndoStack((prev) => prev.slice(0, -1));
-    setRedoStack((prev) => [...prev, lastAction]);
-
-    if (lastAction.type === 'delete') {
-      setRemovedIntervals((prev) => prev.filter((r) => r.id !== lastAction.item.id));
-      setStatusMessage({ text: 'Exclusão desfeita. Trecho restaurado na montagem.', type: 'info' });
-    } else if (lastAction.type === 'zoom') {
-      setWordZooms((prev) => prev.filter((z) => z.id !== lastAction.item.id));
-      setStatusMessage({ text: 'Zoom desfeito.', type: 'info' });
-    }
-  }, [undoStack]);
-
-  // Refazer ação (Ctrl+Y / Ctrl+Shift+Z)
-  const handleRedo = useCallback(() => {
-    if (redoStack.length === 0) return;
-    const nextAction = redoStack[redoStack.length - 1];
-    setRedoStack((prev) => prev.slice(0, -1));
-    setUndoStack((prev) => [...prev, nextAction]);
-
-    if (nextAction.type === 'delete') {
-      setRemovedIntervals((prev) => [...prev, nextAction.item as RemovedInterval]);
-      setStatusMessage({ text: 'Exclusão refeita.', type: 'info' });
-    } else if (nextAction.type === 'zoom') {
-      setWordZooms((prev) => [...prev, nextAction.item as WordZoomSuggestion]);
-      setStatusMessage({ text: 'Zoom refeito.', type: 'info' });
-    }
-  }, [redoStack]);
-
-  // Atalhos de teclado protegidos (Checkpoint D6)
+  // Atalhos de teclado protegidos: Delete corta a seleção, Esc limpa. Ctrl+Z/Y ficam na view da Biblioteca.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Proteção de teclado: nunca interceptar se o foco estiver em input, textarea ou campo editável
       const activeTag = (document.activeElement as HTMLElement)?.tagName;
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes(activeTag) || (document.activeElement as HTMLElement)?.isContentEditable) {
         return;
       }
 
-      // Atalho Delete / Backspace para excluir seleção de palavras
       if ((e.key === 'Delete' || e.key === 'Backspace') && selectionRange) {
         e.preventDefault();
-        handleDeleteSelection();
+        void handleCutSelection();
         return;
       }
 
-      // Escape para limpar seleção
       if (e.key === 'Escape' && selectionRange) {
         e.preventDefault();
         clearSelection();
-        return;
-      }
-
-      // Ctrl+Z (Undo)
-      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
-        e.preventDefault();
-        handleUndo();
-        return;
-      }
-
-      // Ctrl+Y ou Ctrl+Shift+Z (Redo)
-      if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey) || (e.key === 'Z' && e.shiftKey))) {
-        e.preventDefault();
-        handleRedo();
-        return;
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectionRange, handleDeleteSelection, clearSelection, handleUndo, handleRedo]);
+  }, [selectionRange, handleCutSelection, clearSelection]);
 
   return (
     <div ref={containerRef} className="flex flex-col min-h-0 h-full relative" tabIndex={0}>
@@ -315,13 +231,13 @@ export const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
           Idioma: {transcript.language || '—'} · Modelo: {transcript.modelId || '—'} · Áudio: {formatClock(transcript.audioDurationSeconds)}
         </div>
         <div className="flex items-center gap-2">
-          {/* Botões de Undo/Redo no topo */}
+          {/* Desfazer/Refazer do último corte (host) */}
           <div className="flex items-center gap-1 border-r border-slate-800 pr-2 mr-1">
             <button
               type="button"
-              onClick={handleUndo}
-              disabled={undoStack.length === 0}
-              title="Desfazer exclusão/zoom (Ctrl+Z)"
+              onClick={() => cutEditing?.onUndo()}
+              disabled={!cutEditing?.canUndo}
+              title="Desfazer corte (Ctrl+Z)"
               className="p-1 rounded bg-slate-800/80 hover:bg-slate-700 disabled:opacity-40 text-slate-300 disabled:hover:bg-slate-800/80"
               aria-label="Desfazer"
             >
@@ -329,9 +245,9 @@ export const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
             </button>
             <button
               type="button"
-              onClick={handleRedo}
-              disabled={redoStack.length === 0}
-              title="Refazer (Ctrl+Y)"
+              onClick={() => cutEditing?.onRedo()}
+              disabled={!cutEditing?.canRedo}
+              title="Refazer corte (Ctrl+Y)"
               className="p-1 rounded bg-slate-800/80 hover:bg-slate-700 disabled:opacity-40 text-slate-300 disabled:hover:bg-slate-800/80"
               aria-label="Refazer"
             >
@@ -361,7 +277,7 @@ export const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
         </div>
       </div>
 
-      {/* Barra de ação contextual quando palavras estão selecionadas (Checkpoint C5 & D) */}
+      {/* Barra de ação contextual quando palavras estão selecionadas */}
       {selectionDetails && (
         <div
           data-testid="transcript-context-toolbar"
@@ -407,15 +323,16 @@ export const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
               <span>Criar zoom</span>
             </button>
 
-            {/* Excluir da montagem (Delete) */}
+            {/* Cortar trecho (host; atalho Delete) */}
             <button
               type="button"
-              onClick={handleDeleteSelection}
-              title="Excluir trecho da montagem (atalho: Delete)"
-              className="px-2.5 py-1 rounded-lg bg-rose-950/80 hover:bg-rose-900 text-rose-200 border border-rose-700/70 text-xs font-semibold flex items-center gap-1 shadow-sm"
+              onClick={() => void handleCutSelection()}
+              disabled={!cutEditing}
+              title="Cortar trecho selecionado (atalho: Delete)"
+              className="px-2.5 py-1 rounded-lg bg-rose-950/80 hover:bg-rose-900 disabled:opacity-40 text-rose-200 border border-rose-700/70 text-xs font-semibold flex items-center gap-1 shadow-sm"
             >
               <Scissors className="w-3 h-3 text-rose-400" />
-              <span>Excluir (Delete)</span>
+              <span>Cortar trecho</span>
             </button>
 
             {/* Limpar seleção */}
@@ -430,7 +347,7 @@ export const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
             </button>
           </div>
 
-          {/* Painel expansível de configuração do Zoom (Checkpoint E) */}
+          {/* Painel expansível de configuração do Zoom */}
           {isConfiguringZoom && (
             <div className="w-full mt-2 pt-2 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-3 text-xs bg-slate-950/70 p-2.5 rounded-lg">
               <div className="flex flex-wrap items-center gap-4">
@@ -503,7 +420,7 @@ export const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
         </div>
       )}
 
-      {/* Feedback de status */}
+      {/* Feedback de zoom */}
       {statusMessage && (
         <div
           role="status"
@@ -537,10 +454,10 @@ export const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
               const isCurrent = selectedSec !== null && intervalsOverlap(w.start, w.end, selectedSec, selectedSec + 0.1);
               const hesitated = hesitations.some((h) => intervalsOverlap(w.start, w.end, h.startSeconds, h.endSeconds));
 
-              // Verifica se a palavra está em trecho excluído
+              // Palavra dentro de corte confirmado pelo host
               const isRemoved = removedIntervals.some((r) => intervalsOverlap(w.start, w.end, r.startSec, r.endSec));
 
-              // Verifica se a palavra tem sugestão de zoom
+              // Palavra com sugestão de zoom (local)
               const hasZoom = wordZooms.some((z) => intervalsOverlap(w.start, w.end, z.startSec, z.endSec));
 
               let wordClass = 'text-slate-300 hover:text-white hover:bg-slate-800/60';
@@ -565,7 +482,7 @@ export const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
                   id={`transcript-word-${index}`}
                   onClick={(e) => handleWordClick(w.seq, w.start, e)}
                   title={`${w.text} [${formatClock(w.start)} – ${formatClock(w.end)}]${
-                    isRemoved ? ' (Removido da montagem)' : hasZoom ? ' (Com zoom)' : ''
+                    isRemoved ? ' (Cortado)' : hasZoom ? ' (Com zoom)' : ''
                   }`}
                   className={`inline-block px-1 py-0.5 mx-0.5 rounded cursor-pointer transition-colors text-xs select-none ${wordClass}`}
                 >

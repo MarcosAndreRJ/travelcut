@@ -3,6 +3,7 @@ import {
   afterModeSkipTarget,
   clampToWindow,
   contextWindow,
+  editedPlaybackPosition,
   formatSourceSeconds,
   mediaElementErrorText,
   MEDIA_ERR_DECODE,
@@ -100,5 +101,24 @@ describe('mediaTime: formatação e erros do elemento', () => {
     expect(mediaElementErrorText(MEDIA_ERR_DECODE)).toBe('erro ao decodificar o vídeo');
     expect(mediaElementErrorText(MEDIA_ERR_NETWORK)).toBe('erro de leitura do arquivo pelo host de mídia');
     expect(mediaElementErrorText(null)).toBe('erro desconhecido ao carregar o vídeo');
+  });
+});
+
+describe('editedPlaybackPosition (modo Editado)', () => {
+  const windows = [{ start: 2, end: 4 }, { start: 4, end: 5 }, { start: 10, end: 12 }];
+
+  it('pula trecho cortado inteiro, inclusive encadeados', () => {
+    expect(editedPlaybackPosition(2, windows)).toBe(5);
+    expect(editedPlaybackPosition(3.5, windows)).toBe(5);
+  });
+
+  it('não mexe em posição mantida', () => {
+    expect(editedPlaybackPosition(1, windows)).toBe(1);
+    expect(editedPlaybackPosition(5, windows)).toBe(5);
+    expect(editedPlaybackPosition(12, windows)).toBe(12);
+  });
+
+  it('sem trechos devolve a própria posição', () => {
+    expect(editedPlaybackPosition(3, [])).toBe(3);
   });
 });

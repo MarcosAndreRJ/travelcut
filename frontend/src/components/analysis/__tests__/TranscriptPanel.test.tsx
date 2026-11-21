@@ -67,9 +67,16 @@ describe('TranscriptPanel', () => {
     expect(html).toContain('decoration-rose-500');
   });
 
-  it('suporta callbacks editoriais de exclusão e zoom', () => {
-    const onDelete = vi.fn();
+  it('suporta callbacks editoriais de corte e zoom', () => {
     const onZoom = vi.fn();
+    const cutEditing = {
+      removedIntervals: [],
+      canUndo: false,
+      canRedo: false,
+      onCut: vi.fn(),
+      onUndo: vi.fn(),
+      onRedo: vi.fn()
+    };
 
     const html = renderToString(
       <TranscriptPanel
@@ -77,11 +84,41 @@ describe('TranscriptPanel', () => {
         hesitations={[]}
         selectedSec={2.0}
         onSeek={vi.fn()}
-        onDeleteInterval={onDelete}
+        cutEditing={cutEditing}
         onCreateZoomInterval={onZoom}
       />
     );
 
     expect(html).toBeTruthy();
+    expect(html).not.toContain('registrado como sugestão pendente');
+  });
+
+  it('marca como cortadas as palavras de intervalos confirmados pelo host', () => {
+    const html = renderToString(
+      <TranscriptPanel
+        transcript={mockTranscript}
+        hesitations={[]}
+        selectedSec={null}
+        onSeek={vi.fn()}
+        cutEditing={{
+          removedIntervals: [{ startSec: 1.6, endSec: 2.2 }],
+          canUndo: true,
+          canRedo: false,
+          onCut: vi.fn(),
+          onUndo: vi.fn(),
+          onRedo: vi.fn()
+        }}
+      />
+    );
+
+    expect(html).toContain('line-through');
+    expect(html).toContain('(Cortado)');
+  });
+
+  it('sem cutEditing não há marcações de corte', () => {
+    const html = renderToString(
+      <TranscriptPanel transcript={mockTranscript} hesitations={[]} selectedSec={null} onSeek={vi.fn()} />
+    );
+    expect(html).not.toContain('line-through');
   });
 });
