@@ -38,6 +38,25 @@ public static class PlanValidator
             else if (c.SourceInUs < 0 || c.SourceOutUs > mf.DurationUs)
                 Err("CLIP_OUTSIDE_MEDIA", "Intervalo fora da duração da mídia.", c.ClipId);
 
+            // Zoom por intervalo (aditivo): janela na fonte dentro do clipe e rampas finitas, não negativas, com soma <= janela.
+            if (c.ZoomSourceInUs is not null || c.ZoomSourceOutUs is not null
+                || c.ZoomTransitionInSeconds is not null || c.ZoomTransitionOutSeconds is not null)
+            {
+                if (c.Zoom is null)
+                    Err("ZOOM_WINDOW_INVALID", "Janela/rampas de zoom sem zoom no clipe.", c.ClipId);
+                else if (c.ZoomSourceInUs is not long zi || c.ZoomSourceOutUs is not long zo)
+                    Err("ZOOM_WINDOW_INVALID", "Janela de zoom incompleta (informe início e fim na fonte).", c.ClipId);
+                else
+                {
+                    if (zi >= zo || zi < c.SourceInUs || zo > c.SourceOutUs)
+                        Err("ZOOM_WINDOW_INVALID", "Janela de zoom vazia ou fora do trecho do clipe.", c.ClipId);
+                    double ti = c.ZoomTransitionInSeconds ?? 0, to = c.ZoomTransitionOutSeconds ?? 0;
+                    if (!double.IsFinite(ti) || !double.IsFinite(to) || ti < 0 || to < 0
+                        || ti + to > (zo - zi) / 1_000_000d + 1e-6)
+                        Err("ZOOM_WINDOW_INVALID", "Rampas de zoom inválidas (negativas ou maiores que a janela).", c.ClipId);
+                }
+            }
+
             // Velocidade ≠ 1 só é admissível com transcrição conhecida e trecho sem fala.
             // Sem entrada em speechByMedia a fala é desconhecida: não pode haver aceleração.
             if (speedOk && c.SpeedNum != c.SpeedDen && c.SourceInUs < c.SourceOutUs)

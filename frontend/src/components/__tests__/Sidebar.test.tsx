@@ -56,3 +56,13 @@ describe('Sidebar com o estado autoritativo', () => {
     expect(html).not.toContain('Falha na consulta');
   });
 });
+
+describe('Sidebar sem a Revisão de Cortes (T03)', () => {
+  it('não lista a T03 e mantém a Biblioteca, que agora reúne as sugestões', () => {
+    const html = renderToString(<Sidebar currentTab="library" onSelectTab={() => undefined} editorCaps={null} />);
+
+    expect(html).not.toContain('Revisão de Cortes &amp; Efeitos');
+    expect(html).not.toContain('Revisão de Cortes & Efeitos');
+    expect(html).toContain('Biblioteca &amp; Transcrição');
+  });
+});

@@ -15,6 +15,7 @@ import { PlaybackNoticeOverlay, ProxyButton, type ProxyControl } from './Playbac
 import { usePlayerDiagnostics } from './usePlayerDiagnostics';
 import { useReviewPlaybackRate, REVIEW_PLAYBACK_RATES } from '../../services/reviewPlaybackSpeed';
 import { editedPlaybackPosition, type PreviewMode, type SourceWindow } from './mediaTime';
+import { zoomTransformAtSource, type ZoomPreviewWindow } from './zoomWindows';
 
 interface MediaClipPlayerProps {
   projectId: string;
@@ -37,9 +38,14 @@ interface MediaClipPlayerProps {
   onPreviewModeChange?: (mode: PreviewMode) => void;
   /** Trechos cortados da fonte (segundos), usados só no modo Editado. */
   skipWindows?: readonly SourceWindow[];
+  /** Zooms efetivos da fonte (segundos). Aplicados só no modo Editado; em Original a prévia não tem zoom. */
+  zoomWindows?: readonly ZoomPreviewWindow[];
 }
 
 const KEYBOARD_STEP_SECONDS = 5;
+// Referência estável: o efeito de skipWindows não roda a cada render quando a prop não é passada.
+const NO_SKIP_WINDOWS: readonly SourceWindow[] = [];
+const NO_ZOOM_WINDOWS: readonly ZoomPreviewWindow[] = [];
 
 // Volume da sessão: o player é recriado a cada clipe e o ajuste do usuário não deve se perder.
 const sessionAudio = { volume: 1, muted: false };
@@ -60,7 +66,8 @@ export const MediaClipPlayer: React.FC<MediaClipPlayerProps> = ({
   videoAreaClassName = 'h-36 xl:h-52',
   previewMode = 'edited',
   onPreviewModeChange,
-  skipWindows = []
+  skipWindows = NO_SKIP_WINDOWS,
+  zoomWindows = NO_ZOOM_WINDOWS
 }) => {
   const { state, reload } = usePlaybackSource(projectId, mediaId);
   // Modo Editado: posição fora de trechos cortados. Em 'original' a posição segue inalterada.
@@ -85,6 +92,25 @@ export const MediaClipPlayer: React.FC<MediaClipPlayerProps> = ({
   const [volume, setVolume] = useState(sessionAudio.volume);
   const [muted, setMuted] = useState(sessionAudio.muted);
   const [fullscreen, setFullscreen] = useState(false);
+
+  // Zoom da prévia (CSS sobre o <video>), só no modo Editado. O tempo usado é o da FONTE (v.currentTime):
+  // o proxy mantém a mesma linha do tempo da fonte, como já ocorre com os cortes.
+  const zoomWindowsActive = previewMode === 'edited' ? zoomWindows : NO_ZOOM_WINDOWS;
+  const zoomWindowsRef = useRef(zoomWindowsActive);
+  zoomWindowsRef.current = zoomWindowsActive;
+  const applyZoomTransform = useCallback((sourceSeconds?: number) => {
+    const v = videoRef.current;
+    if (!v) return;
+    const t = sourceSeconds ?? v.currentTime;
+    const { scale, origin } = zoomTransformAtSource(zoomWindowsRef.current, t);
+    const transform = scale === 1 ? '' : `scale(${scale})`;
+    if (v.style.transform !== transform) v.style.transform = transform;
+    if (v.style.transformOrigin !== origin) v.style.transformOrigin = origin;
+  }, []);
+  // Mudança de zoom, modo, fonte (original → proxy) ou troca de clipe: recalcula com o player parado ou tocando.
+  useEffect(() => {
+    applyZoomTransform();
+  }, [zoomWindowsActive, previewMode, url, applyZoomTransform]);
 
   // Proxy pronto: a fonte muda, mas a posição do usuário é mantida.
   const reloadKeepingPosition = useCallback(() => {
@@ -149,6 +175,7 @@ export const MediaClipPlayer: React.FC<MediaClipPlayerProps> = ({
     const target = clampSeek(resolvePosition(seekRequest.seconds), Number.isFinite(v.duration) ? v.duration : null);
     v.currentTime = target;
     setCurrent(target);
+    applyZoomTransform(target);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seekToken]);
 
@@ -182,6 +209,7 @@ export const MediaClipPlayer: React.FC<MediaClipPlayerProps> = ({
       pendingSeekRef.current = null;
       v.currentTime = target;
       setCurrent(target);
+      applyZoomTransform(target);
     }
   };
 
@@ -192,6 +220,7 @@ export const MediaClipPlayer: React.FC<MediaClipPlayerProps> = ({
     if (position !== v.currentTime) v.currentTime = clampSeek(position, duration);
     setCurrent(position);
     notify(position);
+    applyZoomTransform();
   };
 
   // Troca de modo com o cursor dentro de um trecho cortado: sai dele imediatamente.
@@ -205,6 +234,31 @@ export const MediaClipPlayer: React.FC<MediaClipPlayerProps> = ({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [previewMode]);
+
+  // Cortes mudaram (corte novo, desfazer ou restauração): com o player parado ou tocando, o cursor
+  // sai de um trecho que acabou de ser cortado. Restaurar um trecho não move o cursor.
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v || v.readyState < 1 || previewMode !== 'edited') return;
+    const position = resolvePosition(v.currentTime);
+    if (position !== v.currentTime) {
+      v.currentTime = clampSeek(position, Number.isFinite(v.duration) ? v.duration : null);
+      setCurrent(v.currentTime);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [skipWindows]);
+
+  // Reprodução: recalcula o zoom a cada quadro enquanto toca (o timeupdate é espaçado).
+  useEffect(() => {
+    if (!playing) return undefined;
+    let frame = 0;
+    const tick = () => {
+      applyZoomTransform();
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [playing, applyZoomTransform]);
 
   const notice = resolveClipNotice({
     state,
@@ -235,6 +289,7 @@ export const MediaClipPlayer: React.FC<MediaClipPlayerProps> = ({
     const target = clampSeek(resolvePosition(seconds), duration);
     v.currentTime = target;
     setCurrent(target);
+    applyZoomTransform(target);
     notify(target, true);
   };
 
@@ -321,6 +376,7 @@ export const MediaClipPlayer: React.FC<MediaClipPlayerProps> = ({
           onPlay={() => setPlaying(true)}
           onPause={() => setPlaying(false)}
           onEnded={() => setPlaying(false)}
+          onSeeked={() => applyZoomTransform()}
           onError={() => {
             if (!videoRef.current?.error) return;
             setMediaError({ code: videoRef.current.error.code });

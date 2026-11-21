@@ -74,6 +74,10 @@ export interface SmartZoomParametersDto {
   focalPointKnown?: boolean;
   /** "Sem zoom" (aditivo): true remove o zoom do clipe sem rejeitar a sugestão; scale 1,0 também é aceito pelo host. */
   none?: boolean | null;
+  /** Zoom direto (aditivo): rampas em segundos e escopo do intervalo. */
+  transitionInSeconds?: number | null;
+  transitionOutSeconds?: number | null;
+  scope?: string | null;
 }
 
 /** Parâmetros opcionais da decisão (hoje só zoom). Decisão humana vence a política. */
@@ -171,6 +175,44 @@ export interface CutApplyResponse {
   planSkippedReason: string | null;
   appliedSourceStartSeconds: number | null;
   appliedSourceEndSeconds: number | null;
+}
+
+// ---- Zoom direto (edição por transcrição) — contrato 'zoom.apply' ----
+export interface ZoomApplyRequest {
+  projectId: string;
+  mediaId: string;
+  startSeconds: number;
+  endSeconds: number;
+  /** Escala aplicada pelo host: 1,01–1,12 (a UI oferece 1,05 / 1,08 / 1,10 / 1,12). */
+  scale: number;
+  focalPointX: number; // 0–1
+  focalPointY: number; // 0–1
+  transitionInSeconds: number;
+  transitionOutSeconds: number;
+  rationale?: string;
+  requestId?: string;
+  baseRevision?: number | null;
+}
+
+export interface ZoomApplyResponse {
+  suggestion: EditSuggestion;
+  /** Só true quando o zoom ficou aplicado no host. A UI confirma apenas nesse caso. */
+  applied: boolean;
+  alreadyApplied: boolean;
+  planRevision: number | null;
+  planChanged: boolean;
+  planError: string | null;
+  planSkippedReason: string | null;
+  /** Janela EFETIVA no plano (fonte, segundos). null quando o plano não foi regenerado. */
+  zoom: {
+    scale: number;
+    focalPointX: number;
+    focalPointY: number;
+    transitionInSeconds: number;
+    transitionOutSeconds: number;
+    sourceStartSeconds: number;
+    sourceEndSeconds: number;
+  } | null;
 }
 
 // ---- Prévia (F07) — espelho de src/TravelCut.Contracts/Dtos/PreviewDtos.cs ----
@@ -1061,6 +1103,11 @@ export interface PlanAppliedEffectDto {
   focalPointY?: number | null;
   durationSeconds?: number | null; // zoom (aditivo)
   zoomCurve?: 'punch_in' | 'push_in' | string | null; // zoom (aditivo)
+  // Janela do zoom na fonte (aditivo, zoom direto): microssegundos e rampas em segundos.
+  sourceInUs?: number | null;
+  sourceOutUs?: number | null;
+  transitionInSeconds?: number | null;
+  transitionOutSeconds?: number | null;
 }
 
 export interface PlanPendingItemDto {

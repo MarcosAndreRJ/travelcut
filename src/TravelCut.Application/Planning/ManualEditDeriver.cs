@@ -113,7 +113,7 @@ public static class ManualEditDeriver
             var src = nIdx[j] >= 0 ? na[nIdx[j]] : (excess[j] ? na[queuesFirst(j)] : null);
             if (src is null) return null;
             var tg = ta[j];
-            double? z = tg.HasV1 && src.HasV1 && (tg.Zoom ?? 1.0) != (src.Zoom ?? 1.0) ? tg.Zoom ?? 1.0 : null;
+            double? z = tg.HasV1 && src.HasV1 && (tg.EffectiveZoom ?? 1.0) != (src.EffectiveZoom ?? 1.0) ? tg.EffectiveZoom ?? 1.0 : null;
             bool sp = !(tg.SpeedNum == src.SpeedNum && tg.SpeedDen == src.SpeedDen);
             return z is null && !sp ? null : (z, sp ? tg.SpeedNum : null, sp ? tg.SpeedDen : null);
         }

@@ -16,7 +16,10 @@ public sealed record PlanClip(Guid ClipId, string TrackId, Guid MediaId, string 
     IReadOnlyList<Guid> SuggestionIds, string ConfidenceBand, bool NeedsHumanReview,
     // Aditivos (zoom): foco 0-1, duração (s) e curva (punch_in | push_in). Só em clipes com zoom cujo foco/duração são conhecidos
     // (decisão humana ou foco conhecido do recomendador). Entram no fingerprint apenas quando existem.
-    double? ZoomFocalPointX = null, double? ZoomFocalPointY = null, double? ZoomDurationSeconds = null, string? ZoomCurve = null);
+    double? ZoomFocalPointX = null, double? ZoomFocalPointY = null, double? ZoomDurationSeconds = null, string? ZoomCurve = null,
+    // Zoom por intervalo (aditivo): janela do zoom na FONTE (us, dentro de [SourceInUs, SourceOutUs)) e rampas (s). Null = zoom do
+    // clipe inteiro (ou sem zoom). Entram no fingerprint apenas quando existem.
+    long? ZoomSourceInUs = null, long? ZoomSourceOutUs = null, double? ZoomTransitionInSeconds = null, double? ZoomTransitionOutSeconds = null);
 
 /// <summary>
 /// Transição na fronteira from → to (saída do clipe from / entrada do clipe to). Kind: cut | fade | dissolve | crossfade.
@@ -59,7 +62,8 @@ public sealed record PlanRevision(Guid PlanId, Guid ProjectId, int Revision, int
 /// <summary>F14.8: efeito aplicado (cut | zoom) com origem auto | human. Informativo: NÃO entra no fingerprint do plano.</summary>
 public sealed record PlanAppliedEffect(Guid SuggestionId, Guid MediaId, string Kind, string Origin,
     string? PolicyVersion = null, string? Reason = null, double? Scale = null, double? FocalPointX = null, double? FocalPointY = null,
-    double? DurationSeconds = null, string? ZoomCurve = null);
+    double? DurationSeconds = null, string? ZoomCurve = null,
+    long? SourceInUs = null, long? SourceOutUs = null, double? TransitionInSeconds = null, double? TransitionOutSeconds = null);
 
 public sealed record MediaFacts(Guid MediaId, long DurationUs, string Fingerprint, string RelativePath);
 

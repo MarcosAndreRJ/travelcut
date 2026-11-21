@@ -55,6 +55,7 @@ function fakeApi(overrides: Partial<Mocked> = {}): Mocked {
     undoDecision: vi.fn().mockResolvedValue(decision()),
     redoDecision: vi.fn().mockResolvedValue(decision()),
     listSuggestions: vi.fn().mockResolvedValue([suggestion()]),
+    submitDecision: vi.fn().mockResolvedValue(decision()),
     ...overrides
   } as Mocked;
 }
@@ -250,6 +251,137 @@ describe('DirectCutController undo/redo', () => {
     expect(c.getSnapshot().canRedo).toBe(true);
     await c.cut({ ...cutInput, startSec: 5, endSec: 6 });
     expect(c.getSnapshot().canRedo).toBe(false);
+  });
+});
+
+describe('DirectCutController confirmação e pilha de sessão', () => {
+  it('a confirmação do corte traz Desfazer com o suggestionId do próprio corte', async () => {
+    const api = fakeApi();
+    const c = new DirectCutController(api, 'p-1', () => 'rid-1');
+    await c.cut(cutInput);
+    expect(c.getSnapshot().feedback?.action).toEqual({ label: 'Desfazer', op: 'undo', suggestionIds: ['s-1'] });
+    await c.runFeedbackAction(c.getSnapshot().feedback!.action!);
+    expect(api.undoDecision).toHaveBeenCalledWith('s-1');
+    expect(c.getSnapshot().feedback?.action).toEqual({ label: 'Refazer', op: 'redo', suggestionIds: ['s-1'] });
+  });
+
+  it('Desfazer da confirmação de um corte não-topo remove só esse corte da pilha', async () => {
+    const api = fakeApi({
+      applyDirectCut: vi
+        .fn()
+        .mockResolvedValueOnce(applied())
+        .mockResolvedValueOnce(applied({ suggestion: suggestion({ suggestionId: 's-2' }) }))
+    });
+    const c = new DirectCutController(api, 'p-1', () => 'rid-x');
+    await c.cut(cutInput);
+    await c.cut({ ...cutInput, startSec: 5, endSec: 6 });
+    await c.runFeedbackAction({ label: 'Desfazer', op: 'undo', suggestionIds: ['s-1'] });
+    expect(api.undoDecision).toHaveBeenCalledWith('s-1');
+    // O topo da pilha continua sendo s-2: desfazer de novo desfaz s-2, nunca s-1 outra vez.
+    await c.undo();
+    expect(api.undoDecision.mock.calls.map((x) => x[0])).toEqual(['s-1', 's-2']);
+  });
+
+  it('erro do host ao desfazer mantém a pilha e mostra o erro real', async () => {
+    const api = fakeApi({ undoDecision: vi.fn().mockRejectedValue(new Error('NOTHING_TO_UNDO')) });
+    const c = new DirectCutController(api, 'p-1', () => 'rid-1');
+    await c.cut(cutInput);
+    await c.runFeedbackAction({ label: 'Desfazer', op: 'undo', suggestionIds: ['s-1'] });
+    expect(c.getSnapshot().feedback?.text).toContain('NOTHING_TO_UNDO');
+    expect(c.getSnapshot().canUndo).toBe(true);
+  });
+});
+
+describe('DirectCutController restaurar trecho', () => {
+  const twoCuts = [
+    suggestion({ suggestionId: 's-1', startSeconds: 1, endSeconds: 2 }),
+    suggestion({ suggestionId: 's-2', startSeconds: 5, endSeconds: 6 }),
+    suggestion({ suggestionId: 's-3', startSeconds: 10, endSeconds: 11 })
+  ];
+
+  it('rejeita só o corte sobreposto e preserva os demais', async () => {
+    const api = fakeApi({
+      listSuggestions: vi
+        .fn()
+        .mockResolvedValueOnce(twoCuts)
+        .mockResolvedValue(twoCuts.filter((s) => s.suggestionId !== 's-1'))
+    });
+    const c = new DirectCutController(api, 'p-1', () => 'rid-1');
+    const out = await c.restoreOverlapping({ mediaId: 'm-1', startSec: 1.5, endSec: 1.8 });
+    expect(out).toEqual({ status: 'restored', suggestionIds: ['s-1'] });
+    expect(api.submitDecision).toHaveBeenCalledTimes(1);
+    expect(api.submitDecision.mock.calls[0][0]).toMatchObject({ suggestionId: 's-1', action: 'reject' });
+    expect(c.getSnapshot().confirmed.map((x) => x.suggestionId)).toEqual(['s-2', 's-3']);
+    expect(c.getSnapshot().feedback?.action).toEqual({ label: 'Desfazer', op: 'undo', suggestionIds: ['s-1'] });
+  });
+
+  it('seleção sem corte sobreposto não chama o host de decisão', async () => {
+    const api = fakeApi({ listSuggestions: vi.fn().mockResolvedValue(twoCuts) });
+    const c = new DirectCutController(api, 'p-1', () => 'rid-1');
+    const out = await c.restoreOverlapping({ mediaId: 'm-1', startSec: 3, endSec: 4 });
+    expect(out).toEqual({ status: 'none' });
+    expect(api.submitDecision).not.toHaveBeenCalled();
+  });
+
+  it('após reabrir o projeto (controlador novo) lê o host antes de restaurar', async () => {
+    const api = fakeApi({ listSuggestions: vi.fn().mockResolvedValue(twoCuts) });
+    const reopened = new DirectCutController(api, 'p-1', () => 'rid-9');
+    expect(reopened.getSnapshot().canUndo).toBe(false);
+    await reopened.restoreOverlapping({ mediaId: 'm-1', startSec: 5.2, endSec: 5.4 });
+    expect(api.listSuggestions.mock.invocationCallOrder[0]).toBeLessThan(api.submitDecision.mock.invocationCallOrder[0]);
+    expect(api.submitDecision.mock.calls[0][0].suggestionId).toBe('s-2');
+  });
+
+  it('Desfazer da restauração reaplica o corte pelo mesmo suggestionId; Refazer restaura de novo', async () => {
+    const api = fakeApi({ listSuggestions: vi.fn().mockResolvedValue(twoCuts) });
+    const c = new DirectCutController(api, 'p-1', () => 'rid-1');
+    await c.restoreOverlapping({ mediaId: 'm-1', startSec: 1.5, endSec: 1.8 });
+    await c.undo();
+    expect(api.undoDecision).toHaveBeenCalledWith('s-1');
+    expect(c.getSnapshot().feedback?.text).toBe('Restauração desfeita: corte reaplicado.');
+    expect(c.getSnapshot().canRedo).toBe(true);
+    await c.redo();
+    expect(api.redoDecision).toHaveBeenCalledWith('s-1');
+    expect(c.getSnapshot().canUndo).toBe(true);
+  });
+
+  it('erro do host mostra a mensagem real e não empilha restauração', async () => {
+    const api = fakeApi({
+      listSuggestions: vi.fn().mockResolvedValue(twoCuts),
+      submitDecision: vi.fn().mockRejectedValue(new Error('gravação falhou'))
+    });
+    const c = new DirectCutController(api, 'p-1', () => 'rid-1');
+    const out = await c.restoreOverlapping({ mediaId: 'm-1', startSec: 1.5, endSec: 1.8 });
+    expect(out).toEqual({ status: 'error', message: 'gravação falhou' });
+    expect(c.getSnapshot().feedback?.tone).toBe('error');
+    expect(c.getSnapshot().feedback?.text).toContain('gravação falhou');
+    expect(c.getSnapshot().canUndo).toBe(false);
+  });
+
+  it('falha ao ler o host antes de restaurar não envia decisão', async () => {
+    const api = fakeApi({ listSuggestions: vi.fn().mockRejectedValue(new Error('IPC timeout')) });
+    const c = new DirectCutController(api, 'p-1', () => 'rid-1');
+    const out = await c.restoreOverlapping({ mediaId: 'm-1', startSec: 1.5, endSec: 1.8 });
+    expect(out?.status).toBe('error');
+    expect(api.submitDecision).not.toHaveBeenCalled();
+  });
+});
+
+describe('DirectCutController leituras concorrentes', () => {
+  it('resposta antiga de refresh não sobrescreve leitura mais nova', async () => {
+    let resolveOld: (v: EditSuggestion[]) => void = () => {};
+    const api = fakeApi({
+      listSuggestions: vi
+        .fn()
+        .mockImplementationOnce(() => new Promise<EditSuggestion[]>((r) => (resolveOld = r)))
+        .mockResolvedValueOnce([])
+    });
+    const c = new DirectCutController(api, 'p-1', () => 'rid-1');
+    const old = c.refresh();
+    await c.refresh();
+    resolveOld([suggestion()]);
+    await old;
+    expect(c.getSnapshot().confirmed).toEqual([]);
   });
 });
 

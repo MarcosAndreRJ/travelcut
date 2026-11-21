@@ -16,6 +16,30 @@ internal sealed class Seg
     public bool HasV1, HasA1;
     public double? Zoom, ZFx, ZFy, ZDur;
     public string? ZCurve;
+    /// <summary>Zoom por intervalo: janela na fonte (us) e rampas (s); null = zoom do clipe inteiro. Recortada ao [In, Out) só ao materializar o clipe.</summary>
+    public long? ZWinIn, ZWinOut;
+    public double? ZTrIn, ZTrOut;
+
+    /// <summary>Zoom efetivo: um zoom por intervalo cuja janela não toca o trecho [In, Out) não vale (sem zoom).</summary>
+    public double? EffectiveZoom => Zoom is null ? null
+        : (ZWinIn is long a && ZWinOut is long b && Math.Min(Out, b) - Math.Max(In, a) <= 0) ? null : Zoom;
+
+    /// <summary>
+    /// Campos de zoom do clipe V1: zoom efetivo, foco, duração, curva e (por intervalo) janela recortada a [In, Out) com rampas
+    /// limitadas à duração da janela. Sem zoom efetivo: tudo null.
+    /// </summary>
+    public (double? Zoom, double? Fx, double? Fy, double? Dur, string? Curve, long? WinIn, long? WinOut, double? TrIn, double? TrOut) ZoomFields()
+    {
+        if (EffectiveZoom is not double z) return (null, null, null, null, null, null, null, null, null);
+        if (ZWinIn is not long wi || ZWinOut is not long wo) return (z, ZFx, ZFy, ZDur, ZCurve, null, null, null, null);
+        long a = Math.Max(In, wi), b = Math.Min(Out, wo);
+        double dur = (b - a) / 1_000_000d;
+        double ti = Math.Max(0, ZTrIn ?? 0), to = Math.Max(0, ZTrOut ?? 0);
+        if (ti + to > dur && ti + to > 0) { double f = dur / (ti + to); ti *= f; to *= f; }
+        return (z, ZFx, ZFy, dur, ZCurve, a, b, ti, to);
+    }
+
+    public void ClearZoomExtras() { ZFx = ZFy = ZDur = null; ZCurve = null; ZWinIn = ZWinOut = null; ZTrIn = ZTrOut = null; }
     public string Rationale = "";
     public List<string> Evidence = new();
     public List<Guid> SuggestionIds = new();
@@ -71,6 +95,7 @@ internal static class SegOps
             MediaId = p.MediaId, RelativePath = p.RelativePath, In = p.SourceInUs, Out = p.SourceOutUs,
             SpeedNum = p.SpeedNum, SpeedDen = p.SpeedDen, SectionId = p.SectionId, HasV1 = v is not null, HasA1 = a is not null,
             Zoom = v?.Zoom, ZFx = v?.ZoomFocalPointX, ZFy = v?.ZoomFocalPointY, ZDur = v?.ZoomDurationSeconds, ZCurve = v?.ZoomCurve,
+            ZWinIn = v?.ZoomSourceInUs, ZWinOut = v?.ZoomSourceOutUs, ZTrIn = v?.ZoomTransitionInSeconds, ZTrOut = v?.ZoomTransitionOutSeconds,
             Rationale = p.Rationale, Evidence = p.Evidence.ToList(), SuggestionIds = p.SuggestionIds.ToList(), Band = p.ConfidenceBand,
             Review = p.NeedsHumanReview, OrigV1 = v?.ClipId, OrigA1 = a?.ClipId, OrigIn = p.SourceInUs, OrigOut = p.SourceOutUs,
         };
@@ -172,7 +197,7 @@ internal static class SegOps
                 var neighbor = li >= 0 ? s[li] : s[ri];
                 var n = neighbor.Clone();
                 n.In = u1; n.Out = u2; n.SpeedNum = 1; n.SpeedDen = 1;
-                n.Zoom = n.ZFx = n.ZFy = n.ZDur = null; n.ZCurve = null;
+                n.Zoom = null; n.ClearZoomExtras();
                 n.Rationale = "Trecho restaurado manualmente."; n.Evidence = new(); n.SuggestionIds = new(); n.Review = false;
                 n.OrigV1 = n.OrigA1 = null; n.OrigIn = n.OrigOut = -1; n.DupEditId = null;
                 s.Insert(li >= 0 ? li + 1 : ri, n);
@@ -242,7 +267,7 @@ internal static class SegOps
             if (zoom is double z && x.HasV1)
             {
                 double? nz = Math.Abs(z - 1.0) < 1e-9 ? null : z;
-                if (x.Zoom != nz) { x.Zoom = nz; x.ZFx = x.ZFy = x.ZDur = null; x.ZCurve = null; changed = true; }
+                if (x.EffectiveZoom != nz) { x.Zoom = nz; x.ClearZoomExtras(); changed = true; }
             }
             if (speedNum is int sn && speedDen is int sd && !(x.SpeedNum == sn && x.SpeedDen == sd)) { x.SpeedNum = sn; x.SpeedDen = sd; changed = true; }
             if (changed) n++;

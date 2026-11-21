@@ -111,6 +111,52 @@ public record DirectCutResultDto(
     [property: JsonPropertyName("appliedSourceEndSeconds")] double? AppliedSourceEndSeconds
 );
 
+/// <summary>
+/// Zoom direto por intervalo (IPC "zoom.apply"; edição por transcrição). scale 1,01-1,12 (fora disso: INVALID_ARGUMENT, sem clamp
+/// silencioso); focalPointX/Y em 0-1; rampas >= 0 com soma <= duração do intervalo. baseRevision (opcional) = revisão que a UI viu
+/// (0 = sem plano); divergente: PLAN_STALE_BASE (nada gravado). requestId = chave de idempotência.
+/// </summary>
+public record DirectZoomRequest(
+    [property: JsonPropertyName("projectId")] Guid ProjectId,
+    [property: JsonPropertyName("mediaId")] Guid MediaId,
+    [property: JsonPropertyName("startSeconds")] double StartSeconds,
+    [property: JsonPropertyName("endSeconds")] double EndSeconds,
+    [property: JsonPropertyName("scale")] double Scale,
+    [property: JsonPropertyName("focalPointX")] double FocalPointX = 0.5,
+    [property: JsonPropertyName("focalPointY")] double FocalPointY = 0.5,
+    [property: JsonPropertyName("transitionInSeconds")] double TransitionInSeconds = 0,
+    [property: JsonPropertyName("transitionOutSeconds")] double TransitionOutSeconds = 0,
+    [property: JsonPropertyName("rationale")] string? Rationale = null,
+    [property: JsonPropertyName("requestId")] Guid? RequestId = null,
+    [property: JsonPropertyName("baseRevision")] int? BaseRevision = null
+);
+
+/// <summary>Zoom efetivamente materializado no plano vigente (fonte em segundos). Null no resultado quando não aplicado.</summary>
+public record DirectZoomAppliedDto(
+    [property: JsonPropertyName("scale")] double Scale,
+    [property: JsonPropertyName("focalPointX")] double FocalPointX,
+    [property: JsonPropertyName("focalPointY")] double FocalPointY,
+    [property: JsonPropertyName("transitionInSeconds")] double TransitionInSeconds,
+    [property: JsonPropertyName("transitionOutSeconds")] double TransitionOutSeconds,
+    [property: JsonPropertyName("sourceStartSeconds")] double SourceStartSeconds,
+    [property: JsonPropertyName("sourceEndSeconds")] double SourceEndSeconds
+);
+
+/// <summary>
+/// Resultado EFETIVO do zoom direto (mesma semântica do corte): applied só é true quando o plano vigente contém o zoom.
+/// Estado parcial (decisão gravada, plano protegido ou falha) em planSkippedReason / planError sem lançar.
+/// </summary>
+public record DirectZoomResultDto(
+    [property: JsonPropertyName("suggestion")] EditSuggestionDto Suggestion,
+    [property: JsonPropertyName("applied")] bool Applied,
+    [property: JsonPropertyName("alreadyApplied")] bool AlreadyApplied,
+    [property: JsonPropertyName("planRevision")] int? PlanRevision,
+    [property: JsonPropertyName("planChanged")] bool PlanChanged,
+    [property: JsonPropertyName("planError")] string? PlanError,
+    [property: JsonPropertyName("planSkippedReason")] string? PlanSkippedReason,
+    [property: JsonPropertyName("zoom")] DirectZoomAppliedDto? Zoom
+);
+
 public record EditDecisionDto(
     [property: JsonPropertyName("decisionId")] Guid DecisionId,
     [property: JsonPropertyName("suggestionId")] Guid SuggestionId,

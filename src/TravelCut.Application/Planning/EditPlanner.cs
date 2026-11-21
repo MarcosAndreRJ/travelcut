@@ -81,7 +81,8 @@ public static class EditPlanner
         SmartZoomParametersDto? Human = null, ZoomFocus? Focus = null);
 
     /// <summary>Foco (0-1), duração (s, null = clipe inteiro) e curva (punch_in | push_in) materializados em clip.zoom*.</summary>
-    private sealed record ZoomFocus(double X, double Y, double? DurationSeconds, string Curve)
+    private sealed record ZoomFocus(double X, double Y, double? DurationSeconds, string Curve,
+        long? WinInUs = null, long? WinOutUs = null, double? TransitionInSeconds = null, double? TransitionOutSeconds = null)
     {
         public static ZoomFocus From(SmartZoomParametersDto p) => new(
             p.FocalPointX, p.FocalPointY, p.DurationSeconds > 0 ? p.DurationSeconds : null,
@@ -443,6 +444,36 @@ public static class EditPlanner
                 if (DecisionParameters.IsNone(z.Human)) continue;
 
                 var (target, coverage) = ZoomTarget(segs, z);
+
+                // Zoom por intervalo (scope "interval"): janela = intervalo efetivo da sugestão recortado ao trecho mantido de maior
+                // sobreposição. A cobertura mínima (0,5) NÃO se aplica. Um zoom por trecho mantido: o segundo vira pendência
+                // (ordem determinística por início/id); decidir de novo por undo/modify do primeiro libera o trecho.
+                if (DecisionParameters.IsInterval(z.Human))
+                {
+                    if (target is null)
+                    {
+                        pending.Add(ZoomPending(z, target, w, "aprovado, mas sem clipe aplicável (intervalo fora dos clipes mantidos)"));
+                        continue;
+                    }
+                    if (target.Zoom is not null)
+                    {
+                        pending.Add(ZoomPending(z, target, w, "aprovado, mas o trecho já tem outro zoom (um zoom por trecho mantido)"));
+                        continue;
+                    }
+                    long winIn = Math.Max(z.StartUs, target.P.In), winOut = Math.Min(z.EndUs, target.P.Out);
+                    double winSeconds = (winOut - winIn) / 1_000_000d;
+                    double tin = Math.Max(0, z.Human!.TransitionInSeconds ?? 0), tout = Math.Max(0, z.Human.TransitionOutSeconds ?? 0);
+                    if (tin + tout > winSeconds && tin + tout > 0) { double f = winSeconds / (tin + tout); tin *= f; tout *= f; }
+                    double iscale = Math.Clamp(z.Human.Scale, 1.01, MaxZoomScale);
+                    var curve = string.IsNullOrWhiteSpace(z.Human.ZoomType) ? SmartZoomConstants.TypePunchIn : z.Human.ZoomType;
+                    long segLength = target.P.Out - target.P.In;
+                    target.Zoom = new AppliedZoomItem(z.SuggestionId, iscale, OriginApproved, null,
+                        segLength <= 0 ? 0 : (winOut - winIn) / (double)segLength, z.Human,
+                        new ZoomFocus(z.Human.FocalPointX, z.Human.FocalPointY, winSeconds, curve, winIn, winOut, tin, tout));
+                    materializedStarts.Add(z.StartUs);
+                    continue;
+                }
+
                 if (target is null || target.Zoom is not null || coverage < ApprovedZoomMinCoverage)
                 {
                     pending.Add(ZoomPending(z, target, w, "aprovado, mas sem clipe aplicável (intervalo fora dos clipes ou cobertura insuficiente)"));
@@ -582,7 +613,9 @@ public static class EditPlanner
                 clips.Add(new PlanClip(v, TrackV1, mediaId, w.Media.RelativePath, sectionId, p.In, p.Out,
                     seg.StartFrame, seg.DurationFrames, seg.SpeedNum, seg.SpeedDen, a1Id, seg.Zoom?.Scale,
                     rationale, evidence, suggestionIds, seg.Band, seg.NeedsReview,
-                    seg.Zoom?.Focus?.X, seg.Zoom?.Focus?.Y, seg.Zoom?.Focus?.DurationSeconds, seg.Zoom?.Focus?.Curve));
+                    seg.Zoom?.Focus?.X, seg.Zoom?.Focus?.Y, seg.Zoom?.Focus?.DurationSeconds, seg.Zoom?.Focus?.Curve,
+                    seg.Zoom?.Focus?.WinInUs, seg.Zoom?.Focus?.WinOutUs,
+                    seg.Zoom?.Focus?.TransitionInSeconds, seg.Zoom?.Focus?.TransitionOutSeconds));
             }
             if (a1Id is Guid a)
             {
@@ -717,7 +750,8 @@ public static class EditPlanner
             bool auto = zm.Origin == OriginAuto;
             appliedEffects.Add(new PlanAppliedEffect(zm.SuggestionId, seg.W.Media.MediaId, "zoom", auto ? "auto" : "human",
                 auto ? zm.Verdict?.PolicyVersion : null, auto ? zm.Verdict?.Reason : null,
-                zm.Scale, zm.Focus?.X, zm.Focus?.Y, zm.Focus?.DurationSeconds, zm.Focus?.Curve));
+                zm.Scale, zm.Focus?.X, zm.Focus?.Y, zm.Focus?.DurationSeconds, zm.Focus?.Curve,
+                zm.Focus?.WinInUs, zm.Focus?.WinOutUs, zm.Focus?.TransitionInSeconds, zm.Focus?.TransitionOutSeconds));
         }
 
         appliedEffects.AddRange(transitionEffects);
@@ -930,8 +964,11 @@ public static class EditPlanner
         {
             if (zoom.Origin == OriginApproved)
             {
-                list.Add($"Zoom {ZoomLabel(zoom.Scale)}× aprovado pelo usuário (cobertura do clipe {(zoom.Coverage * 100).ToString("0", Inv)}%)"
-                    + (zoom.Human is null ? string.Empty : "; parâmetros definidos pelo usuário"));
+                list.Add(zoom.Focus is { WinInUs: long wi, WinOutUs: long wo }
+                    ? $"Zoom {ZoomLabel(zoom.Scale)}× aprovado pelo usuário no intervalo {Seconds(wi, "0.00")}–{Seconds(wo, "0.00")} s da fonte"
+                      + $" (rampas {(zoom.Focus.TransitionInSeconds ?? 0).ToString("0.##", Inv)}/{(zoom.Focus.TransitionOutSeconds ?? 0).ToString("0.##", Inv)} s)"
+                    : $"Zoom {ZoomLabel(zoom.Scale)}× aprovado pelo usuário (cobertura do clipe {(zoom.Coverage * 100).ToString("0", Inv)}%)"
+                      + (zoom.Human is null ? string.Empty : "; parâmetros definidos pelo usuário"));
             }
             else if (zoom.Verdict is { } zv)
             {

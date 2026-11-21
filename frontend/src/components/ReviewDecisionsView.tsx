@@ -48,6 +48,9 @@ export interface ReviewDecisionsViewProps {
   onRedo: (suggestionId: string) => Promise<boolean>;
   /** Navega para a Tela 04 (Planejamento da Timeline) após a revisão. */
   onNavigateToTimeline?: () => void;
+  /** Candidato a focar ao montar/receber um novo pedido (nonce muda a cada pedido). Mostra todos os status. */
+  focusSuggestionId?: string | null;
+  focusNonce?: number;
 }
 
 const fileNameOf = (path: string): string => path.split(/[\\/]/).filter(Boolean).pop() ?? path;
@@ -107,7 +110,9 @@ export const ReviewDecisionsView: React.FC<ReviewDecisionsViewProps> = ({
   onApplyZoom,
   onUndo,
   onRedo,
-  onNavigateToTimeline
+  onNavigateToTimeline,
+  focusSuggestionId = null,
+  focusNonce
 }) => {
   const [filters, setFilters] = useState<ReviewFilters>(DEFAULT_REVIEW_FILTERS);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -171,6 +176,14 @@ export const ReviewDecisionsView: React.FC<ReviewDecisionsViewProps> = ({
     setModifyOpen(false);
     setCurrentSeconds(null);
   }, [activeItem?.suggestionId]);
+
+  // Foco vindo de fora (ex.: painel inicial): mostra todos os status para o candidato ficar visível na fila.
+  // Roda após o efeito de projeto acima, para não ser zerado no mesmo ciclo.
+  useEffect(() => {
+    if (!focusSuggestionId || focusNonce === undefined) return;
+    setFilters({ ...DEFAULT_REVIEW_FILTERS, status: 'all' });
+    setActiveId(focusSuggestionId);
+  }, [focusNonce, focusSuggestionId]);
 
   const run = async <T,>(key: string, fn: () => Promise<T>): Promise<T | undefined> => {
     setBusyKey(key);

@@ -2,7 +2,6 @@ import React from 'react';
 import {
   Home,
   FolderOpen,
-  Scissors,
   Compass,
   Film,
   ShieldCheck,
@@ -52,7 +51,6 @@ export type NavigationTab =
   | 'library'
   | 'transcription'
   | 'timeline'
-  | 'review'
   | 'settings'
   | 'narrative'
   | 'audio'
@@ -80,7 +78,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   }[] = [
     { id: 'overview', label: 'Painel Inicial', screenNumber: '01', icon: Home },
     { id: 'library', label: 'Biblioteca & Transcrição', screenNumber: '02', icon: FolderOpen },
-    { id: 'review', label: 'Revisão de Cortes & Efeitos', screenNumber: '03', icon: Scissors },
     { id: 'timeline', label: 'Planejamento da Timeline', screenNumber: '04', icon: Film },
     { id: 'narrative', label: 'Visão Geral da Montagem', screenNumber: '05', icon: Compass },
     { id: 'export', label: 'Enviar ao DaVinci', screenNumber: '06', icon: Send },

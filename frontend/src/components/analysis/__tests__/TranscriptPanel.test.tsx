@@ -1,7 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import React from 'react';
 import { renderToString } from 'react-dom/server';
-import { TranscriptPanel } from '../TranscriptPanel';
+import { TranscriptPanel, restorableCutsIn } from '../TranscriptPanel';
+import { CutFeedbackBanner, CutRestoreButton } from '../CutEditControls';
 import type { HesitationCandidateDto, TranscriptDto } from '../../../types/ipc';
 
 const mockTranscript: TranscriptDto = {
@@ -68,7 +69,6 @@ describe('TranscriptPanel', () => {
   });
 
   it('suporta callbacks editoriais de corte e zoom', () => {
-    const onZoom = vi.fn();
     const cutEditing = {
       removedIntervals: [],
       canUndo: false,
@@ -76,6 +76,11 @@ describe('TranscriptPanel', () => {
       onCut: vi.fn(),
       onUndo: vi.fn(),
       onRedo: vi.fn()
+    };
+    const zoomEditing = {
+      zoomWindows: [],
+      onApply: vi.fn(),
+      onRemove: vi.fn()
     };
 
     const html = renderToString(
@@ -85,12 +90,12 @@ describe('TranscriptPanel', () => {
         selectedSec={2.0}
         onSeek={vi.fn()}
         cutEditing={cutEditing}
-        onCreateZoomInterval={onZoom}
+        zoomEditing={zoomEditing}
       />
     );
 
     expect(html).toBeTruthy();
-    expect(html).not.toContain('registrado como sugestão pendente');
+    expect(html).not.toContain('sugestão pendente');
   });
 
   it('marca como cortadas as palavras de intervalos confirmados pelo host', () => {
@@ -101,7 +106,7 @@ describe('TranscriptPanel', () => {
         selectedSec={null}
         onSeek={vi.fn()}
         cutEditing={{
-          removedIntervals: [{ startSec: 1.6, endSec: 2.2 }],
+          removedIntervals: [{ suggestionId: 's-1', startSec: 1.6, endSec: 2.2 }],
           canUndo: true,
           canRedo: false,
           onCut: vi.fn(),
@@ -120,5 +125,60 @@ describe('TranscriptPanel', () => {
       <TranscriptPanel transcript={mockTranscript} hesitations={[]} selectedSec={null} onSeek={vi.fn()} />
     );
     expect(html).not.toContain('line-through');
+  });
+
+  it('confirmação de corte traz o botão Desfazer na própria mensagem', () => {
+    const html = renderToString(
+      <TranscriptPanel
+        transcript={mockTranscript}
+        hesitations={[]}
+        selectedSec={null}
+        onSeek={vi.fn()}
+        cutEditing={{
+          removedIntervals: [{ suggestionId: 's-1', startSec: 1.6, endSec: 2.2 }],
+          canUndo: true,
+          canRedo: false,
+          feedback: {
+            tone: 'success',
+            text: 'Corte aplicado.',
+            action: { label: 'Desfazer', op: 'undo', suggestionIds: ['s-1'] }
+          },
+          onCut: vi.fn(),
+          onUndo: vi.fn(),
+          onRedo: vi.fn()
+        }}
+      />
+    );
+    expect(html).toContain('Corte aplicado.');
+    expect(html).toContain('Desfazer');
+  });
+
+  it('restorableCutsIn devolve só os cortes sobrepostos, com o suggestionId do host', () => {
+    const removed = [
+      { suggestionId: 's-1', startSec: 1.6, endSec: 2.2 },
+      { suggestionId: 's-2', startSec: 5.0, endSec: 6.0 }
+    ];
+    expect(restorableCutsIn(2.0, 2.5, removed)).toEqual([{ suggestionId: 's-1', startSec: 1.6, endSec: 2.2 }]);
+    expect(restorableCutsIn(2.2, 2.5, removed)).toEqual([]);
+    expect(restorableCutsIn(3.0, 4.0, removed)).toEqual([]);
+  });
+});
+
+describe('CutRestoreButton e CutFeedbackBanner', () => {
+  it('Restaurar trecho aparece quando a seleção atinge palavras cortadas', () => {
+    expect(renderToString(<CutRestoreButton count={1} onRestore={vi.fn()} />)).toContain('Restaurar trecho');
+  });
+
+  it('Restaurar trecho não aparece sem corte sobreposto', () => {
+    expect(renderToString(<CutRestoreButton count={0} onRestore={vi.fn()} />)).toBe('');
+  });
+
+  it('a confirmação mostra o erro real do host com role alert', () => {
+    const html = renderToString(
+      <CutFeedbackBanner feedback={{ tone: 'error', text: 'Não foi possível restaurar o trecho: gravação falhou' }} />
+    );
+    expect(html).toContain('gravação falhou');
+    expect(html).toContain('role="alert"');
+    expect(html).not.toContain('Desfazer');
   });
 });

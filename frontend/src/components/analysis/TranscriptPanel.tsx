@@ -11,23 +11,63 @@ import {
 } from 'lucide-react';
 import type { HesitationCandidateDto, TranscriptDto } from '../../types/ipc';
 import { findWordMatches, formatClock, intervalsOverlap } from './analysisFormat';
-import type { CutOutcome } from './directCutController';
+import type { CutFeedback, CutFeedbackAction, CutOutcome, RestoreResult } from './directCutController';
+import type { ZoomApplyOutcome, ZoomRemoveOutcome } from './directZoomController';
+import { CutFeedbackBanner, CutRestoreButton } from './CutEditControls';
+import {
+  DEFAULT_ZOOM_RAMP_SECONDS,
+  DEFAULT_ZOOM_SCALE,
+  ZOOM_RAMP_MAX_SECONDS,
+  ZOOM_RAMP_MIN_SECONDS,
+  formatZoomScale,
+  validateZoomInput,
+  type ZoomFocus
+} from '../media/zoomWindows';
 
 /** Trecho cortado no host (efetivo aprovado), em segundos da fonte. Marcação derivada, nunca local. */
 export interface RemovedInterval {
+  /** suggestionId persistido no host: alvo de 'Restaurar trecho'. */
+  suggestionId: string;
   startSec: number;
   endSec: number;
 }
 
-export interface WordZoomSuggestion {
-  id: string;
+/** Cortes efetivos que se sobrepõem ao trecho selecionado (os que 'Restaurar trecho' devolve ao plano). */
+export const restorableCutsIn = (
+  startSec: number,
+  endSec: number,
+  removed: ReadonlyArray<RemovedInterval>
+): RemovedInterval[] => removed.filter((r) => intervalsOverlap(startSec, endSec, r.startSec, r.endSec));
+
+/** Zoom efetivo do host, em segundos da fonte. Marcação derivada do plano/lista, nunca local. */
+export interface TranscriptZoomMark {
+  /** suggestionId persistido no host: alvo de 'Remover zoom'. */
+  suggestionId: string;
+  startSec: number;
+  endSec: number;
+  scale: number;
+}
+
+/** Pedido de zoom feito pela transcrição (a view chama zoom.apply com o mediaId do clipe). */
+export interface TranscriptZoomRequest {
   startSec: number;
   endSec: number;
   text: string;
   scale: number;
-  transitionInSec: number;
-  transitionOutSec: number;
-  anchor: 'center' | 'top-third';
+  focus: ZoomFocus;
+  transitionInSeconds: number;
+  transitionOutSeconds: number;
+}
+
+/** Edição por transcrição: zoom direto (aplicar/remover) com confirmação própria. */
+export interface TranscriptZoomEditing {
+  zoomWindows: ReadonlyArray<TranscriptZoomMark>;
+  busy?: boolean;
+  /** Confirmação do último zoom/remoção, com Desfazer/Refazer próprio. */
+  feedback?: CutFeedback | null;
+  onApply: (input: TranscriptZoomRequest) => Promise<ZoomApplyOutcome | null>;
+  onRemove: (startSec: number, endSec: number) => Promise<ZoomRemoveOutcome | null>;
+  onFeedbackAction?: (action: CutFeedbackAction) => void;
 }
 
 /** Edição por transcrição: corte direto e desfazer/refazer do host. */
@@ -35,7 +75,12 @@ export interface TranscriptCutEditing {
   removedIntervals: ReadonlyArray<RemovedInterval>;
   canUndo: boolean;
   canRedo: boolean;
+  busy?: boolean;
+  /** Confirmação do último corte/restauração, com Desfazer/Refazer próprio. */
+  feedback?: CutFeedback | null;
   onCut: (startSec: number, endSec: number, text: string) => Promise<CutOutcome | null>;
+  onRestore?: (startSec: number, endSec: number) => Promise<RestoreResult | null>;
+  onFeedbackAction?: (action: CutFeedbackAction) => void;
   onUndo: () => void;
   onRedo: () => void;
 }
@@ -46,17 +91,13 @@ interface TranscriptPanelProps {
   selectedSec: number | null;
   onSeek: (sec: number) => void;
   cutEditing?: TranscriptCutEditing;
-  onCreateZoomInterval?: (
-    startSec: number,
-    endSec: number,
-    text: string,
-    config: { scale: number; transitionInSec: number; transitionOutSec: number; anchor: 'center' | 'top-third' }
-  ) => Promise<string | void> | void;
+  zoomEditing?: TranscriptZoomEditing;
 }
 
 /**
  * Transcrição interativa por palavras. Selecionar palavras e cortar (Cortar trecho ou Delete) passa pelo host;
- * o tachado vem de cutEditing.removedIntervals (cortes efetivos aprovados). Zoom continua local.
+ * o tachado vem de cutEditing.removedIntervals (cortes efetivos aprovados). Zoom também passa pelo host
+ * (zoomEditing): a marcação vem de zoomWindows (zooms efetivos aprovados).
  */
 export const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
   transcript,
@@ -64,7 +105,7 @@ export const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
   selectedSec,
   onSeek,
   cutEditing,
-  onCreateZoomInterval
+  zoomEditing
 }) => {
   const [query, setQuery] = useState('');
   const [matchCursor, setMatchCursor] = useState(-1);
@@ -73,23 +114,18 @@ export const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
   const [selectionRange, setSelectionRange] = useState<{ startSeq: number; endSeq: number } | null>(null);
   const [anchorSeq, setAnchorSeq] = useState<number | null>(null);
 
-  // Zooms criados a partir da transcrição (local, ainda sem persistência)
-  const [wordZooms, setWordZooms] = useState<WordZoomSuggestion[]>([]);
-
-  // Configuração contextual do Zoom
+  // Configuração do zoom (painel contextual da seleção)
   const [isConfiguringZoom, setIsConfiguringZoom] = useState(false);
-  const [zoomScale, setZoomScale] = useState(1.08);
-  const [zoomTransIn, setZoomTransIn] = useState(0.35);
-  const [zoomTransOut, setZoomTransOut] = useState(0.35);
-  const [zoomAnchor, setZoomAnchor] = useState<'center' | 'top-third'>('center');
-
-  // Feedback de zoom
-  const [statusMessage, setStatusMessage] = useState<{ text: string; type: 'success' | 'info' | 'error' } | null>(null);
+  const [zoomScale, setZoomScale] = useState<number>(DEFAULT_ZOOM_SCALE);
+  const [zoomTransIn, setZoomTransIn] = useState<number>(DEFAULT_ZOOM_RAMP_SECONDS);
+  const [zoomTransOut, setZoomTransOut] = useState<number>(DEFAULT_ZOOM_RAMP_SECONDS);
+  const [zoomFocus, setZoomFocus] = useState<ZoomFocus>('center');
 
   const containerRef = useRef<HTMLDivElement>(null);
 
   const words = transcript.words || [];
   const removedIntervals = cutEditing?.removedIntervals ?? [];
+  const zoomWindows = zoomEditing?.zoomWindows ?? [];
 
   const matches = useMemo(() => findWordMatches(words, query), [words, query]);
   const matchSet = useMemo(() => new Set(matches), [matches]);
@@ -146,6 +182,32 @@ export const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
     setIsConfiguringZoom(false);
   }, []);
 
+  // Cortes efetivos sobrepostos à seleção (ids do host): alvo de 'Restaurar trecho'.
+  const restorableCuts = useMemo(
+    () => (selectionDetails ? restorableCutsIn(selectionDetails.startSec, selectionDetails.endSec, removedIntervals) : []),
+    [selectionDetails, removedIntervals]
+  );
+
+  // Zooms efetivos sobrepostos à seleção (ids do host): alvo de 'Remover zoom'.
+  const removableZooms = useMemo(
+    () =>
+      selectionDetails
+        ? zoomWindows.filter((z) => intervalsOverlap(selectionDetails.startSec, selectionDetails.endSec, z.startSec, z.endSec))
+        : [],
+    [selectionDetails, zoomWindows]
+  );
+
+  // Validação da configuração do zoom para a seleção atual (escala, rampas e soma pela duração da fala).
+  const zoomError = selectionDetails
+    ? validateZoomInput({
+        startSec: selectionDetails.startSec,
+        endSec: selectionDetails.endSec,
+        scale: zoomScale,
+        transitionInSeconds: zoomTransIn,
+        transitionOutSeconds: zoomTransOut
+      })
+    : null;
+
   // Corte direto da seleção (Cortar trecho / Delete). Só limpa a seleção quando o host aplicou o corte.
   const handleCutSelection = useCallback(async () => {
     if (!selectionDetails || !cutEditing) return;
@@ -155,49 +217,35 @@ export const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
     if (outcome?.status === 'applied') clearSelection();
   }, [selectionDetails, cutEditing, clearSelection]);
 
-  // Criação de zoom por palavras selecionadas (local)
-  const handleConfirmZoom = useCallback(async () => {
-    if (!selectionDetails) return;
+  // Restaura os cortes sobrepostos à seleção. Erro do host aparece na confirmação (a view trata).
+  const handleRestoreSelection = useCallback(async () => {
+    if (!selectionDetails || !cutEditing?.onRestore) return;
+    const outcome = await cutEditing.onRestore(selectionDetails.startSec, selectionDetails.endSec);
+    if (outcome?.status === 'restored') clearSelection();
+  }, [selectionDetails, cutEditing, clearSelection]);
+
+  // Zoom direto da seleção (zoom.apply no host). Só limpa a seleção quando o host confirmou (applied).
+  const handleApplyZoom = useCallback(async () => {
+    if (!selectionDetails || !zoomEditing || zoomError) return;
     const { startSec, endSec, text } = selectionDetails;
-    const config = {
+    const outcome = await zoomEditing.onApply({
+      startSec,
+      endSec,
+      text,
       scale: zoomScale,
-      transitionInSec: zoomTransIn,
-      transitionOutSec: zoomTransOut,
-      anchor: zoomAnchor
-    };
-
-    try {
-      if (onCreateZoomInterval) {
-        await onCreateZoomInterval(startSec, endSec, text, config);
-      }
-    } catch (err) {
-      setStatusMessage({
-        text: `Falha ao criar zoom: ${err instanceof Error ? err.message : String(err)}`,
-        type: 'error'
-      });
-      return;
-    }
-
-    setWordZooms((prev) => [
-      ...prev,
-      {
-        id: 'zoom-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
-        startSec,
-        endSec,
-        text,
-        scale: zoomScale,
-        transitionInSec: zoomTransIn,
-        transitionOutSec: zoomTransOut,
-        anchor: zoomAnchor
-      }
-    ]);
-    setIsConfiguringZoom(false);
-    clearSelection();
-    setStatusMessage({
-      text: `Zoom ${zoomScale}× sugerido para "${text.substring(0, 30)}${text.length > 30 ? '…' : ''}" (${formatClock(startSec)} – ${formatClock(endSec)}).`,
-      type: 'success'
+      focus: zoomFocus,
+      transitionInSeconds: zoomTransIn,
+      transitionOutSeconds: zoomTransOut
     });
-  }, [selectionDetails, zoomScale, zoomTransIn, zoomTransOut, zoomAnchor, onCreateZoomInterval, clearSelection]);
+    if (outcome?.status === 'applied') clearSelection();
+  }, [selectionDetails, zoomEditing, zoomError, zoomScale, zoomFocus, zoomTransIn, zoomTransOut, clearSelection]);
+
+  // Remove o zoom sobreposto à seleção (decision.submit reject do zoom; cortes permanecem).
+  const handleRemoveZoom = useCallback(async () => {
+    if (!selectionDetails || !zoomEditing) return;
+    const outcome = await zoomEditing.onRemove(selectionDetails.startSec, selectionDetails.endSec);
+    if (outcome?.status === 'removed') clearSelection();
+  }, [selectionDetails, zoomEditing, clearSelection]);
 
   // Atalhos de teclado protegidos: Delete corta a seleção, Esc limpa. Ctrl+Z/Y ficam na view da Biblioteca.
   useEffect(() => {
@@ -307,27 +355,49 @@ export const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
               <span>Ouvir</span>
             </button>
 
-            {/* Criar Zoom */}
+            {/* Configurar zoom direto (aplicado no host pelo botão do painel) */}
             <button
               type="button"
               onClick={() => setIsConfiguringZoom((prev) => !prev)}
+              disabled={!zoomEditing || zoomEditing.busy}
               aria-expanded={isConfiguringZoom}
-              title="Criar sugestão de zoom editorial para o trecho"
-              className={`px-2 py-1 rounded-lg text-xs font-medium flex items-center gap-1 border transition-colors ${
+              title="Aplicar zoom direto ao trecho (efeito gravado no projeto e no plano)"
+              className={`px-2 py-1 rounded-lg text-xs font-medium flex items-center gap-1 border transition-colors disabled:opacity-40 ${
                 isConfiguringZoom
                   ? 'bg-purple-600 text-white border-purple-400'
                   : 'bg-purple-950/70 hover:bg-purple-900/90 text-purple-200 border-purple-700/60'
               }`}
             >
               <ZoomIn className="w-3 h-3 text-purple-300" />
-              <span>Criar zoom</span>
+              <span>Zoom…</span>
             </button>
+
+            {/* Remover zoom: só quando a seleção atinge um zoom efetivo do host */}
+            {removableZooms.length > 0 && zoomEditing && (
+              <button
+                type="button"
+                onClick={() => void handleRemoveZoom()}
+                disabled={zoomEditing.busy}
+                title={`Remove ${removableZooms.length === 1 ? 'o zoom' : `os ${removableZooms.length} zooms`} sobreposto(s); os cortes permanecem`}
+                className="px-2.5 py-1 rounded-lg bg-purple-950/80 hover:bg-purple-900 disabled:opacity-40 text-purple-200 border border-purple-700/70 text-xs font-semibold flex items-center gap-1 shadow-sm"
+              >
+                <X className="w-3 h-3 text-purple-300" aria-hidden="true" />
+                <span>Remover zoom</span>
+              </button>
+            )}
+
+            {/* Restaurar trecho: só quando a seleção atinge palavras já cortadas (cortes efetivos do host) */}
+            <CutRestoreButton
+              count={cutEditing?.onRestore ? restorableCuts.length : 0}
+              busy={cutEditing?.busy}
+              onRestore={() => void handleRestoreSelection()}
+            />
 
             {/* Cortar trecho (host; atalho Delete) */}
             <button
               type="button"
               onClick={() => void handleCutSelection()}
-              disabled={!cutEditing}
+              disabled={!cutEditing || cutEditing.busy}
               title="Cortar trecho selecionado (atalho: Delete)"
               className="px-2.5 py-1 rounded-lg bg-rose-950/80 hover:bg-rose-900 disabled:opacity-40 text-rose-200 border border-rose-700/70 text-xs font-semibold flex items-center gap-1 shadow-sm"
             >
@@ -347,22 +417,22 @@ export const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
             </button>
           </div>
 
-          {/* Painel expansível de configuração do Zoom */}
-          {isConfiguringZoom && (
+          {/* Painel de configuração do zoom direto */}
+          {isConfiguringZoom && zoomEditing && (
             <div className="w-full mt-2 pt-2 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-3 text-xs bg-slate-950/70 p-2.5 rounded-lg">
               <div className="flex flex-wrap items-center gap-4">
                 <div className="flex items-center gap-1.5">
                   <span className="text-[10px] text-slate-400 font-semibold uppercase">Escala:</span>
                   <select
+                    aria-label="Escala do zoom"
                     value={zoomScale}
                     onChange={(e) => setZoomScale(parseFloat(e.target.value))}
                     className="bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded px-2 py-0.5"
                   >
-                    <option value={1.05}>1.05× (Sutil)</option>
-                    <option value={1.08}>1.08× (Padrão fala)</option>
-                    <option value={1.12}>1.12× (Ênfase)</option>
-                    <option value={1.18}>1.18× (Close-up)</option>
-                    <option value={1.25}>1.25× (Destaque)</option>
+                    <option value={1.05}>1,05× (Sutil)</option>
+                    <option value={1.08}>1,08× (Padrão fala)</option>
+                    <option value={1.1}>1,10× (Ênfase)</option>
+                    <option value={1.12}>1,12× (Destaque)</option>
                   </select>
                 </div>
 
@@ -370,11 +440,12 @@ export const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
                   <span className="text-[10px] text-slate-400 font-semibold uppercase">Entrada:</span>
                   <input
                     type="number"
+                    aria-label="Rampa de entrada"
                     step="0.05"
-                    min="0.1"
-                    max="1.5"
+                    min={ZOOM_RAMP_MIN_SECONDS}
+                    max={ZOOM_RAMP_MAX_SECONDS}
                     value={zoomTransIn}
-                    onChange={(e) => setZoomTransIn(parseFloat(e.target.value) || 0.35)}
+                    onChange={(e) => setZoomTransIn(parseFloat(e.target.value) || DEFAULT_ZOOM_RAMP_SECONDS)}
                     className="w-16 bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded px-1.5 py-0.5 text-center font-mono"
                   />
                   <span className="text-[10px] text-slate-500">s</span>
@@ -384,11 +455,12 @@ export const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
                   <span className="text-[10px] text-slate-400 font-semibold uppercase">Saída:</span>
                   <input
                     type="number"
+                    aria-label="Rampa de saída"
                     step="0.05"
-                    min="0.1"
-                    max="1.5"
+                    min={ZOOM_RAMP_MIN_SECONDS}
+                    max={ZOOM_RAMP_MAX_SECONDS}
                     value={zoomTransOut}
-                    onChange={(e) => setZoomTransOut(parseFloat(e.target.value) || 0.35)}
+                    onChange={(e) => setZoomTransOut(parseFloat(e.target.value) || DEFAULT_ZOOM_RAMP_SECONDS)}
                     className="w-16 bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded px-1.5 py-0.5 text-center font-mono"
                   />
                   <span className="text-[10px] text-slate-500">s</span>
@@ -397,8 +469,9 @@ export const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
                 <div className="flex items-center gap-1.5">
                   <span className="text-[10px] text-slate-400 font-semibold uppercase">Foco:</span>
                   <select
-                    value={zoomAnchor}
-                    onChange={(e) => setZoomAnchor(e.target.value as any)}
+                    aria-label="Foco do zoom"
+                    value={zoomFocus}
+                    onChange={(e) => setZoomFocus(e.target.value as ZoomFocus)}
                     className="bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded px-2 py-0.5"
                   >
                     <option value="center">Centro</option>
@@ -407,40 +480,47 @@ export const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
                 </div>
               </div>
 
-              <button
-                type="button"
-                onClick={handleConfirmZoom}
-                className="px-3 py-1 rounded bg-purple-600 hover:bg-purple-500 text-white font-medium flex items-center gap-1 shadow-sm text-xs"
-              >
-                <Check className="w-3.5 h-3.5" />
-                <span>Aplicar sugestão</span>
-              </button>
+              <div className="flex flex-col items-end gap-1">
+                {zoomError && (
+                  <span role="alert" className="text-[11px] text-rose-300 max-w-xs text-right">
+                    {zoomError}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => void handleApplyZoom()}
+                  disabled={!!zoomError || zoomEditing.busy}
+                  title={`Aplica o zoom ${formatZoomScale(zoomScale)} ao trecho no host`}
+                  className="px-3 py-1 rounded bg-purple-600 hover:bg-purple-500 disabled:opacity-40 text-white font-medium flex items-center gap-1 shadow-sm text-xs"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  <span>Aplicar zoom</span>
+                </button>
+              </div>
             </div>
           )}
         </div>
       )}
 
-      {/* Feedback de zoom */}
-      {statusMessage && (
-        <div
-          role="status"
-          className={`mb-2 px-3 py-1.5 rounded-lg text-xs flex items-center justify-between gap-2 ${
-            statusMessage.type === 'error'
-              ? 'bg-rose-950/70 border border-rose-700 text-rose-200'
-              : statusMessage.type === 'info'
-                ? 'bg-slate-800 border border-slate-700 text-slate-200'
-                : 'bg-emerald-950/70 border border-emerald-700 text-emerald-200'
-          }`}
-        >
-          <span>{statusMessage.text}</span>
-          <button
-            type="button"
-            onClick={() => setStatusMessage(null)}
-            className="text-slate-400 hover:text-white"
-            aria-label="Fechar mensagem"
-          >
-            <X className="w-3 h-3" />
-          </button>
+      {/* Confirmação do corte/restauração, com Desfazer ou Refazer na própria mensagem */}
+      {cutEditing?.feedback && (
+        <div className="mb-2">
+          <CutFeedbackBanner
+            feedback={cutEditing.feedback}
+            busy={cutEditing.busy}
+            onAction={cutEditing.onFeedbackAction}
+          />
+        </div>
+      )}
+
+      {/* Confirmação do zoom/remoção, com Desfazer ou Refazer próprio */}
+      {zoomEditing?.feedback && (
+        <div className="mb-2" data-testid="transcript-zoom-feedback">
+          <CutFeedbackBanner
+            feedback={zoomEditing.feedback}
+            busy={zoomEditing.busy}
+            onAction={zoomEditing.onFeedbackAction}
+          />
         </div>
       )}
 
@@ -457,8 +537,9 @@ export const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
               // Palavra dentro de corte confirmado pelo host
               const isRemoved = removedIntervals.some((r) => intervalsOverlap(w.start, w.end, r.startSec, r.endSec));
 
-              // Palavra com sugestão de zoom (local)
-              const hasZoom = wordZooms.some((z) => intervalsOverlap(w.start, w.end, z.startSec, z.endSec));
+              // Palavra dentro de zoom efetivo do host (persistente: vem do plano/lista)
+              const zoomHere = zoomWindows.find((z) => intervalsOverlap(w.start, w.end, z.startSec, z.endSec)) ?? null;
+              const hasZoom = zoomHere !== null;
 
               let wordClass = 'text-slate-300 hover:text-white hover:bg-slate-800/60';
 
@@ -480,9 +561,10 @@ export const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
                 <span
                   key={`w-${w.seq}-${w.start}`}
                   id={`transcript-word-${index}`}
+                  data-zoom={hasZoom ? 'true' : undefined}
                   onClick={(e) => handleWordClick(w.seq, w.start, e)}
                   title={`${w.text} [${formatClock(w.start)} – ${formatClock(w.end)}]${
-                    isRemoved ? ' (Cortado)' : hasZoom ? ' (Com zoom)' : ''
+                    isRemoved ? ' (Cortado)' : zoomHere ? ` (Com zoom ${formatZoomScale(zoomHere.scale)})` : ''
                   }`}
                   className={`inline-block px-1 py-0.5 mx-0.5 rounded cursor-pointer transition-colors text-xs select-none ${wordClass}`}
                 >

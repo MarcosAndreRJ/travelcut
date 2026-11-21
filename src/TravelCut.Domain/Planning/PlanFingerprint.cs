@@ -83,6 +83,11 @@ public static class PlanFingerprint
                 if (c.ZoomFocalPointY is double zfy) w.WriteNumber("zfy", zfy);
                 if (c.ZoomDurationSeconds is double zdur) w.WriteNumber("zdur", zdur);
                 if (c.ZoomCurve is string zcur) w.WriteString("zcur", zcur);
+                // Zoom por intervalo: janela na fonte e rampas, só quando existem (planos antigos mantêm o mesmo fingerprint).
+                if (c.ZoomSourceInUs is long zsi) w.WriteNumber("zsi", zsi);
+                if (c.ZoomSourceOutUs is long zso) w.WriteNumber("zso", zso);
+                if (c.ZoomTransitionInSeconds is double zti) w.WriteNumber("zti", zti);
+                if (c.ZoomTransitionOutSeconds is double zto) w.WriteNumber("zto", zto);
                 w.WriteString("rationale", c.Rationale);
                 w.WriteStartArray("evidence"); foreach (var e in c.Evidence) w.WriteStringValue(e); w.WriteEndArray();
                 w.WriteStartArray("suggestions"); foreach (var g in c.SuggestionIds.OrderBy(g => g)) w.WriteStringValue(g.ToString("D")); w.WriteEndArray();

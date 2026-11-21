@@ -2,7 +2,7 @@ import React from 'react';
 import { Sparkles, RefreshCw } from 'lucide-react';
 import type { MediaAnalysisDto, MediaAssetDto, PipelineStage, StageState } from '../../types/ipc';
 import { ResultNotice } from './ResultNotice';
-import { TranscriptPanel, type TranscriptCutEditing } from './TranscriptPanel';
+import { TranscriptPanel, type TranscriptCutEditing, type TranscriptZoomEditing } from './TranscriptPanel';
 import { SignalsList } from './SignalsPanel';
 import { SceneCard } from './SceneCard';
 
@@ -23,7 +23,8 @@ interface ClipAnalysisPanelProps {
   activityLine?: string | null;
   /** Corte direto e desfazer/refazer da transcrição (host). */
   cutEditing?: TranscriptCutEditing;
-  onCreateZoomInterval?: (startSec: number, endSec: number, text: string, config: { scale: number; transitionInSec: number; transitionOutSec: number; anchor: string }) => Promise<string | void>;
+  /** Zoom direto da transcrição (host): marcações efetivas, aplicar e remover. */
+  zoomEditing?: TranscriptZoomEditing;
 }
 
 /**
@@ -45,7 +46,7 @@ export const ClipAnalysisPanel: React.FC<ClipAnalysisPanelProps> = ({
   isMock,
   activityLine = null,
   cutEditing,
-  onCreateZoomInterval
+  zoomEditing
 }) => {
   const fileName = asset.relativePath.split(/[/\\]/).pop() || asset.relativePath;
   const isRunningHere = mediaStageStates
@@ -125,7 +126,7 @@ export const ClipAnalysisPanel: React.FC<ClipAnalysisPanelProps> = ({
                 selectedSec={selectedSec}
                 onSeek={onSeek}
                 cutEditing={cutEditing}
-                onCreateZoomInterval={onCreateZoomInterval}
+                zoomEditing={zoomEditing}
               />
             ) : analysis.transcriptionStatus === 'completed' ? (
               <p className="text-[11px] text-slate-500">Transcrição concluída sem dados para exibir.</p>

@@ -15,7 +15,13 @@ public static class DecisionParameters
     public const double MaxZoomScale = 1.12;
 
     /// <summary>Valida e normaliza (escala limitada a 1,01–1,12). Retorna (json, null) ou (null, mensagem de erro).</summary>
-    public static (string? Json, string? Error) Normalize(DecisionParametersDto? parameters, string suggestedAction)
+    /// <remarks>
+    /// scope = "interval" (zoom por intervalo): escala fora de 1,01–1,12 é RECUSADA (sem clamp: o valor exibido é o aplicado), as
+    /// rampas de entrada/saída (>= 0, finitas) são normalizadas e, com <paramref name="intervalSeconds"/>, a soma não pode passar
+    /// da duração do intervalo. Rampas só são aceitas com scope "interval".
+    /// </remarks>
+    public static (string? Json, string? Error) Normalize(DecisionParametersDto? parameters, string suggestedAction,
+        double? intervalSeconds = null)
     {
         if (parameters is null || parameters.Zoom is null) return (null, null);
         if (!string.Equals(suggestedAction, "zoom", StringComparison.Ordinal))
@@ -42,15 +48,58 @@ public static class DecisionParameters
         if (!double.IsFinite(z.DurationSeconds) || z.DurationSeconds < 0)
             return (null, "parameters.zoom.durationSeconds inválida: deve ser finita e não negativa.");
 
-        double scale = Math.Clamp(z.Scale, MinZoomScale, MaxZoomScale);
+        bool hasRamps = z.TransitionInSeconds is not null || z.TransitionOutSeconds is not null;
+        double? rampIn = null, rampOut = null;
+        string? scope = null;
+        if (z.Scope is not null && !string.Equals(z.Scope, SmartZoomConstants.ScopeInterval, StringComparison.Ordinal))
+            return (null, "parameters.zoom.scope inválido: use \"interval\" ou omita.");
+        if (z.Scope is not null)
+        {
+            scope = SmartZoomConstants.ScopeInterval;
+            if (z.Scale < MinZoomScale || z.Scale > MaxZoomScale)
+                return (null, $"parameters.zoom.scale fora do limite do zoom por intervalo ({MinZoomScale.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)}–{MaxZoomScale.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)}).");
+            rampIn = z.TransitionInSeconds ?? 0;
+            rampOut = z.TransitionOutSeconds ?? 0;
+            if (!double.IsFinite(rampIn.Value) || !double.IsFinite(rampOut.Value) || rampIn < 0 || rampOut < 0)
+                return (null, "parameters.zoom: rampas devem ser finitas e não negativas.");
+            if (intervalSeconds is double total && rampIn.Value + rampOut.Value > total + 1e-6)
+                return (null, "parameters.zoom: a soma das rampas excede a duração do intervalo.");
+        }
+        else if (hasRamps)
+        {
+            return (null, "parameters.zoom: rampas só se aplicam com scope \"interval\".");
+        }
+
+        double scale = scope is null ? Math.Clamp(z.Scale, MinZoomScale, MaxZoomScale) : z.Scale;
         var normalized = z with
         {
+            Scope = scope,
+            TransitionInSeconds = rampIn,
+            TransitionOutSeconds = rampOut,
             ZoomType = string.IsNullOrWhiteSpace(z.ZoomType) ? SmartZoomConstants.TypePunchIn : z.ZoomType.Trim(),
             Scale = scale,
             StartScale = 1.0,
             EndScale = scale,
         };
         return (JsonSerializer.Serialize(new DecisionParametersDto(normalized)), null);
+    }
+
+    /// <summary>True quando o zoom vale só para a janela da sugestão (scope "interval").</summary>
+    public static bool IsInterval(SmartZoomParametersDto? zoom) =>
+        zoom is not null && zoom.None != true && string.Equals(zoom.Scope, SmartZoomConstants.ScopeInterval, StringComparison.Ordinal);
+
+    /// <summary>
+    /// Revalida parâmetros JÁ normalizados contra o intervalo efetivo (ex.: um modify que encolhe o intervalo e herda rampas):
+    /// erro quando a soma das rampas passa da duração. Null = válido (inclui parâmetros que não são de zoom por intervalo).
+    /// </summary>
+    public static string? ValidateAgainstInterval(string? parametersJson, double intervalSeconds)
+    {
+        var zoom = Parse(parametersJson)?.Zoom;
+        if (!IsInterval(zoom)) return null;
+        double sum = (zoom!.TransitionInSeconds ?? 0) + (zoom.TransitionOutSeconds ?? 0);
+        return sum > intervalSeconds + 1e-6
+            ? "parameters.zoom: a soma das rampas excede a duração do intervalo."
+            : null;
     }
 
     /// <summary>True quando os parâmetros efetivos pedem "sem zoom" (zoom.none).</summary>

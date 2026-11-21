@@ -59,10 +59,11 @@ export const DecisionActions: React.FC<DecisionActionsProps> = ({
         onClick={onReject}
         disabled={busy}
         aria-pressed={rejected}
+        title={approved ? 'Restaurar corte: desfaz o corte aplicado e devolve o trecho ao projeto' : undefined}
         className={`${base} ${rejected ? 'bg-rose-900 text-rose-200 border-rose-700' : 'bg-[#070d18] text-slate-200 border-slate-700 hover:border-rose-500 hover:text-rose-300'}`}
       >
         <XCircle className="w-3.5 h-3.5" aria-hidden="true" />
-        Rejeitar<Kbd>R</Kbd>
+        {approved ? 'Restaurar corte' : 'Rejeitar'}<Kbd>R</Kbd>
       </button>
       <button
         type="button"

@@ -92,6 +92,11 @@ public sealed partial class PlanningUseCases
             endMs = currentState.EndMs;
         }
 
+        // Zoom por intervalo: rampas (inclusive as herdadas) precisam caber no intervalo efetivo desta decisão.
+        var rampError = DecisionParameters.ValidateAgainstInterval(parametersJson, (endMs - startMs) / 1000d);
+        if (rampError is not null)
+            return PlanOutcome<DecisionResultDto>.Fail("INVALID_ARGUMENT", rampError);
+
         var projectId = media?.ProjectId ?? Guid.Empty;
         var baseRevision = await CurrentBaseRevisionAsync(projectId, ct);
         var decision = NewDecision(suggestion.SuggestionId, action, request.Reviewer, request.Notes, baseRevision, startMs, endMs,
@@ -213,6 +218,9 @@ public sealed partial class PlanningUseCases
         {
             var current = await CurrentStateAsync(suggestion, ct);
             var (json, _) = DecisionParameters.Normalize(request.Parameters, suggestion.SuggestedAction);
+            var batchRampError = DecisionParameters.ValidateAgainstInterval(json ?? current.ParametersJson, (current.EndMs - current.StartMs) / 1000d);
+            if (batchRampError is not null)
+                return PlanOutcome<DecisionResultDto>.Fail("INVALID_ARGUMENT", batchRampError);
             decisions.Add(NewDecision(suggestion.SuggestionId, action, request.Reviewer, request.Notes,
                 baseRevision, current.StartMs, current.EndMs, parametersJson: json ?? current.ParametersJson));
         }

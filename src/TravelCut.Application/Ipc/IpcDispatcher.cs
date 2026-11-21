@@ -307,6 +307,19 @@ public class IpcDispatcher
                     return PlanResponse(request.RequestId, outcome);
                 }
 
+                case "zoom.apply":
+                {
+                    var req = DeserializePayload<DirectZoomRequest>(request.Payload);
+                    if (req == null)
+                    {
+                        return IpcResponse.Fail(request.RequestId, "INVALID_PAYLOAD", "Dados de zoom direto inválidos.");
+                    }
+
+                    // Cria/reaproveita a sugestão de zoom, grava approve (scope interval) e confirma o zoom no plano vigente.
+                    var outcome = await _planning.ApplyDirectZoomAsync(req, ct);
+                    return PlanResponse(request.RequestId, outcome);
+                }
+
                 case "decision.submit":
                 {
                     var req = DeserializePayload<SubmitDecisionRequest>(request.Payload);

@@ -33,17 +33,40 @@ import type { PreviewMode } from './media/mediaTime';
 import {
   DirectCutController,
   MIN_CUT_SECONDS,
+  type CutFeedbackAction,
   type CutOutcome,
   type DirectCutState
 } from './analysis/directCutController';
+import { CutFeedbackBanner } from './analysis/CutEditControls';
+import type { TranscriptZoomRequest } from './analysis/TranscriptPanel';
+import {
+  DirectZoomController,
+  type DirectZoomState
+} from './analysis/directZoomController';
+import {
+  formatZoomScale,
+  zoomFocusPoint,
+  zoomPreviewSeekSeconds
+} from './media/zoomWindows';
 import { activitySummaryLine, pipelineActivityView } from './analysis/pipelineActivity';
 import { errorMessage, formatDuration } from './analysis/analysisFormat';
+import { resolveFocusAsset, type SuggestionFocus } from './review/suggestionFocus';
 
 /**
  * Modo de entrada da view: 'auto' abre 'import' se a biblioteca estiver vazia, senão 'clips'.
  * Uma mudança em entryKey reaplica o entryMode.
  */
 export type LibraryEntryMode = 'auto' | 'import' | 'clips';
+
+const EMPTY_ZOOM_STATE: DirectZoomState = {
+  windows: [],
+  planRevision: null,
+  canUndo: false,
+  canRedo: false,
+  busy: false,
+  feedback: null,
+  loadError: null
+};
 
 const EMPTY_CUT_STATE: DirectCutState = {
   confirmed: [],
@@ -63,8 +86,12 @@ interface LibraryTranscriptionViewProps {
   onLibraryChanged?: () => void;
   /** Chamado quando a fila do pipeline termina (ex.: para recarregar sugestões). */
   onAnalysisFinished?: () => void;
-  /** Navega para a Tela 03 (Revisão de Cortes & Efeitos). */
-  onNavigateToReview?: (suggestionId?: string) => void;
+  /** Painel "Sugestões" (revisão de cortes), renderizado pelo host com as decisões do projeto. */
+  suggestionsPanel?: React.ReactNode;
+  /** Quantidade de candidatos a corte, para o rótulo da aba. */
+  suggestionsCount?: number;
+  /** Pedido para abrir a aba Sugestões com um candidato selecionado e o clipe posicionado. */
+  focus?: SuggestionFocus | null;
 }
 
 export const LibraryTranscriptionView: React.FC<LibraryTranscriptionViewProps> = ({
@@ -73,9 +100,11 @@ export const LibraryTranscriptionView: React.FC<LibraryTranscriptionViewProps> =
   entryKey,
   onLibraryChanged,
   onAnalysisFinished,
-  onNavigateToReview
+  suggestionsPanel,
+  suggestionsCount = 0,
+  focus = null
 }) => {
-  const [activeTab, setActiveTab] = useState<'clips' | 'chronology'>('clips');
+  const [activeTab, setActiveTab] = useState<'clips' | 'chronology' | 'sugestoes'>('clips');
   const [viewMode, setViewMode] = useState<'clips' | 'import'>('clips');
   const autoResolveRef = useRef(false);
   const [assets, setAssets] = useState<MediaAssetDto[]>([]);
@@ -87,7 +116,6 @@ export const LibraryTranscriptionView: React.FC<LibraryTranscriptionViewProps> =
   const [manualOut, setManualOut] = useState<number | null>(null);
   // Prévia: 'edited' pula os trechos cortados confirmados pelo host; 'original' reproduz tudo.
   const [previewMode, setPreviewMode] = useState<PreviewMode>('edited');
-  const [zoomNotice, setZoomNotice] = useState<{ tone: 'success' | 'error'; text: string } | null>(null);
   // Ref para os atalhos (efeito registrado antes do controlador existir no render).
   const cutControllerRef = useRef<DirectCutController | null>(null);
 
@@ -139,6 +167,21 @@ export const LibraryTranscriptionView: React.FC<LibraryTranscriptionViewProps> =
     setManualIn(null);
     setManualOut(null);
   }, [selectedAsset?.mediaId]);
+
+  // Foco vindo de fora (ex.: candidato de sugestão): abre a aba Sugestões, seleciona o clipe e posiciona no trecho.
+  // Cada nonce é tratado uma vez; enquanto a lista de mídias não chega, aguarda.
+  const focusHandledRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!focus || focusHandledRef.current === focus.nonce) return;
+    setActiveTab('sugestoes');
+    const resolution = resolveFocusAsset(focus, assets);
+    if (resolution.kind === 'pending') return;
+    focusHandledRef.current = focus.nonce;
+    if (resolution.kind === 'select') {
+      setSelectedAsset(resolution.asset);
+      setSeekRequest({ seconds: focus.startSeconds ?? 0, token: Date.now() });
+    }
+  }, [focus, assets]);
 
   // Atalhos de teclado para marcar In (I), Out (O) e Limpar (Esc)
   useEffect(() => {
@@ -196,10 +239,29 @@ export const LibraryTranscriptionView: React.FC<LibraryTranscriptionViewProps> =
   const cutState = useSyncExternalStore(cutSubscribe, cutSnapshot, cutSnapshot);
   cutControllerRef.current = cutController;
 
-  // Cortes efetivos do host: recarregados ao abrir/reabrir o clipe e após cada ação de corte.
+  // Zoom direto (edição por transcrição): um controlador por projeto, estado via useSyncExternalStore.
+  const zoomController = useMemo(
+    () => (projectId ? new DirectZoomController(ipc, projectId) : null),
+    [projectId]
+  );
+  const zoomSubscribe = useCallback(
+    (listener: () => void) => (zoomController ? zoomController.subscribe(listener) : () => {}),
+    [zoomController]
+  );
+  const zoomSnapshot = useCallback(
+    (): DirectZoomState => (zoomController ? zoomController.getSnapshot() : EMPTY_ZOOM_STATE),
+    [zoomController]
+  );
+  const zoomState = useSyncExternalStore(zoomSubscribe, zoomSnapshot, zoomSnapshot);
+
+  // Cortes efetivos do host: recarregados ao abrir o projeto, trocar de clipe e voltar à aba de clipes
+  // (decisões tomadas na aba Sugestões mudam o host sem passar por este controlador).
   useEffect(() => {
-    void cutController?.refresh();
-  }, [cutController, selectedMediaId]);
+    if (activeTab === 'clips') {
+      void cutController?.refresh();
+      void zoomController?.refresh();
+    }
+  }, [cutController, zoomController, selectedMediaId, activeTab]);
 
   /** Corte direto via host. Só limpa o In/Out quando o corte foi aplicado. */
   const runCut = useCallback(
@@ -232,20 +294,82 @@ export const LibraryTranscriptionView: React.FC<LibraryTranscriptionViewProps> =
     () =>
       cutController && selectedAsset
         ? {
-            removedIntervals: clipCuts.map((c) => ({ startSec: c.startSec, endSec: c.endSec })),
+            removedIntervals: clipCuts.map((c) => ({
+              suggestionId: c.suggestionId,
+              startSec: c.startSec,
+              endSec: c.endSec
+            })),
             canUndo: cutState.canUndo,
             canRedo: cutState.canRedo,
+            busy: cutState.busy,
+            feedback: cutState.feedback,
             onCut: (startSec: number, endSec: number, text: string) =>
               runCut(startSec, endSec, `Corte por transcrição: "${text.substring(0, 80)}"`),
+            onRestore: (startSec: number, endSec: number) =>
+              selectedMediaId
+                ? cutController.restoreOverlapping({ mediaId: selectedMediaId, startSec, endSec })
+                : Promise.resolve(null),
+            onFeedbackAction: (action: CutFeedbackAction) => void cutController.runFeedbackAction(action),
             onUndo: () => void cutController.undo(),
             onRedo: () => void cutController.redo()
           }
         : undefined,
-    [cutController, selectedAsset, clipCuts, cutState.canUndo, cutState.canRedo, runCut]
+    [cutController, selectedAsset, selectedMediaId, clipCuts, cutState.canUndo, cutState.canRedo, cutState.busy, cutState.feedback, runCut]
   );
   const skipWindows = useMemo(
     () => clipCuts.map((c) => ({ start: c.startSec, end: c.endSec })),
     [clipCuts]
+  );
+
+  // Zooms efetivos do clipe (plano vigente, com fallback para sugestões aprovadas). Prévia e marcação.
+  const zoomWindowsForClip = useMemo(
+    () => zoomState.windows.filter((z) => z.mediaId === selectedMediaId),
+    [zoomState.windows, selectedMediaId]
+  );
+  const zoomEditing = useMemo(
+    () =>
+      zoomController && selectedAsset
+        ? {
+            zoomWindows: zoomWindowsForClip.map((z) => ({
+              suggestionId: z.suggestionId,
+              startSec: z.startSec,
+              endSec: z.endSec,
+              scale: z.scale
+            })),
+            busy: zoomState.busy,
+            feedback: zoomState.feedback,
+            onApply: async (req: TranscriptZoomRequest) => {
+              if (!selectedMediaId) return null;
+              const outcome = await zoomController.apply({
+                mediaId: selectedMediaId,
+                startSec: req.startSec,
+                endSec: req.endSec,
+                scale: req.scale,
+                focalPointX: zoomFocusPoint(req.focus).x,
+                focalPointY: zoomFocusPoint(req.focus).y,
+                transitionInSeconds: req.transitionInSeconds,
+                transitionOutSeconds: req.transitionOutSeconds,
+                rationale: `Zoom ${formatZoomScale(req.scale)} (${req.focus}): "${req.text.substring(0, 60)}"`
+              });
+              // Confirmado pelo host: mostra o efeito na prévia Editada, posicionado dentro do zoom.
+              if (outcome?.status === 'applied') {
+                setPreviewMode('edited');
+                if (outcome.effective) {
+                  requestSeek(
+                    zoomPreviewSeekSeconds(outcome.effective.startSec, outcome.effective.endSec, outcome.effective.transitionInSeconds)
+                  );
+                }
+              }
+              return outcome;
+            },
+            onRemove: (startSec: number, endSec: number) =>
+              selectedMediaId
+                ? zoomController.removeOverlapping({ mediaId: selectedMediaId, startSec, endSec })
+                : Promise.resolve(null),
+            onFeedbackAction: (action: CutFeedbackAction) => void zoomController.runFeedbackAction(action)
+          }
+        : undefined,
+    [zoomController, selectedAsset, selectedMediaId, zoomWindowsForClip, zoomState.busy, zoomState.feedback]
   );
 
   const loadMediaList = useCallback(async (): Promise<MediaAssetDto[] | null> => {
@@ -428,6 +552,9 @@ export const LibraryTranscriptionView: React.FC<LibraryTranscriptionViewProps> =
   let analyzeDisabledReason: string | null = null;
   if (pipeline.isActive) analyzeDisabledReason = 'Já existe uma análise em andamento';
 
+  // Mesma condição de exibição do painel de transcrição (ClipAnalysisPanel): a confirmação fica dentro dele.
+  const transcriptShown = !!analysis && analysis.transcriptionStatus === 'completed' && !!analysis.transcript;
+
   if (!project) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center bg-[#070d18] text-slate-300 font-sans">
@@ -478,6 +605,16 @@ export const LibraryTranscriptionView: React.FC<LibraryTranscriptionViewProps> =
               Clipes & Transcrição
             </button>
             <button
+              onClick={() => setActiveTab('sugestoes')}
+              className={`px-3 py-1 rounded-md transition-all ${
+                activeTab === 'sugestoes'
+                  ? 'bg-cyan-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              Sugestões de corte ({suggestionsCount})
+            </button>
+            <button
               onClick={() => setActiveTab('chronology')}
               className={`px-3 py-1 rounded-md transition-all flex items-center gap-1.5 ${
                 activeTab === 'chronology'
@@ -519,7 +656,13 @@ export const LibraryTranscriptionView: React.FC<LibraryTranscriptionViewProps> =
         </div>
       </div>
 
-      {activeTab === 'chronology' ? (
+      {activeTab === 'sugestoes' ? (
+        suggestionsPanel ?? (
+          <div className="flex-1 flex items-center justify-center p-8 text-sm text-slate-400">
+            Revisão de sugestões indisponível neste projeto.
+          </div>
+        )
+      ) : activeTab === 'chronology' ? (
         /* Chronology View (F04.5) */
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
           <div className="flex items-center justify-between bg-[#0a1424] p-4 rounded-2xl border border-slate-800">
@@ -781,6 +924,7 @@ export const LibraryTranscriptionView: React.FC<LibraryTranscriptionViewProps> =
                     previewMode={previewMode}
                     onPreviewModeChange={setPreviewMode}
                     skipWindows={skipWindows}
+                    zoomWindows={zoomWindowsForClip}
                     badges={
                       <>
                         <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-slate-900/80 backdrop-blur border border-slate-700 text-slate-300">
@@ -897,37 +1041,22 @@ export const LibraryTranscriptionView: React.FC<LibraryTranscriptionViewProps> =
                   </div>
                 )}
 
-                {cutState.feedback && (
-                  <div
-                    role={cutState.feedback.tone === 'error' ? 'alert' : 'status'}
-                    className={`p-2 rounded-xl border text-xs ${
-                      cutState.feedback.tone === 'success'
-                        ? 'bg-emerald-950/60 border-emerald-600/50 text-emerald-200'
-                        : cutState.feedback.tone === 'warning'
-                          ? 'bg-amber-950/60 border-amber-600/50 text-amber-200'
-                          : cutState.feedback.tone === 'error'
-                            ? 'bg-rose-950/60 border-rose-600/50 text-rose-200'
-                            : 'bg-slate-800 border-slate-700 text-slate-200'
-                    }`}
-                  >
-                    {cutState.feedback.text}
-                  </div>
+                {/* Com transcrição visível, a confirmação aparece dentro do painel de transcrição (com Desfazer). */}
+                {cutState.feedback && !transcriptShown && (
+                  <CutFeedbackBanner
+                    feedback={cutState.feedback}
+                    busy={cutState.busy}
+                    onAction={(action) => void cutController?.runFeedbackAction(action)}
+                  />
                 )}
 
-                {zoomNotice && (
-                  <div
-                    role={zoomNotice.tone === 'error' ? 'alert' : 'status'}
-                    className={`flex items-center justify-between gap-2 p-2 rounded-xl border text-xs ${
-                      zoomNotice.tone === 'error'
-                        ? 'bg-rose-950/60 border-rose-600/50 text-rose-200'
-                        : 'bg-emerald-950/60 border-emerald-600/50 text-emerald-200'
-                    }`}
-                  >
-                    <span>{zoomNotice.text}</span>
-                    <button type="button" onClick={() => setZoomNotice(null)} className="text-slate-400 hover:text-white" aria-label="Fechar aviso de zoom">
-                      ×
-                    </button>
-                  </div>
+                {/* Zoom: sem transcrição visível, a confirmação aparece aqui (com Desfazer/Refazer). */}
+                {zoomState.feedback && !transcriptShown && (
+                  <CutFeedbackBanner
+                    feedback={zoomState.feedback}
+                    busy={zoomState.busy}
+                    onAction={(action) => void zoomController?.runFeedbackAction(action)}
+                  />
                 )}
 
                 <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono">
@@ -973,25 +1102,7 @@ export const LibraryTranscriptionView: React.FC<LibraryTranscriptionViewProps> =
                     isStarting={pipeline.isStarting}
                     isMock={ipc.isMock}
                     cutEditing={cutEditing}
-                    onCreateZoomInterval={async (startSec, endSec, text, config) => {
-                      if (!project?.projectId || !selectedAsset) return;
-                      try {
-                        const res = await ipc.createManualSuggestion({
-                          projectId: project.projectId,
-                          mediaId: selectedAsset.mediaId,
-                          startSeconds: startSec,
-                          endSeconds: endSec,
-                          rationale: `Zoom ${config.scale}× (${config.anchor}): "${text.substring(0, 60)}"`
-                        });
-                        setZoomNotice({ tone: 'success', text: 'Zoom registrado como sugestão pendente na Revisão.' });
-                        return res.suggestion.suggestionId;
-                      } catch (err) {
-                        setZoomNotice({
-                          tone: 'error',
-                          text: `Falha ao registrar zoom: ${err instanceof Error ? err.message : String(err)}`
-                        });
-                      }
-                    }}
+                    zoomEditing={zoomEditing}
                     activityLine={
                       pipeline.status?.currentMedia === selectedAsset.relativePath
                         ? activitySummaryLine(pipelineActivityView(pipeline.status, Date.now(), pipeline.isCanceling))

@@ -25,6 +25,8 @@ interface DashboardOverviewViewProps {
   onOpenProject: () => void;
   onNavigateToCheck: () => void;
   onNavigateToTab: (tab: any) => void;
+  /** Abre a Biblioteca na aba Sugestões de corte (revisão de cortes). */
+  onNavigateToSuggestions: () => void;
 }
 
 /** Pastas canônicas do projeto (docs/CLAUDE.md). Nomes fixos são a estrutura, não dados. */
@@ -61,7 +63,8 @@ export const DashboardOverviewView: React.FC<DashboardOverviewViewProps> = ({
   onCreateProject,
   onOpenProject,
   onNavigateToCheck,
-  onNavigateToTab
+  onNavigateToTab,
+  onNavigateToSuggestions
 }) => {
   const isMock = ipc.isMock;
   const status = useIntegrationStatus();
@@ -154,10 +157,10 @@ export const DashboardOverviewView: React.FC<DashboardOverviewViewProps> = ({
               {isMock && <DemoTag />}
             </div>
             <button
-              onClick={() => onNavigateToTab('review')}
+              onClick={() => onNavigateToSuggestions()}
               className="text-cyan-400 hover:text-cyan-300 font-semibold flex items-center gap-1"
             >
-              Ir para Revisão de Cortes
+              Ir para Sugestões de corte
               {typeof project.pendingReviewsCount === 'number' ? ` (${project.pendingReviewsCount} pendentes)` : ''}
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
@@ -257,7 +260,7 @@ export const DashboardOverviewView: React.FC<DashboardOverviewViewProps> = ({
               </div>
 
               <div
-                onClick={() => onNavigateToTab('review')}
+                onClick={() => onNavigateToSuggestions()}
                 className="p-4 rounded-2xl bg-[#0a1222]/80 border border-slate-800/80 hover:border-cyan-500/40 cursor-pointer transition-all flex items-start gap-3.5"
               >
                 <div className="w-9 h-9 rounded-xl bg-blue-950/80 border border-blue-500/30 text-blue-400 flex items-center justify-center shrink-0">

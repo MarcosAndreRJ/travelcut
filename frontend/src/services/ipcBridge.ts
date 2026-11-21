@@ -52,6 +52,8 @@ import {
   DecisionResultDto,
   CutApplyRequest,
   CutApplyResponse,
+  ZoomApplyRequest,
+  ZoomApplyResponse,
   EditDecisionDto,
   SubmitDecisionRequest,
   ApplyEditorPlanRequest,
@@ -821,6 +823,9 @@ class IpcBridgeService {
 
       case 'cut.apply':
         return this.mockApplyDirectCut(payload as CutApplyRequest);
+
+      case 'zoom.apply':
+        return this.mockApplyDirectZoom(payload as ZoomApplyRequest);
 
       case 'analysis.environment':
         return this.mockEnvironment();
@@ -2210,6 +2215,91 @@ class IpcBridgeService {
     return response;
   }
 
+  /** DEMONSTRAÇÃO (espelho de zoom.apply): zoom aprovado no intervalo; escala 1,01–1,12; 1 zoom por trecho. */
+  private mockApplyDirectZoom(request: ZoomApplyRequest): ZoomApplyResponse {
+    if (request?.requestId && this.mockDirectCutResults.has(request.requestId)) {
+      const cached = this.mockDirectCutResults.get(request.requestId) as unknown as ZoomApplyResponse;
+      return { ...cached, alreadyApplied: true };
+    }
+    const start = request?.startSeconds;
+    const end = request?.endSeconds;
+    const scale = request?.scale;
+    const rin = request?.transitionInSeconds;
+    const rout = request?.transitionOutSeconds;
+    if (typeof start !== 'number' || typeof end !== 'number' || !Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start) {
+      throw new IpcError('DEMO: intervalo inválido (entrada deve ser menor que saída e não negativa).', 'INVALID_INTERVAL');
+    }
+    if (typeof scale !== 'number' || scale < 1.01 || scale > 1.12) {
+      throw new IpcError('DEMO: escala de zoom fora de 1,01–1,12.', 'INVALID_ARGUMENT');
+    }
+    const duration = end - start;
+    if (typeof rin !== 'number' || typeof rout !== 'number' || rin < 0.1 || rin > 1.5 || rout < 0.1 || rout > 1.5 || rin + rout > duration) {
+      throw new IpcError('DEMO: rampas fora de 0,1–1,5 s ou com soma maior que a duração.', 'INVALID_ARGUMENT');
+    }
+    const occupied = this.mockDirectCutIds
+      .map((id) => this.mockEffective(id))
+      .some((s) => s.suggestedAction === 'zoom' && s.status === 'Approved' && s.mediaId === request.mediaId &&
+        s.startSeconds < end && start < s.endSeconds);
+    if (occupied) {
+      throw new IpcError('DEMO: este trecho já tem outro zoom (1 zoom por trecho).', 'ZOOM_CLIP_OCCUPIED');
+    }
+    const fx = request.focalPointX ?? 0.5;
+    const fy = request.focalPointY ?? 0.5;
+    const suggestionId = `zoom-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+    this.mockSuggestions.push({
+      suggestionId,
+      mediaId: request.mediaId,
+      startSeconds: start,
+      endSeconds: end,
+      kind: 'manual_zoom',
+      rationale: request.rationale ?? 'Zoom direto (DEMO)',
+      confidenceBand: 'high',
+      needsHumanReview: false,
+      suggestedAction: 'zoom',
+      status: 'Proposed',
+      author: 'Editor'
+    });
+    this.mockDirectCutIds.push(suggestionId);
+    const zoomParams = {
+      zoomType: 'punch_in',
+      scale,
+      focalPointX: fx,
+      focalPointY: fy,
+      durationSeconds: duration,
+      transitionInSeconds: rin,
+      transitionOutSeconds: rout,
+      scope: 'interval'
+    };
+    this.mockCommit(suggestionId, {
+      status: 'Approved',
+      effectiveStartSeconds: start,
+      effectiveEndSeconds: end,
+      lastAction: 'approve',
+      parameters: { zoom: zoomParams }
+    } as MockDecisionState);
+    this.mockLog(suggestionId, 'approve', 'Editor', '', this.mockStateOf(suggestionId));
+    const response: ZoomApplyResponse = {
+      suggestion: this.mockEffective(suggestionId),
+      applied: true,
+      alreadyApplied: false,
+      planRevision: null,
+      planChanged: false,
+      planError: null,
+      planSkippedReason: null,
+      zoom: {
+        scale,
+        focalPointX: fx,
+        focalPointY: fy,
+        transitionInSeconds: rin,
+        transitionOutSeconds: rout,
+        sourceStartSeconds: start,
+        sourceEndSeconds: end
+      }
+    };
+    if (request.requestId) this.mockDirectCutResults.set(request.requestId, response as unknown as CutApplyResponse);
+    return response;
+  }
+
   private mockUndoDecision(suggestionId: string | undefined): DecisionResultDto {
     this.mockRequireSuggestion(suggestionId);
     const id = suggestionId as string;
@@ -2652,6 +2742,14 @@ class IpcBridgeService {
    */
   public async applyDirectCut(params: CutApplyRequest): Promise<CutApplyResponse> {
     return this.send<CutApplyResponse>('cut.apply', params, { timeoutMs: DECISION_IPC_TIMEOUT_MS });
+  }
+
+  /**
+   * Zoom direto (edição por transcrição): o host aprova o zoom no intervalo e regenera o plano.
+   * Só confirmar na UI quando `applied` for true. Erros (INVALID_ARGUMENT, ZOOM_CLIP_OCCUPIED, PLAN_STALE_BASE) chegam como IpcError.
+   */
+  public async applyDirectZoom(params: ZoomApplyRequest): Promise<ZoomApplyResponse> {
+    return this.send<ZoomApplyResponse>('zoom.apply', params, { timeoutMs: DECISION_IPC_TIMEOUT_MS });
   }
 
   // ==========================================================================

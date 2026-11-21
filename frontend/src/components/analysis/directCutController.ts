@@ -1,13 +1,23 @@
-import type { CutApplyRequest, CutApplyResponse, DecisionResultDto, EditSuggestion } from '../../types/ipc';
+import type {
+  CutApplyRequest,
+  CutApplyResponse,
+  DecisionResultDto,
+  EditSuggestion,
+  SubmitDecisionRequest
+} from '../../types/ipc';
+import { intervalsOverlap } from './analysisFormat';
 
-// Controlador do corte direto (edição por transcrição, Incremento 1). Sem React e sem DOM:
+// Controlador do corte direto (edição por transcrição). Sem React e sem DOM:
 // a view assina o estado via subscribe/getSnapshot. Só confirma corte quando o host responde applied=true.
+// Fonte da verdade dos cortes efetivos: suggestions.list (refresh). A pilha de sessão só guarda o que
+// esta instância fez, para desfazer/refazer; restaurar usa sempre o suggestionId persistido no host.
 
 export interface DirectCutApi {
   applyDirectCut(params: CutApplyRequest): Promise<CutApplyResponse>;
   undoDecision(suggestionId: string): Promise<DecisionResultDto>;
   redoDecision(suggestionId: string): Promise<DecisionResultDto>;
   listSuggestions(projectId: string): Promise<EditSuggestion[]>;
+  submitDecision(request: SubmitDecisionRequest): Promise<DecisionResultDto>;
 }
 
 /** Corte efetivo aprovado no host (intervalo em segundos da fonte). */
@@ -18,15 +28,39 @@ export interface ConfirmedCut {
   endSec: number;
 }
 
+export const CUT_REVIEWER = 'Editor';
+const RESTORE_NOTES = 'restaurar trecho (edição por transcrição)';
+
+/** Ação de uma confirmação: desfazer ou refazer os suggestionIds indicados. */
+export interface CutFeedbackAction {
+  label: 'Desfazer' | 'Refazer';
+  op: 'undo' | 'redo';
+  suggestionIds: string[];
+}
+
 export interface CutFeedback {
   tone: 'success' | 'warning' | 'error' | 'info';
   text: string;
+  action?: CutFeedbackAction | null;
+}
+
+export type CutActionKind = 'cut' | 'restore';
+
+/** Entrada da pilha de sessão: um suggestionId e se a ação foi um corte ou uma restauração. */
+export interface HistoryEntry {
+  suggestionId: string;
+  kind: CutActionKind;
 }
 
 export type CutOutcome =
   | { status: 'applied'; suggestionId: string; alreadyApplied: boolean; planRevision: number | null; warning: string | null }
   | { status: 'not_applied'; reason: string }
   | { status: 'error'; code: string | null; message: string };
+
+export type RestoreResult =
+  | { status: 'restored'; suggestionIds: string[] }
+  | { status: 'none' }
+  | { status: 'error'; message: string };
 
 export interface DirectCutState {
   confirmed: ConfirmedCut[];
@@ -56,6 +90,16 @@ export function confirmedCutsFrom(suggestions: readonly EditSuggestion[]): Confi
       endSec: s.effectiveEndSeconds ?? s.endSeconds
     }))
     .filter((c) => Number.isFinite(c.startSec) && Number.isFinite(c.endSec) && c.endSec > c.startSec);
+}
+
+/** Cortes efetivos da mídia que se sobrepõem ao intervalo (os que 'Restaurar trecho' devolve ao plano). */
+export function overlappingConfirmedCuts(
+  cuts: readonly ConfirmedCut[],
+  mediaId: string,
+  startSec: number,
+  endSec: number
+): ConfirmedCut[] {
+  return cuts.filter((c) => c.mediaId === mediaId && intervalsOverlap(startSec, endSec, c.startSec, c.endSec));
 }
 
 /** Chave de uma tentativa: mesma mídia, mesmo intervalo e mesma revisão-base. Repetir a chave reutiliza a requestId. */
@@ -119,6 +163,16 @@ export function interpretCutResponse(res: CutApplyResponse): CutOutcome {
   };
 }
 
+/** Texto da confirmação de desfazer/refazer, conforme o tipo da ação. */
+function historyText(op: 'undo' | 'redo', kind: CutActionKind): string {
+  if (kind === 'restore') {
+    return op === 'undo' ? 'Restauração desfeita: corte reaplicado.' : 'Restauração refeita: trecho restaurado.';
+  }
+  return op === 'undo' ? 'Corte desfeito.' : 'Corte refeito.';
+}
+
+const undoActionFor = (suggestionIds: string[]): CutFeedbackAction => ({ label: 'Desfazer', op: 'undo', suggestionIds });
+
 export class DirectCutController {
   private state: DirectCutState = {
     confirmed: [],
@@ -130,9 +184,11 @@ export class DirectCutController {
     loadError: null
   };
   private listeners = new Set<() => void>();
-  private undoStack: string[] = [];
-  private redoStack: string[] = [];
+  private undoStack: HistoryEntry[] = [];
+  private redoStack: HistoryEntry[] = [];
   private attempt: { key: string; requestId: string } | null = null;
+  /** Sequência das leituras: só a leitura mais recente pode atualizar o estado (respostas antigas são descartadas). */
+  private refreshSeq = 0;
 
   constructor(
     private readonly api: DirectCutApi,
@@ -161,10 +217,13 @@ export class DirectCutController {
 
   /** Recarrega os cortes efetivos do projeto (todas as mídias). Falha vira loadError, sem apagar o estado. */
   async refresh(): Promise<void> {
+    const seq = ++this.refreshSeq;
     try {
       const list = await this.api.listSuggestions(this.projectId);
+      if (seq !== this.refreshSeq) return;
       this.set({ confirmed: confirmedCutsFrom(list), loadError: null });
     } catch (err) {
+      if (seq !== this.refreshSeq) return;
       this.set({ loadError: `Não foi possível carregar os cortes do projeto: ${messageOf(err)}` });
     }
   }
@@ -200,18 +259,19 @@ export class DirectCutController {
       if (outcome.status === 'applied') {
         this.attempt = null;
         if (!outcome.alreadyApplied) {
-          this.undoStack.push(outcome.suggestionId);
+          this.undoStack.push({ suggestionId: outcome.suggestionId, kind: 'cut' });
           this.redoStack = [];
         }
         const text = outcome.alreadyApplied
           ? 'Corte já aplicado anteriormente (repetição da mesma tentativa).'
           : 'Corte aplicado.';
+        const action = outcome.alreadyApplied ? null : undoActionFor([outcome.suggestionId]);
         this.set({
           busy: false,
           planRevision: res.planRevision ?? null,
           feedback: outcome.warning
-            ? { tone: 'warning', text: `${text} Atenção: ${outcome.warning}.` }
-            : { tone: 'success', text }
+            ? { tone: 'warning', text: `${text} Atenção: ${outcome.warning}.`, action }
+            : { tone: 'success', text, action }
         });
       } else if (outcome.status === 'not_applied') {
         this.set({
@@ -229,47 +289,155 @@ export class DirectCutController {
     }
   }
 
-  /** Desfaz o último corte confirmado nesta sessão (undoDecision do candidato). */
-  async undo(): Promise<void> {
-    const id = this.undoStack[this.undoStack.length - 1];
-    if (this.state.busy || !id) return;
+  /**
+   * Restaura o trecho [startSec, endSec] da mídia: rejeita (decision.submit reject) SOMENTE os cortes efetivos que se
+   * sobrepõem, usando os suggestionIds do host. Lê o host antes, então funciona após reabrir o projeto ou trocar de clipe.
+   * Os demais cortes permanecem. Falha do host vira erro com a mensagem real.
+   */
+  async restoreOverlapping(input: { mediaId: string; startSec: number; endSec: number }): Promise<RestoreResult | null> {
+    if (this.state.busy) return null;
+    const startSec = Math.min(input.startSec, input.endSec);
+    const endSec = Math.max(input.startSec, input.endSec);
+
     this.set({ busy: true, feedback: null });
+    await this.refresh();
+    if (this.state.loadError) {
+      const message = this.state.loadError;
+      this.set({ busy: false, feedback: { tone: 'error', text: `Não foi possível restaurar o trecho: ${message}` } });
+      return { status: 'error', message };
+    }
+
+    const targets = overlappingConfirmedCuts(this.state.confirmed, input.mediaId, startSec, endSec);
+    if (targets.length === 0) {
+      this.set({ busy: false, feedback: { tone: 'info', text: 'Nenhum corte aplicado neste trecho para restaurar.' } });
+      return { status: 'none' };
+    }
+
+    const restored: string[] = [];
+    let planRevision = this.state.planRevision;
+    let warning: string | null = null;
     try {
-      const res = await this.api.undoDecision(id);
-      this.undoStack.pop();
-      this.redoStack.push(id);
+      for (const target of targets) {
+        const res = await this.api.submitDecision({
+          suggestionId: target.suggestionId,
+          action: 'reject',
+          reviewer: CUT_REVIEWER,
+          notes: RESTORE_NOTES
+        });
+        restored.push(target.suggestionId);
+        planRevision = res.planRevision ?? null;
+        if (res.planError) warning = res.planError;
+      }
+    } catch (err) {
+      const message = messageOf(err);
+      for (const id of restored) this.undoStack.push({ suggestionId: id, kind: 'restore' });
+      if (restored.length > 0) this.redoStack = [];
       this.set({
         busy: false,
-        planRevision: res.planRevision ?? null,
-        feedback: res.planError
-          ? { tone: 'warning', text: `Corte desfeito. Atenção: plano não regenerado: ${res.planError}.` }
-          : { tone: 'info', text: 'Corte desfeito.' }
+        planRevision,
+        feedback: {
+          tone: 'error',
+          text: `Não foi possível restaurar o trecho: ${message}`,
+          action: restored.length > 0 ? undoActionFor(restored) : null
+        }
       });
-    } catch (err) {
-      this.set({ busy: false, feedback: { tone: 'error', text: `Não foi possível desfazer: ${messageOf(err)}` } });
+      await this.refresh();
+      return { status: 'error', message };
     }
+
+    for (const id of restored) this.undoStack.push({ suggestionId: id, kind: 'restore' });
+    this.redoStack = [];
+    const text = warning ? `Trecho restaurado. Atenção: plano não regenerado: ${warning}.` : 'Trecho restaurado.';
+    this.set({
+      busy: false,
+      planRevision,
+      feedback: { tone: warning ? 'warning' : 'success', text, action: undoActionFor(restored) }
+    });
+    await this.refresh();
+    return { status: 'restored', suggestionIds: restored };
+  }
+
+  /**
+   * Desfaz (op 'undo') ou refaz (op 'redo') os suggestionIds indicados, via undoDecision/redoDecision de cada um.
+   * Cada id sai da pilha de origem e entra na oposta; ids fora da pilha são ignorados com aviso.
+   */
+  async runHistory(op: 'undo' | 'redo', suggestionIds: string[]): Promise<void> {
+    if (this.state.busy || suggestionIds.length === 0) return;
+    const source = op === 'undo' ? this.undoStack : this.redoStack;
+    const hasAll = suggestionIds.every((id) => source.some((e) => e.suggestionId === id));
+    if (!hasAll) {
+      this.set({
+        feedback: { tone: 'info', text: op === 'undo' ? 'Nada para desfazer neste corte.' : 'Nada para refazer neste corte.' }
+      });
+      return;
+    }
+    const kind = source.find((e) => e.suggestionId === suggestionIds[0])?.kind ?? 'cut';
+
+    this.set({ busy: true, feedback: null });
+    let planRevision = this.state.planRevision;
+    let warning: string | null = null;
+    try {
+      for (const id of suggestionIds) {
+        const res = op === 'undo' ? await this.api.undoDecision(id) : await this.api.redoDecision(id);
+        this.moveEntry(op, id);
+        planRevision = res.planRevision ?? null;
+        if (res.planError) warning = res.planError;
+      }
+    } catch (err) {
+      this.set({
+        busy: false,
+        planRevision,
+        feedback: { tone: 'error', text: `Não foi possível ${op === 'undo' ? 'desfazer' : 'refazer'}: ${messageOf(err)}` }
+      });
+      await this.refresh();
+      return;
+    }
+
+    const text = historyText(op, kind);
+    const action: CutFeedbackAction = {
+      label: op === 'undo' ? 'Refazer' : 'Desfazer',
+      op: op === 'undo' ? 'redo' : 'undo',
+      suggestionIds
+    };
+    this.set({
+      busy: false,
+      planRevision,
+      feedback: warning
+        ? { tone: 'warning', text: `${text} Atenção: plano não regenerado: ${warning}.`, action }
+        : { tone: 'info', text, action }
+    });
     await this.refresh();
   }
 
-  /** Refaz o último corte desfeito (redoDecision do candidato). */
-  async redo(): Promise<void> {
-    const id = this.redoStack[this.redoStack.length - 1];
-    if (this.state.busy || !id) return;
-    this.set({ busy: true, feedback: null });
-    try {
-      const res = await this.api.redoDecision(id);
-      this.redoStack.pop();
-      this.undoStack.push(id);
-      this.set({
-        busy: false,
-        planRevision: res.planRevision ?? null,
-        feedback: res.planError
-          ? { tone: 'warning', text: `Corte refeito. Atenção: plano não regenerado: ${res.planError}.` }
-          : { tone: 'info', text: 'Corte refeito.' }
-      });
-    } catch (err) {
-      this.set({ busy: false, feedback: { tone: 'error', text: `Não foi possível refazer: ${messageOf(err)}` } });
+  /** Move a entrada mais recente do suggestionId entre as pilhas (desfazer: undo → redo; refazer: redo → undo). */
+  private moveEntry(op: 'undo' | 'redo', suggestionId: string): void {
+    const from = op === 'undo' ? this.undoStack : this.redoStack;
+    const to = op === 'undo' ? this.redoStack : this.undoStack;
+    for (let i = from.length - 1; i >= 0; i--) {
+      if (from[i].suggestionId === suggestionId) {
+        const [entry] = from.splice(i, 1);
+        to.push(entry);
+        return;
+      }
     }
-    await this.refresh();
+  }
+
+  /** Confirmação com botão (Desfazer/Refazer) da própria mensagem. */
+  runFeedbackAction(action: CutFeedbackAction): Promise<void> {
+    return this.runHistory(action.op, action.suggestionIds);
+  }
+
+  /** Desfaz a última ação desta sessão (corte ou restauração). */
+  async undo(): Promise<void> {
+    const top = this.undoStack[this.undoStack.length - 1];
+    if (!top) return;
+    await this.runHistory('undo', [top.suggestionId]);
+  }
+
+  /** Refaz a última ação desfeita nesta sessão. */
+  async redo(): Promise<void> {
+    const top = this.redoStack[this.redoStack.length - 1];
+    if (!top) return;
+    await this.runHistory('redo', [top.suggestionId]);
   }
 }

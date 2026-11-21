@@ -167,8 +167,12 @@ public static partial class PlanReconciler
             if (s.HasA1) a1Ids[k] = MakeId(EditPlanner.TrackA1, s);
             var (start, dur) = layout[k];
             if (v1Ids[k] is Guid v)
+            {
+                var zf = s.ZoomFields();
                 clips.Add(new PlanClip(v, EditPlanner.TrackV1, s.MediaId, s.RelativePath, s.SectionId, s.In, s.Out, start, dur, s.SpeedNum, s.SpeedDen,
-                    a1Ids[k], s.Zoom, s.Rationale, s.Evidence, s.SuggestionIds, s.Band, s.Review, s.ZFx, s.ZFy, s.ZDur, s.ZCurve));
+                    a1Ids[k], zf.Zoom, s.Rationale, s.Evidence, s.SuggestionIds, s.Band, s.Review, zf.Fx, zf.Fy, zf.Dur, zf.Curve,
+                    zf.WinIn, zf.WinOut, zf.TrIn, zf.TrOut));
+            }
             if (a1Ids[k] is Guid a)
                 clips.Add(new PlanClip(a, EditPlanner.TrackA1, s.MediaId, s.RelativePath, s.SectionId, s.In, s.Out, start, dur, s.SpeedNum, s.SpeedDen,
                     v1Ids[k], null, s.Rationale, s.Evidence, s.SuggestionIds, s.Band, s.Review));

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { FolderOpen, Loader2, AlertCircle, Plus } from 'lucide-react';
 import { SplashScreen } from './components/SplashScreen';
 import { Sidebar, NavigationTab } from './components/Sidebar';
@@ -7,6 +7,7 @@ import { DashboardOverviewView } from './components/DashboardOverviewView';
 import { EnvironmentCheckView } from './components/EnvironmentCheckView';
 import { WelcomeStartView } from './components/WelcomeStartView';
 import { ReviewDecisionsView } from './components/ReviewDecisionsView';
+import { suggestionFocusOf } from './components/review/suggestionFocus';
 import {
   describeDecisionError,
   decisionPlanErrorMessage,
@@ -135,10 +136,22 @@ export const App: React.FC = () => {
     };
   }, [projectId, suggestionsReloadKey]);
 
-  // Ao abrir a aba Revisão, a lista é recarregada do host (estado efetivo atual).
+  // Ao abrir a Biblioteca (aba Sugestões incluída), a lista é recarregada do host (estado efetivo atual).
   useEffect(() => {
-    if (currentTab === 'review') setSuggestionsReloadKey((k) => k + 1);
+    if (currentTab === 'library' || currentTab === 'transcription') setSuggestionsReloadKey((k) => k + 1);
   }, [currentTab]);
+
+  // Pedido de foco na Biblioteca: o candidato é resolvido contra a lista atual de sugestões.
+  const [libraryFocusRequest, setLibraryFocusRequest] = useState<{ suggestionId?: string; nonce: number } | null>(null);
+  const libraryFocus = useMemo(
+    () => (libraryFocusRequest ? suggestionFocusOf(suggestions, libraryFocusRequest.suggestionId, libraryFocusRequest.nonce) : null),
+    [libraryFocusRequest, suggestions]
+  );
+  /** Abre a Biblioteca na aba Sugestões (com o candidato selecionado, se informado). Revisão de Cortes agora vive aqui. */
+  const openSuggestionsInLibrary = (suggestionId?: string) => {
+    setLibraryFocusRequest((prev) => ({ suggestionId, nonce: (prev?.nonce ?? 0) + 1 }));
+    setCurrentTab('library');
+  };
 
   const handleAnalysisFinished = useCallback(() => {
     setSuggestionsReloadKey((k) => k + 1);
@@ -418,6 +431,7 @@ const handleApplyZoom = (suggestionId: string, zoom: SmartZoomParametersDto) => 
                 }}
                 onNavigateToCheck={() => setCurrentTab('environment')}
                 onNavigateToTab={(tab) => setCurrentTab(tab)}
+                onNavigateToSuggestions={() => openSuggestionsInLibrary()}
               />
             )}
 
@@ -451,35 +465,34 @@ const handleApplyZoom = (suggestionId: string, zoom: SmartZoomParametersDto) => 
                 entryKey={libraryEntry.key}
                 onLibraryChanged={refreshProject}
                 onAnalysisFinished={handleAnalysisFinished}
-                onNavigateToReview={(sugId) => {
-                  setCurrentTab('review');
-                  void reloadSuggestions();
-                }}
+                suggestionsCount={suggestions.length}
+                focus={libraryFocus}
+                suggestionsPanel={
+                  <ReviewDecisionsView
+                    projectId={projectId}
+                    suggestions={suggestions}
+                    loading={suggestionsLoading}
+                    loadError={suggestionsError}
+                    feedbackError={reviewError}
+                    notice={reviewNotice}
+                    onReload={reloadSuggestions}
+                    onClearFeedback={clearReviewFeedback}
+                    onDecide={handleDecision}
+                    onBatchDecide={handleBatchDecide}
+                    onModify={handleModify}
+                    onApplyZoom={handleApplyZoom}
+                    onUndo={handleUndoDecision}
+                    onRedo={handleRedoDecision}
+                    onNavigateToTimeline={() => setCurrentTab('timeline')}
+                    focusSuggestionId={libraryFocus?.suggestionId ?? null}
+                    focusNonce={libraryFocus?.nonce}
+                  />
+                }
               />
             )}
 
             {currentTab === 'timeline' && (
               <TimelinePlanningView project={project} onNavigateToExport={() => setCurrentTab('export')} />
-            )}
-
-            {currentTab === 'review' && (
-              <ReviewDecisionsView
-                projectId={projectId}
-                suggestions={suggestions}
-                loading={suggestionsLoading}
-                loadError={suggestionsError}
-                feedbackError={reviewError}
-                notice={reviewNotice}
-                onReload={reloadSuggestions}
-                onClearFeedback={clearReviewFeedback}
-                onDecide={handleDecision}
-                onBatchDecide={handleBatchDecide}
-                onModify={handleModify}
-                onApplyZoom={handleApplyZoom}
-                onUndo={handleUndoDecision}
-                onRedo={handleRedoDecision}
-                onNavigateToTimeline={() => setCurrentTab('timeline')}
-              />
             )}
 
             {currentTab === 'settings' && (
@@ -505,7 +518,7 @@ const handleApplyZoom = (suggestionId: string, zoom: SmartZoomParametersDto) => 
                 </h2>
                 <p className="text-xs text-slate-400 max-w-md mb-6 leading-relaxed">
                   Este módulo ainda não está disponível nesta versão.
-                  Use a Revisão de Cortes ou a Verificação do Ambiente enquanto isso.
+                  Use a Biblioteca (aba Sugestões de corte) ou a Verificação do Ambiente enquanto isso.
                 </p>
                 <div className="flex items-center gap-3">
                   <button
@@ -515,10 +528,10 @@ const handleApplyZoom = (suggestionId: string, zoom: SmartZoomParametersDto) => 
                     Voltar para Visão Geral
                   </button>
                   <button
-                    onClick={() => setCurrentTab('review')}
+                    onClick={() => setCurrentTab('library')}
                     className="px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 text-xs font-bold text-white shadow-md shadow-cyan-950"
                   >
-                    Ir para Revisão de Cortes
+                    Ir para Biblioteca
                   </button>
                 </div>
               </div>

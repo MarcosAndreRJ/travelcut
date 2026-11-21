@@ -29,7 +29,8 @@ public static class PlanMapping
                 c.ClipId, c.TrackId, c.MediaId, c.RelativePath, c.SectionId, c.SourceInUs, c.SourceOutUs,
                 c.TimelineStartFrame, c.DurationFrames, c.SpeedNum, c.SpeedDen, c.LinkedClipId, c.Zoom,
                 c.Rationale, c.Evidence.ToList(), c.SuggestionIds.ToList(), c.ConfidenceBand, c.NeedsHumanReview,
-                c.ZoomFocalPointX, c.ZoomFocalPointY, c.ZoomDurationSeconds, c.ZoomCurve)).ToList(),
+                c.ZoomFocalPointX, c.ZoomFocalPointY, c.ZoomDurationSeconds, c.ZoomCurve,
+                c.ZoomSourceInUs, c.ZoomSourceOutUs, c.ZoomTransitionInSeconds, c.ZoomTransitionOutSeconds)).ToList(),
             Transitions: plan.Transitions.Select(t => new PlanTransitionDto(
                 t.FromClipId, t.ToClipId, t.Kind, t.DurationFrames, t.NeedsHumanReview,
                 t.Origin, t.SuggestionId, t.PolicyVersion, t.Reason)).ToList(),
@@ -40,7 +41,7 @@ public static class PlanMapping
             Validation: validation,
             AppliedEffects: plan.AppliedEffects?.Select(e => new PlanAppliedEffectDto(
                 e.SuggestionId, e.MediaId, e.Kind, e.Origin, e.PolicyVersion, e.Reason, e.Scale, e.FocalPointX, e.FocalPointY,
-                e.DurationSeconds, e.ZoomCurve)).ToList(),
+                e.DurationSeconds, e.ZoomCurve, e.SourceInUs, e.SourceOutUs, e.TransitionInSeconds, e.TransitionOutSeconds)).ToList(),
             ManualEdits: plan.ManualEdits?.Select(ToDto).ToList());
 
     public static PlanManualEditDto ToDto(PlanManualEdit e) => new(
@@ -70,7 +71,8 @@ public static class PlanMapping
             c.ClipId, c.TrackId, c.MediaId, c.RelativePath, c.SectionId, c.SourceInUs, c.SourceOutUs,
             c.TimelineStartFrame, c.DurationFrames, c.SpeedNum, c.SpeedDen, c.LinkedClipId, c.Zoom,
             c.Rationale, c.Evidence, c.SuggestionIds, c.ConfidenceBand, c.NeedsHumanReview,
-            c.ZoomFocalPointX, c.ZoomFocalPointY, c.ZoomDurationSeconds, c.ZoomCurve)).ToList(),
+            c.ZoomFocalPointX, c.ZoomFocalPointY, c.ZoomDurationSeconds, c.ZoomCurve,
+                c.ZoomSourceInUs, c.ZoomSourceOutUs, c.ZoomTransitionInSeconds, c.ZoomTransitionOutSeconds)).ToList(),
         Transitions: dto.Transitions.Select(t => new PlanTransition(
             t.FromClipId, t.ToClipId, t.Kind, t.DurationFrames, t.NeedsHumanReview,
             t.Origin, t.SuggestionId, t.PolicyVersion, t.Reason)).ToList(),
@@ -79,7 +81,7 @@ public static class PlanMapping
         Pending: dto.Pending.Select(p => new PlanPendingItem(p.SuggestionId, p.MediaId, p.Kind, p.Message, p.ClipId)).ToList(),
         AppliedEffects: dto.AppliedEffects?.Select(e => new PlanAppliedEffect(
             e.SuggestionId, e.MediaId, e.Kind, e.Origin, e.PolicyVersion, e.Reason, e.Scale, e.FocalPointX, e.FocalPointY,
-            e.DurationSeconds, e.ZoomCurve)).ToList(),
+            e.DurationSeconds, e.ZoomCurve, e.SourceInUs, e.SourceOutUs, e.TransitionInSeconds, e.TransitionOutSeconds)).ToList(),
         ManualEdits: dto.ManualEdits?.Select(ToDomain).ToList());
 
     public static PlanProfileSnapshot ToProfileSnapshot(EditorialProfileDto p) => new(

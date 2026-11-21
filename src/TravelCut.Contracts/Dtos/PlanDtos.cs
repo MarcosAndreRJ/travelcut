@@ -70,7 +70,13 @@ public record PlanClipDto(
     [property: JsonPropertyName("zoomFocalPointX")] double? ZoomFocalPointX = null,
     [property: JsonPropertyName("zoomFocalPointY")] double? ZoomFocalPointY = null,
     [property: JsonPropertyName("zoomDurationSeconds")] double? ZoomDurationSeconds = null,
-    [property: JsonPropertyName("zoomCurve")] string? ZoomCurve = null
+    [property: JsonPropertyName("zoomCurve")] string? ZoomCurve = null,
+    // Zoom por intervalo (aditivo; null = zoom do clipe inteiro ou sem zoom): janela do zoom na FONTE (us, [in,out), dentro do clipe)
+    // e rampas de entrada/saída em segundos.
+    [property: JsonPropertyName("zoomSourceInUs")] long? ZoomSourceInUs = null,
+    [property: JsonPropertyName("zoomSourceOutUs")] long? ZoomSourceOutUs = null,
+    [property: JsonPropertyName("zoomTransitionInSeconds")] double? ZoomTransitionInSeconds = null,
+    [property: JsonPropertyName("zoomTransitionOutSeconds")] double? ZoomTransitionOutSeconds = null
 );
 
 public record PlanTransitionDto(
@@ -110,7 +116,12 @@ public record PlanAppliedEffectDto(
     [property: JsonPropertyName("focalPointX")] double? FocalPointX = null,
     [property: JsonPropertyName("focalPointY")] double? FocalPointY = null,
     [property: JsonPropertyName("durationSeconds")] double? DurationSeconds = null, // zoom (aditivo)
-    [property: JsonPropertyName("zoomCurve")] string? ZoomCurve = null              // zoom: punch_in | push_in (aditivo)
+    [property: JsonPropertyName("zoomCurve")] string? ZoomCurve = null,             // zoom: punch_in | push_in (aditivo)
+    // Zoom por intervalo (aditivo, null no zoom do clipe inteiro): janela na fonte (us) e rampas (s).
+    [property: JsonPropertyName("sourceInUs")] long? SourceInUs = null,
+    [property: JsonPropertyName("sourceOutUs")] long? SourceOutUs = null,
+    [property: JsonPropertyName("transitionInSeconds")] double? TransitionInSeconds = null,
+    [property: JsonPropertyName("transitionOutSeconds")] double? TransitionOutSeconds = null
 );
 
 public record PlanPendingItemDto(

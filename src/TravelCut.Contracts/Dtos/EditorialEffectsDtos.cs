@@ -78,6 +78,12 @@ public static class SmartZoomConstants
 {
     public const string TypePunchIn = "punch_in";
     public const string TypePushIn = "push_in";
+
+    /// <summary>
+    /// scope "interval" (aditivo): o zoom vale só para a janela [início, fim) da sugestão na fonte, com rampas de entrada/saída.
+    /// Ausente (null) = comportamento histórico (propriedade do clipe inteiro).
+    /// </summary>
+    public const string ScopeInterval = "interval";
 }
 
 public sealed record SmartZoomParametersDto(
@@ -93,7 +99,12 @@ public sealed record SmartZoomParametersDto(
     [property: JsonPropertyName("focalPointKnown")] bool FocalPointKnown = false,
     // Decisão humana "sem zoom" (aditivo): true = remove o zoom do clipe sem rejeitar a sugestão (equivale a scale 1,0).
     // Omitido (null) em tudo que não seja essa decisão; nunca gravado como false.
-    [property: JsonPropertyName("none"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? None = null
+    [property: JsonPropertyName("none"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? None = null,
+    // Zoom por intervalo (aditivo, edição por transcrição): rampas de entrada/saída em segundos (>= 0; soma <= duração do intervalo)
+    // e escopo ("interval" = só a janela da sugestão; omitido = clipe inteiro). Omitidos (null) em tudo que não seja zoom por intervalo.
+    [property: JsonPropertyName("transitionInSeconds"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] double? TransitionInSeconds = null,
+    [property: JsonPropertyName("transitionOutSeconds"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] double? TransitionOutSeconds = null,
+    [property: JsonPropertyName("scope"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Scope = null
 );
 
 public sealed record SmartZoomProfileDto(
